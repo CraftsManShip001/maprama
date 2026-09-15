@@ -1,0 +1,106 @@
+# Native engine (M2a): the Seongsu world as 3D extruded buildings in theme colours, the station
+# <MapOverlay> card follows overlay:positions, the visible OSM attribution, a picked building styled as
+# captured, a building press on it, and a theme / time-of-day switch.
+# The control panel is scrolled by short, slow swipes inside it (a swipe at the screen centre would pan the
+# map, and a long one overshoots the section it is looking for).
+appId: dev.maprama.catalog
+name: Native engine M2a 3D buildings, themes, presses and overlay
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: "camera: [0-9].*"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "native-overlay-card"
+    timeout: 20000
+- assertVisible:
+    text: ".*OpenStreetMap contributors.*"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2a-city
+- repeat:
+    while:
+      notVisible:
+        id: "native-overlay-state"
+    times: 16
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- extendedWaitUntil:
+    visible:
+      id: "native-overlay-state"
+      text: "overlay: x [0-9-]+, y [0-9-]+ \\(visible\\)"
+    timeout: 20000
+# Style the sample building (captured + colour) and press it: the camera centres on it.
+- tapOn:
+    id: "native-pick-building"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-picked"
+      text: "picked: w407169878 \\(captured, #FF8800\\)"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "maprama-map"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-building-press"
+      text: "building:press: w[0-9]+ @ .*"
+    timeout: 20000
+- takeScreenshot: screenshots/native-m2a-captured
+# Back to the station: the overlay card (hidden while its anchor was off-screen) follows the camera.
+- tapOn:
+    id: "native-station-view"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-overlay-card"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "native-overlay-state"
+      text: "overlay: x [0-9-]+, y [0-9-]+ \\(visible\\)"
+    timeout: 20000
+# Theme + time of day (the section sits below the buildings one: only upward swipes are needed, and the
+# chips stay inside the panel above their readout).
+- repeat:
+    while:
+      notVisible:
+        id: "native-theme-state"
+    times: 16
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- tapOn:
+    id: "native-theme-toy"
+    waitToSettleTimeoutMs: 3000
+- tapOn:
+    id: "native-time-dusk"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-theme-state"
+      text: "theme: toy · dusk"
+    timeout: 20000
+- assertVisible:
+    id: "native-overlay-card"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertNotVisible:
+    text: "engine error.*"
+- takeScreenshot: screenshots/native-m2a-toy-dusk

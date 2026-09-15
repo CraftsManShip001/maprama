@@ -46,8 +46,8 @@ for (const [i, line] of lines.entries()) {
   }
 }
 
-// The core (M0 skeleton + M1 map session) must at least exercise these event kinds.
-for (const required of ['ready', 'error', 'response', 'camera:change']) {
+// The core (M0 skeleton + M1 map session + M2a look / presses / overlays) must at least exercise these event kinds.
+for (const required of ['ready', 'error', 'response', 'camera:change', 'map:press', 'building:press', 'overlay:positions']) {
   if (!types.has(required)) failures.push(`no "${required}" event was emitted`);
 }
 for (const required of [
@@ -58,6 +58,8 @@ for (const required of [
   'error:invalid_message',
   'error:world_load_failed',
   'error:unsupported',
+  'error:unknown_building',
+  'error:not_ready',
 ]) {
   if (!kinds.has(required)) failures.push(`no "${required}" event was emitted`);
 }

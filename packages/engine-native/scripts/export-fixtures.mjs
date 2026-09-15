@@ -745,8 +745,29 @@ const meta = {
   LABEL_ICONS: [...P.LABEL_ICONS],
 };
 
+// resolveTheme(spec) for every preset x time of day x cinematic, field overrides and custom preset objects
+// (the C++ ThemeResolver must reproduce every resolved field exactly).
+const themeSpecs = [{}];
+for (const base of P.PRESET_NAMES) {
+  for (const timeOfDay of P.TIMES_OF_DAY) {
+    themeSpecs.push({ base, timeOfDay });
+    themeSpecs.push({ base, timeOfDay, cinematic: true });
+    themeSpecs.push({ base, timeOfDay, cinematic: false });
+  }
+}
+themeSpecs.push(
+  { shadows: false, zoomOut: 'mapColors' },
+  { base: 'urban', buildings: { facade: false, outline: true, massing: 'box', details: false, heightScale: 1.5 } },
+  { base: 'toy', roads: { laneMarkings: false, crosswalks: true }, street: { props: true, parked: true, traffic: true } },
+  { base: 'modern', buildings: { heightScale: 0.5 }, zoomOut: 'keepGameView' },
+  { base: clone(P.PRESETS.urban), timeOfDay: 'night' },
+  { base: { ...clone(P.PRESETS.toy), heightScale: 2, palette: ['#123456'] }, cinematic: true, timeOfDay: 'dusk' },
+);
+const themeCases = themeSpecs.map((spec) => ({ spec, resolved: P.resolveTheme(spec) }));
+
 const files = {
   'protocol-meta.json': meta,
+  'theme.json': { cases: themeCases },
   'decode-command.json': { cases: commandCases },
   'decode-event.json': { cases: eventCases },
   'world.json': { cases: worldCases },

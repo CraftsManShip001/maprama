@@ -90,6 +90,7 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
 
     const std::size_t eventsBefore = sink->events.size();
     const std::size_t warningsBefore = sink->warnings();
+    const std::size_t logsBefore = sink->logs.size();
     engine->postMessage(c.find("input")->asString());
     const std::size_t newEvents = sink->events.size() - eventsBefore;
     const Value decoded = protocol::decodeCommand(c.find("input")->asString()).value.msg;
@@ -124,6 +125,21 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
     } else if (type == "setCamera" || (type == "unsubscribe" && topic && topic->asString() == "camera:change")) {
       // Handled by the M1 session: no warning, and no event without a camera:change subscription.
       ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");
+    } else if (type == "init" || type == "setTheme" || type == "setUi" || type == "setBuildingStyle" ||
+               type == "setOverlayAnchors") {
+      // Handled by the M2a session: no event (building "b1" exists; overlays need a map view, none here) and no
+      // "not implemented" warning. Accepted-but-unrendered options (facade / outline / massing looks, labels,
+      // location source, roof / decorations / replaceModel overrides, follow) are warn-logged once each.
+      ctx.check(newEvents == 0, "[" + name + "] handled without events (got " + std::to_string(newEvents) + ")");
+      bool notImplemented = false;
+      for (std::size_t i = logsBefore; i < sink->logs.size(); ++i) {
+        notImplemented = notImplemented || sink->logs[i].second.find("is not implemented; ignored") != std::string::npos;
+      }
+      ctx.check(!notImplemented, "[" + name + "] not logged as an ignored command");
+      if (type == "init") {
+        ctx.check(sink->warnings() > warningsBefore && sink->logs.back().second.find("setCamera.follow") != std::string::npos,
+                  "[" + name + "] init.camera.follow warned (characters are M3)");
+      }
     } else {
       // The init fixture's camera has `follow: "player"`: the M1 session warns about it (characters are M3)
       // in addition to the not-applied init parts.
@@ -179,9 +195,11 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
   }
   ctx.check(sink->errors() == 0, "no error logs (no dropped outgoing events)");
 
-  // tap is logged, shutdown stops processing
+  // tap without a map view is ignored (hit testing goes through the adapter), shutdown stops processing
+  const std::size_t eventsBeforeTap = sink->events.size();
   engine->tap(10, 20);
-  ctx.check(sink->logs.back().second.find("tap(10, 20)") != std::string::npos, "tap logged as not implemented");
+  ctx.check(sink->events.size() == eventsBeforeTap && sink->logs.back().second.find("tap ignored") != std::string::npos,
+            "tap without a map view is ignored");
   engine->shutdown();
   const std::size_t afterShutdown = sink->events.size();
   engine->postMessage("not json");

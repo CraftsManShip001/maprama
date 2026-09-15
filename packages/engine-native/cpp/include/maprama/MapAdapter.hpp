@@ -1,9 +1,9 @@
-// Maprama native core — M1 platform map adapter (DESIGN.md §2.1).
+// Maprama native core — platform map adapter (DESIGN.md §2.1).
 //
-// M1 renders with the official prebuilt MapLibre Native SDKs (iOS `MLNMapView`, Android `MapView`),
+// M1/M2a render with the official prebuilt MapLibre Native SDKs (iOS `MLNMapView`, Android `MapView`),
 // which expose Obj-C / Java APIs instead of the `mbgl` C++ headers. The core therefore drives the map
-// through this small interface that each platform implements; at M2 an `mbgl::Map`-backed adapter
-// built from the patched fork replaces the platform ones without touching the core logic.
+// through this small interface that each platform implements; an `mbgl::Map`-backed adapter (only if the
+// fork fallback is ever needed, DESIGN.md §11) would replace the platform ones without touching the core.
 //
 // Threading contract:
 //   - The core calls every method with its engine lock held, from whichever thread entered the engine
@@ -11,11 +11,16 @@
 //   - Implementations must not block and must never call back into the Engine synchronously from
 //     inside one of these methods: they post the work to the main/UI thread and reply later through
 //     the Engine's `on*` methods (which take the engine lock themselves).
+//   - Calls are applied in order. Style patches (`setPaintProperties`, `setLight`) sent while a style
+//     from `setStyleJson` is still loading must be applied after it finished loading; a new
+//     `setStyleJson` supersedes (drops) patches that were not applied yet, because the core always sends
+//     the complete current style.
 #pragma once
 
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "maprama/types.hpp"
 
@@ -39,12 +44,74 @@ struct MapCameraLimits {
   double maxPitch = 60.0;
 };
 
+/// One style paint property to set: `valueJson` is a MapLibre style-spec value or expression as JSON
+/// (`"#AABBCC"`, `1`, `["match", ...]`). `property` is the style-spec name (`fill-extrusion-color`).
+struct PaintPropertyChange {
+  std::string layerId;
+  std::string property;
+  std::string valueJson;
+
+  bool operator==(const PaintPropertyChange& o) const {
+    return layerId == o.layerId && property == o.property && valueJson == o.valueJson;
+  }
+};
+
+/// The style's root `light` (lights `fill-extrusion` layers): anchor `map`, spherical position
+/// `[radial, azimuthal°, polar°]` (azimuth clockwise from north, polar 0° = overhead), color, intensity 0-1.
+struct MapLight {
+  double radial = 1.15;
+  double azimuthal = 210.0;
+  double polar = 30.0;
+  /// 24-bit RGB.
+  std::uint32_t color = 0xFFFFFF;
+  double intensity = 0.5;
+
+  bool operator==(const MapLight& o) const {
+    return radial == o.radial && azimuthal == o.azimuthal && polar == o.polar && color == o.color && intensity == o.intensity;
+  }
+  bool operator!=(const MapLight& o) const { return !(*this == o); }
+};
+
+/// Map UI ornaments the platform view shows (`MapUiSpec` resolved by the core, DESIGN.md §5.1 `setUi`).
+/// The core computes every value; the platform only draws.
+struct MapUiState {
+  /// Scale bar: a bar `scaleBarWidth` dp long labelled `scaleBarLabel` (engine-web `scaleBarFor`).
+  bool scaleBar = false;
+  double scaleBarWidth = 0.0;
+  std::string scaleBarLabel;
+  /// Zoom in / out buttons; presses go to `Engine::zoomButton`.
+  bool zoomButtons = false;
+  /// MapLibre compass (shown while the map is rotated).
+  bool compass = false;
+  /// Visible data attribution text (e.g. "© OpenStreetMap contributors") plus MapLibre's attribution button.
+  bool attribution = false;
+  std::string attributionText;
+  /// MapLibre logo.
+  bool logo = false;
+
+  bool operator==(const MapUiState& o) const {
+    return scaleBar == o.scaleBar && scaleBarWidth == o.scaleBarWidth && scaleBarLabel == o.scaleBarLabel &&
+           zoomButtons == o.zoomButtons && compass == o.compass && attribution == o.attribution &&
+           attributionText == o.attributionText && logo == o.logo;
+  }
+  bool operator!=(const MapUiState& o) const { return !(*this == o); }
+};
+
 class MapAdapter {
  public:
   virtual ~MapAdapter() = default;
 
   /// Replaces the map style (MapLibre style JSON v8 with inline GeoJSON sources, see `buildWorldStyle`).
   virtual void setStyleJson(std::string styleJson) = 0;
+
+  /// Sets paint properties of existing style layers, in order (theme and building style changes).
+  virtual void setPaintProperties(const std::vector<PaintPropertyChange>& changes) = 0;
+
+  /// Replaces the style's light (time of day).
+  virtual void setLight(const MapLight& light) = 0;
+
+  /// Shows / hides the map UI ornaments.
+  virtual void setUi(const MapUiState& ui) = 0;
 
   /// Applies gesture limits. Called after a world load and whenever the viewport changes.
   virtual void setCameraLimits(const MapCameraLimits& limits) = 0;
@@ -57,8 +124,17 @@ class MapAdapter {
   /// Reply: `Engine::onProjected(token, x, y)`.
   virtual void project(std::uint64_t token, const LngLat& coordinate) = 0;
 
+  /// Screen positions of several coordinates at once (overlay anchors), in the same order.
+  /// Reply: `Engine::onPointsProjected(token, points)` (`visible` is ignored; the core decides it).
+  virtual void projectPoints(std::uint64_t token, const std::vector<LngLat>& coordinates) = 0;
+
   /// Ground coordinate under a screen point. Reply: `Engine::onUnprojected(token, coordinate | nullopt)`.
   virtual void unproject(std::uint64_t token, double x, double y) = 0;
+
+  /// Tap hit test: the `id` property of the topmost rendered feature of the `buildings` style layer at the
+  /// screen point (rendered-feature query, extrusions included), and the ground coordinate under it.
+  /// Reply: `Engine::onBuildingQueried(token, buildingId | nullopt, ground | nullopt)`.
+  virtual void queryBuilding(std::uint64_t token, double x, double y) = 0;
 
   /// Downloads a text resource (`init` with `world.kind = "url"`).
   /// Reply: `Engine::onTextFetched(token, ok, ok ? body : errorMessage)`.

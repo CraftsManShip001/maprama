@@ -65,9 +65,12 @@ class CoreEngine final : public Engine {
 
   void tap(double x, double y) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) return;
-    sink_->onLog(LogLevel::Warn, "engine-native: tap(" + json::numberToString(x) + ", " + json::numberToString(y) +
-                                     ") ignored: hit testing is not implemented (M2)");
+    if (!stopped_) session_.tap(x, y);
+  }
+
+  void zoomButton(bool zoomIn) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) session_.zoomButton(zoomIn);
   }
 
   const WorldStore& worldStore() const override { return *world_; }
@@ -100,6 +103,16 @@ class CoreEngine final : public Engine {
   void onTextFetched(std::uint64_t token, bool ok, std::string bodyOrError) override {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!stopped_) session_.onTextFetched(token, ok, bodyOrError);
+  }
+
+  void onPointsProjected(std::uint64_t token, std::vector<ScreenPoint> points) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) session_.onPointsProjected(token, points);
+  }
+
+  void onBuildingQueried(std::uint64_t token, std::optional<std::string> buildingId, std::optional<LngLat> ground) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) session_.onBuildingQueried(token, buildingId, ground);
   }
 
   CameraState cameraState() const override {

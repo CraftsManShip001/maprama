@@ -9,3 +9,4 @@ executionOrder:
     - 03-drops-collect
     - 04-labels-holo
     - 05-native-m1
+    - 06-native-m2a

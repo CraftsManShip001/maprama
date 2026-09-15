@@ -115,6 +115,8 @@ until the badge `testID="engine-status"` reads `engine ready`.
 | `02-travel-arrive.yaml` | Walk to the far preset (≈350 m of road): ETA from `travel:progress`, then `status: arrived`. Then the near preset (≈75 m of road) arrives with a two-digit route length. Walk is used because car arrives in a few seconds. |
 | `03-drops-collect.yaml` | Starts at `collected: 0`. External fixes onto the nearest drop → at least 1 collected; a second walk gives at least 2 (the player can pass over other drops on the way). Then the `onCollect` line (`Collected … from …`) is checked in the event log. The 4 s toast is not asserted: a Maestro tap on this screen takes about 10 s to return. |
 | `04-labels-holo.yaml` | Switches labels to `holo`, then to the custom content function and refreshes it. |
+| `05-native-m1.yaml` | `engine="native"`: camera presets update the `camera:change` readout; a project/unproject round trip answers. |
+| `06-native-m2a.yaml` | `engine="native"` M2a: 3D buildings with the station `MapOverlay` card and the visible OSM attribution; `overlay:positions` readout; the sample building styled `captured` + `#FF8800` and pressed on the map (`building:press`); toy / dusk theme; back to the station (the card follows the camera). The control panel is scrolled by swiping on it, since a swipe at the screen centre pans the map. |
 
 ```sh
 cd example

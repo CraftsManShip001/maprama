@@ -10,6 +10,7 @@
 #include <jni.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <string>
@@ -162,18 +163,30 @@ class JniMapAdapter final : public maprama::MapAdapter {
   JniMapAdapter(JNIEnv* env, jobject host) : host_(env->NewGlobalRef(host)) {
     jclass cls = env->GetObjectClass(host);
     setStyleJson_ = env->GetMethodID(cls, "setStyleJson", "(Ljava/lang/String;)V");
+    setPaintProperties_ =
+        env->GetMethodID(cls, "setPaintProperties", "([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V");
+    setLight_ = env->GetMethodID(cls, "setLight", "(DDDLjava/lang/String;D)V");
+    setUi_ = env->GetMethodID(cls, "setUi", "(ZDLjava/lang/String;ZZZLjava/lang/String;Z)V");
     setCameraLimits_ = env->GetMethodID(cls, "setCameraLimits", "(DDDD)V");
     moveCamera_ = env->GetMethodID(cls, "moveCamera", "(DDDDDD)V");
     project_ = env->GetMethodID(cls, "project", "(JDD)V");
+    projectPoints_ = env->GetMethodID(cls, "projectPoints", "(J[D)V");
     unproject_ = env->GetMethodID(cls, "unproject", "(JDD)V");
+    queryBuilding_ = env->GetMethodID(cls, "queryBuilding", "(JDD)V");
     fetchText_ = env->GetMethodID(cls, "fetchText", "(JLjava/lang/String;)V");
     scheduleFrame_ = env->GetMethodID(cls, "scheduleFrame", "(D)V");
     env->DeleteLocalRef(cls);
+    jclass stringClass = env->FindClass("java/lang/String");
+    stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
+    env->DeleteLocalRef(stringClass);
     clearException(env, "JniMapAdapter method lookup");
   }
 
   ~JniMapAdapter() override {
-    if (JNIEnv* env = currentEnv()) env->DeleteGlobalRef(host_);
+    if (JNIEnv* env = currentEnv()) {
+      env->DeleteGlobalRef(host_);
+      env->DeleteGlobalRef(stringClass_);
+    }
   }
 
   void setStyleJson(std::string styleJson) override {
@@ -182,6 +195,66 @@ class JniMapAdapter final : public maprama::MapAdapter {
       env->CallVoidMethod(host_, setStyleJson_, json);
       env->DeleteLocalRef(json);
     });
+  }
+
+  void setPaintProperties(const std::vector<maprama::PaintPropertyChange>& changes) override {
+    withEnv("setPaintProperties", [&](JNIEnv* env) {
+      const auto n = static_cast<jsize>(changes.size());
+      jobjectArray layers = env->NewObjectArray(n, stringClass_, nullptr);
+      jobjectArray properties = env->NewObjectArray(n, stringClass_, nullptr);
+      jobjectArray values = env->NewObjectArray(n, stringClass_, nullptr);
+      for (jsize i = 0; i < n; ++i) {
+        const maprama::PaintPropertyChange& c = changes[static_cast<std::size_t>(i)];
+        setString(env, layers, i, c.layerId);
+        setString(env, properties, i, c.property);
+        setString(env, values, i, c.valueJson);
+      }
+      env->CallVoidMethod(host_, setPaintProperties_, layers, properties, values);
+      env->DeleteLocalRef(layers);
+      env->DeleteLocalRef(properties);
+      env->DeleteLocalRef(values);
+    });
+  }
+
+  void setLight(const maprama::MapLight& light) override {
+    withEnv("setLight", [&](JNIEnv* env) {
+      char color[8];
+      std::snprintf(color, sizeof color, "#%06X", static_cast<unsigned>(light.color & 0xFFFFFF));
+      jstring c = toJString(env, color);
+      env->CallVoidMethod(host_, setLight_, light.radial, light.azimuthal, light.polar, c, light.intensity);
+      env->DeleteLocalRef(c);
+    });
+  }
+
+  void setUi(const maprama::MapUiState& ui) override {
+    withEnv("setUi", [&](JNIEnv* env) {
+      jstring label = toJString(env, ui.scaleBarLabel);
+      jstring text = toJString(env, ui.attributionText);
+      env->CallVoidMethod(host_, setUi_, static_cast<jboolean>(ui.scaleBar), ui.scaleBarWidth, label,
+                          static_cast<jboolean>(ui.zoomButtons), static_cast<jboolean>(ui.compass),
+                          static_cast<jboolean>(ui.attribution), text, static_cast<jboolean>(ui.logo));
+      env->DeleteLocalRef(label);
+      env->DeleteLocalRef(text);
+    });
+  }
+
+  void projectPoints(std::uint64_t token, const std::vector<maprama::LngLat>& coordinates) override {
+    withEnv("projectPoints", [&](JNIEnv* env) {
+      std::vector<jdouble> flat;
+      flat.reserve(coordinates.size() * 2);
+      for (const maprama::LngLat& c : coordinates) {
+        flat.push_back(c.lng);
+        flat.push_back(c.lat);
+      }
+      jdoubleArray array = env->NewDoubleArray(static_cast<jsize>(flat.size()));
+      env->SetDoubleArrayRegion(array, 0, static_cast<jsize>(flat.size()), flat.data());
+      env->CallVoidMethod(host_, projectPoints_, static_cast<jlong>(token), array);
+      env->DeleteLocalRef(array);
+    });
+  }
+
+  void queryBuilding(std::uint64_t token, double x, double y) override {
+    withEnv("queryBuilding", [&](JNIEnv* env) { env->CallVoidMethod(host_, queryBuilding_, static_cast<jlong>(token), x, y); });
   }
 
   void setCameraLimits(const maprama::MapCameraLimits& l) override {
@@ -225,12 +298,24 @@ class JniMapAdapter final : public maprama::MapAdapter {
     clearException(env, where);
   }
 
+  static void setString(JNIEnv* env, jobjectArray array, jsize index, std::string_view utf8) {
+    jstring s = toJString(env, utf8);
+    env->SetObjectArrayElement(array, index, s);
+    env->DeleteLocalRef(s);
+  }
+
   jobject host_;
+  jclass stringClass_ = nullptr;
   jmethodID setStyleJson_ = nullptr;
+  jmethodID setPaintProperties_ = nullptr;
+  jmethodID setLight_ = nullptr;
+  jmethodID setUi_ = nullptr;
   jmethodID setCameraLimits_ = nullptr;
   jmethodID moveCamera_ = nullptr;
   jmethodID project_ = nullptr;
+  jmethodID projectPoints_ = nullptr;
   jmethodID unproject_ = nullptr;
+  jmethodID queryBuilding_ = nullptr;
   jmethodID fetchText_ = nullptr;
   jmethodID scheduleFrame_ = nullptr;
 };
@@ -317,6 +402,37 @@ JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onUnprojected(JN
   std::optional<maprama::LngLat> coordinate;
   if (hit == JNI_TRUE) coordinate = maprama::LngLat{lng, lat};
   fromHandle(handle)->engine->onUnprojected(static_cast<std::uint64_t>(token), coordinate);
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onPointsProjected(JNIEnv* env, jclass, jlong handle,
+                                                                                   jlong token, jdoubleArray xy) {
+  if (handle == 0) return;
+  const jsize n = xy != nullptr ? env->GetArrayLength(xy) : 0;
+  std::vector<jdouble> flat(static_cast<std::size_t>(n));
+  if (n > 0) env->GetDoubleArrayRegion(xy, 0, n, flat.data());
+  std::vector<maprama::ScreenPoint> points;
+  points.reserve(flat.size() / 2);
+  for (std::size_t i = 0; i + 1 < flat.size(); i += 2) points.push_back(maprama::ScreenPoint{flat[i], flat[i + 1], false});
+  fromHandle(handle)->engine->onPointsProjected(static_cast<std::uint64_t>(token), std::move(points));
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onBuildingQueried(JNIEnv* env, jclass, jlong handle,
+                                                                                   jlong token, jstring buildingId,
+                                                                                   jboolean groundHit, jdouble lng, jdouble lat) {
+  if (handle == 0) return;
+  std::optional<std::string> id;
+  if (buildingId != nullptr) id = toUtf8(env, buildingId);
+  std::optional<maprama::LngLat> ground;
+  if (groundHit == JNI_TRUE) ground = maprama::LngLat{lng, lat};
+  fromHandle(handle)->engine->onBuildingQueried(static_cast<std::uint64_t>(token), std::move(id), ground);
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_tap(JNIEnv*, jclass, jlong handle, jdouble x, jdouble y) {
+  if (handle != 0) fromHandle(handle)->engine->tap(x, y);
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_zoomButton(JNIEnv*, jclass, jlong handle, jboolean zoomIn) {
+  if (handle != 0) fromHandle(handle)->engine->zoomButton(zoomIn == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onTextFetched(JNIEnv* env, jclass, jlong handle, jlong token,

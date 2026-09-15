@@ -2,7 +2,6 @@
 // MapAdapter, url worlds, viewport changes. Every emitted envelope is appended to --emit so that
 // scripts/verify-emitted-events.mjs validates it with the TypeScript decodeEvent.
 #include <cmath>
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,6 +18,7 @@
 #include "maprama/WorldStore.hpp"
 #include "maprama/protocol.hpp"
 #include "harness.hpp"
+#include "map_harness.hpp"
 
 namespace {
 
@@ -26,116 +26,7 @@ using maprama::json::Value;
 namespace protocol = maprama::protocol;
 namespace cm = maprama::camera_math;
 
-class RecordingSink final : public maprama::MessageSink {
- public:
-  void onEvent(std::string envelopeJson) override { events.push_back(std::move(envelopeJson)); }
-  void onLog(maprama::LogLevel level, std::string_view message) override { logs.emplace_back(level, message); }
-
-  Value eventMsg(std::size_t i) const { return protocol::decodeEvent(events.at(i)).value.msg; }
-  std::vector<Value> eventsOfType(const std::string& type, std::size_t from = 0) const {
-    std::vector<Value> out;
-    for (std::size_t i = from; i < events.size(); ++i) {
-      Value m = eventMsg(i);
-      if (m.find("type")->asString() == type) out.push_back(std::move(m));
-    }
-    return out;
-  }
-  bool loggedContaining(const std::string& needle, maprama::LogLevel level) const {
-    for (const auto& l : logs) {
-      if (l.first == level && l.second.find(needle) != std::string::npos) return true;
-    }
-    return false;
-  }
-  std::size_t errors() const {
-    std::size_t n = 0;
-    for (const auto& l : logs) n += l.first == maprama::LogLevel::Error ? 1 : 0;
-    return n;
-  }
-
-  std::vector<std::string> events;
-  std::vector<std::pair<maprama::LogLevel, std::string>> logs;
-};
-
-class FakeAdapter final : public maprama::MapAdapter {
- public:
-  void setStyleJson(std::string styleJson) override { styles.push_back(std::move(styleJson)); }
-  void setCameraLimits(const maprama::MapCameraLimits& l) override { limits.push_back(l); }
-  void moveCamera(const maprama::MapCameraPose& pose, double durationMs) override { moves.emplace_back(pose, durationMs); }
-  void project(std::uint64_t token, const maprama::LngLat& coordinate) override { projects.emplace_back(token, coordinate); }
-  void unproject(std::uint64_t token, double x, double y) override { unprojects.emplace_back(token, x, y); }
-  void fetchText(std::uint64_t token, const std::string& url) override { fetches.emplace_back(token, url); }
-  void scheduleFrame(double delayMs) override { frames.push_back(delayMs); }
-
-  std::vector<std::string> styles;
-  std::vector<maprama::MapCameraLimits> limits;
-  std::vector<std::pair<maprama::MapCameraPose, double>> moves;
-  std::vector<std::pair<std::uint64_t, maprama::LngLat>> projects;
-  std::vector<std::tuple<std::uint64_t, double, double>> unprojects;
-  std::vector<std::pair<std::uint64_t, std::string>> fetches;
-  std::vector<double> frames;
-};
-
-struct Harness {
-  std::shared_ptr<RecordingSink> sink = std::make_shared<RecordingSink>();
-  std::shared_ptr<FakeAdapter> adapter = std::make_shared<FakeAdapter>();
-  double now = 1000.0;
-  std::unique_ptr<maprama::Engine> engine;
-  std::uint64_t seq = 0;
-
-  explicit Harness(bool attach = true, maprama::Viewport viewport = {390, 500, 3}) {
-    maprama::EngineConfig config;
-    config.validateOutgoingEvents = true;
-    config.clockMs = [this] { return now; };
-    engine = maprama::createEngine(sink, config);
-    engine->start();
-    if (attach) engine->attachMapAdapter(adapter);
-    if (viewport.height > 0) engine->setViewport(viewport);
-  }
-
-  void send(const Value& msg) { engine->postMessage(protocol::encodeCommand(msg, seq++)); }
-};
-
-Value lngLat(double lng, double lat) { return Value::object({{"lng", lng}, {"lat", lat}}); }
-
-Value initMsg(Value worldSource, std::optional<Value> camera = std::nullopt) {
-  Value msg = Value::object({{"type", "init"},
-                             {"world", std::move(worldSource)},
-                             {"theme", Value::object()},
-                             {"labels", Value::object()},
-                             {"ui", Value::object()},
-                             {"locationSource", "external"}});
-  if (camera) msg.set("camera", std::move(*camera));
-  return msg;
-}
-
-std::string seongsuText(const maprama::test::Context& ctx) {
-  const Value fixture = maprama::test::loadFixture(ctx, "world.json");
-  for (const Value& c : fixture.find("cases")->items()) {
-    if (const Value* path = c.find("inputPath")) return maprama::test::readFile(path->asString());
-  }
-  throw std::runtime_error("world.json fixture has no Seongsu sample case (tools/osm/samples/seongsu.world.json)");
-}
-
-Value seongsuValue(const maprama::test::Context& ctx) { return maprama::json::parse(seongsuText(ctx)).value; }
-
-Value setCameraMsg(Value camera) { return Value::object({{"type", "setCamera"}, {"camera", std::move(camera)}}); }
-
-void appendEmitted(const maprama::test::Context& ctx, const RecordingSink& sink) {
-  if (ctx.emitPath.empty()) return;
-  std::ofstream out(ctx.emitPath, std::ios::app);
-  for (const std::string& e : sink.events) out << e << "\n";
-}
-
-std::size_t countFeatures(const Value& style, const char* source) {
-  return style.find("sources")->find(source)->find("data")->find("features")->items().size();
-}
-
-bool hasLayer(const Value& style, const std::string& id) {
-  for (const Value& l : style.find("layers")->items()) {
-    if (l.find("id")->asString() == id) return true;
-  }
-  return false;
-}
+using namespace maprama::test::maptest;
 
 }  // namespace
 

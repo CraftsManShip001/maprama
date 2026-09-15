@@ -51,8 +51,11 @@ class Engine {
   virtual void setViewport(const Viewport& viewport) = 0;
   /// Render-thread frame callback (CADisplayLink / Choreographer), milliseconds.
   virtual void frame(double timestampMs) = 0;
-  /// Tap from the platform gesture recogniser, density-independent pixels.
+  /// Tap from the platform gesture recogniser, density-independent pixels: hit-tests the 3D buildings
+  /// through `MapAdapter::queryBuilding` and emits `building:press` or `map:press` (M2a).
   virtual void tap(double x, double y) = 0;
+  /// A map UI zoom button was pressed (`MapUiState::zoomButtons`), main thread.
+  virtual void zoomButton(bool zoomIn) = 0;
 
   virtual const WorldStore& worldStore() const = 0;
 
@@ -69,6 +72,11 @@ class Engine {
   virtual void onUnprojected(std::uint64_t token, std::optional<LngLat> coordinate) = 0;
   /// Reply to `MapAdapter::fetchText`: the body, or a complete error message when `ok` is false.
   virtual void onTextFetched(std::uint64_t token, bool ok, std::string bodyOrError) = 0;
+  /// Reply to `MapAdapter::projectPoints`: screen points (dp) in request order.
+  virtual void onPointsProjected(std::uint64_t token, std::vector<ScreenPoint> points) = 0;
+  /// Reply to `MapAdapter::queryBuilding`: the pressed building's `id` (nullopt: none) and the ground
+  /// coordinate under the tap (nullopt: not on the ground).
+  virtual void onBuildingQueried(std::uint64_t token, std::optional<std::string> buildingId, std::optional<LngLat> ground) = 0;
 
   /// Current protocol camera (diagnostics / tests).
   virtual CameraState cameraState() const = 0;

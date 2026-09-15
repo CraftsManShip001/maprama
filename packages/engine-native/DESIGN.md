@@ -1,15 +1,16 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M1 (map on screen)**. This package contains:
+Status: **M2a (diorama look, part 1)** on top of M1 (map on screen). This package contains:
 
 - this design;
-- the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, the dispatcher, and the M1 map session
-  (world → MapLibre style, camera, `camera:change`, `project`/`unproject`) behind the `MapAdapter`
-  interface (§2.1), with its conformance and behaviour tests;
+- the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, `ThemeResolver`, the dispatcher, and the
+  map session (world → MapLibre style with 3D buildings in theme colours, camera, `camera:change`,
+  `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) behind the
+  `MapAdapter` interface (§2.1), with its conformance and behaviour tests;
 - the React Native library: codegen specs, the `native` engine host (`src/`), the iOS Fabric view +
   TurboModule (`ios/`, `MapramaEngineNative.podspec`) and the Android ones (`android/`), both on the
   official prebuilt MapLibre Native SDKs;
-- the MapLibre Native patch-queue tooling (used from M2).
+- the MapLibre Native patch-queue tooling (kept for the fork fallback, §10).
 
 v1 ships `@maprama/engine-web`. The native engine speaks exactly the same `@maprama/protocol` messages, so
 the React Native package switches engines with a prop (`engine="web" | "native"`, after
@@ -27,7 +28,7 @@ to be confirmed in milestone M1.
 | --- | --- |
 | React Native | New Architecture only: a Fabric view plus a TurboModule over JSI. RN 0.76+, iOS 15.1+, Android API 24+. No bridge fallback. |
 | Renderer base (M1) | **Official prebuilt MapLibre Native SDKs** (user decision, M1): iOS `MapLibre` pod (`~> 6.30`: ios-v6.31.0 is on GitHub/SPM only, CocoaPods trunk tops out at 6.30.0) and Android `org.maplibre.gl:android-sdk:13.6.1`. maplibre-native is **not** cloned or built from source for M1 (~5 GB). These SDKs expose Obj-C / Java APIs, not the `mbgl` C++ headers, so the core drives the map through the platform-implemented `MapAdapter` (§2.1). |
-| Renderer base (M2+) | Fork **MapLibre Native** (BSD-2-Clause) and embed it, starting with the custom building layer (M2). The fork is kept as a **patch queue** (`patches/*.patch`) rebased on upstream, never as a long-lived divergent fork (§10). An `mbgl::Map`-backed `MapAdapter` then replaces the platform adapters. |
+| Renderer base (M2) | **Still the official SDKs** (decided after M1). M2 ships in three steps on them: **M2a** style layers (fill-extrusion buildings, themes + time of day, building styles, presses, map UI, overlay anchors; this change), **M2b** labels (a native view pool + `labelsIndex`) and `procedural` worlds, **M2c** a custom render layer for roofs / facades / outlines on iOS `MLNCustomStyleLayer` (Metal) and Android `CustomLayerHost` (GL / Vulkan). Forking **MapLibre Native** (BSD-2-Clause) as a **patch queue** (`patches/*.patch`, §10) with an `mbgl::Map`-backed `MapAdapter` is only the fallback if M2c hits a wall. |
 | Code sharing | One **C++ shared core** (protocol, simulation, maprama layer). Obj-C++ (iOS) and Kotlin/JNI (Android) wrappers stay thin (`ios/README.md`, `android/README.md`). |
 | Contract | `@maprama/protocol` is the single source of truth. The core decodes envelopes **identically** to `decodeCommand`, and the conformance tests prove it against fixtures exported from the TS package on every `npm test` [V: `scripts/export-fixtures.mjs`, `cpp/tests/decode_tests.cpp`]. |
 | Engine selection | The RN prop `engine="web" \| "native"`. Parity is tracked in §11. |
@@ -76,29 +77,79 @@ The diagram is the target (M2+). At M1 the bottom two boxes are the official pre
 driven through the adapter below, and the wrappers host `MLNMapView` / `MapView` instead of an MTKView /
 TextureView of their own.
 
-### 2.1 M1 map adapter (`MapAdapter`)
+### 2.1 Platform map adapter (`MapAdapter`, M1 + M2a)
 
 The official SDKs expose Obj-C (`MLNMapView`) and Java/Kotlin (`MapView`, `MapLibreMap`) APIs, not the
-`mbgl` C++ headers, so the core cannot own an `mbgl::Map` at M1. Instead the core talks to a small
+`mbgl` C++ headers, so the core cannot own an `mbgl::Map`. Instead the core talks to a small
 platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 
 | `MapAdapter` call (core → platform) | iOS (`ios/MapramaNativeView.mm`) | Android (`MapramaNativeView.kt` + `maprama_jni.cpp`) | Reply (platform → core) |
 | --- | --- | --- | --- |
 | `setStyleJson(json)` | `MLNMapView.styleJSON` | `MapLibreMap.setStyle(Style.Builder().fromJson(json))` | — |
+| `setPaintProperties(changes)` (M2a) | KVC on `MLNStyleLayer` (`fill-extrusion-color` → `fillExtrusionColor`) with an `NSExpression` (`+expressionWithMLNJSONObject:`; `UIColor` for constant colours), queued until `didFinishLoadingStyle` | `Layer.setProperties(PaintPropertyValue(name, value))` (`Expression.Converter` for expressions) inside `getStyle {}` of the current style generation | — |
+| `setLight(light)` (M2a) | `MLNStyle.light` (`MLNLight`: anchor map, `MLNSphericalPosition`, colour, intensity) | `style.light` (`setAnchor`, `Position`, `setColor`, `setIntensity`) | — |
+| `setUi(state)` (M2a) | own scale bar / zoom buttons / attribution label + `logoView`, `attributionButton`, `compassView` | own views in the `FrameLayout` + `UiSettings` logo / attribution / compass | zoom buttons → `Engine::zoomButton(in)` |
 | `setCameraLimits(minZoom, maxZoom, minPitch, maxPitch)` | `minimum/maximumZoomLevel`, `minimum/maximumPitch` | `setMin/MaxZoomPreference`, `setMin/MaxPitchPreference` | — |
 | `moveCamera(pose, durationMs)` | `setCamera:(animated:\|withDuration:)` (altitude via `MLNAltitudeForZoomLevel`) | `moveCamera` / `easeCamera(CameraUpdateFactory.newCameraPosition)` | camera reports below |
 | `project(token, lngLat)` | `convertCoordinate:toPointToView:` | `projection.toScreenLocation` (px → dp) | `Engine::onProjected(token, x, y)` |
+| `projectPoints(token, lngLats)` (M2a) | `convertCoordinate:toPointToView:` per anchor | `projection.toScreenLocation` per anchor | `Engine::onPointsProjected(token, points)` |
 | `unproject(token, x, y)` | `convertPoint:toCoordinateFromView:` | `projection.fromScreenLocation` (dp → px) | `Engine::onUnprojected(token, lngLat?)` |
+| `queryBuilding(token, x, y)` (M2a) | `visibleFeaturesAtPoint:inStyleLayersWithIdentifiers:{buildings}` + `convertPoint:toCoordinateFromView:` | `queryRenderedFeatures(PointF, "buildings")` + `fromScreenLocation` | `Engine::onBuildingQueried(token, id?, ground?)` |
 | `fetchText(token, url)` | `NSURLSession` | `HttpURLConnection` on a worker thread | `Engine::onTextFetched(token, ok, body \| message)` |
 | `scheduleFrame(delayMs)` | `dispatch_after` on the main queue | `Handler.postDelayed` on the main looper | `Engine::frame(t)` |
 | (camera observer) | `mapViewRegionIsChanging:` / `regionDidChangeAnimated:` | `OnCameraMoveListener` / `OnCameraIdleListener` | `Engine::onCameraChanged(pose)` |
+| (tap observer, M2a) | `UITapGestureRecognizer` on the map (waits for the double-tap zoom, recognises alongside the SDK's own; not on the zoom buttons) | `addOnMapClickListener` | `Engine::tap(x, y)` → `queryBuilding` |
 
 - **Style.** `init` converts the `WorldData` into one MapLibre style JSON (v8) with inline GeoJSON
   sources in lng/lat (through `Projection`): background, world area, parks, water, roads as lines by class
   (widths in meters from engine-web's `ROAD_W`, exact at every zoom through exponential-base-2
-  interpolation), building footprints as flat fills, POI and station circles. Colors follow engine-web's
-  zoom-out "map colors" [V: `cpp/src/WorldStyle.cpp`, `map_session_tests.cpp`]. Both platforms render the
-  same string, and the M2 `mbgl` adapter can `loadJSON` it unchanged.
+  interpolation), POI and station circles and the 3D buildings (below), in the resolved theme's colours and
+  light [V: `cpp/src/WorldStyle.cpp`, `map_session_tests.cpp`, `m2a_tests.cpp`]. The sources are built once
+  per world; the layers are rebuilt from the theme and the building overrides, and the session sends only
+  the paint properties that changed. Both platforms render the same string (an `mbgl` adapter could
+  `loadJSON` it unchanged).
+- **3D buildings (M2a).** One `fill-extrusion` layer on the buildings source, drawn last so it occludes
+  roads, POIs and stations: `fill-extrusion-height = height · heightScale` with
+  `height = max(0.2, WorldData height) · unitMeters` (engine-web's rule; `levels` only drives facade floors,
+  M2c), base 0 (WorldData v1 has no base height), vertical gradient on. Degenerate footprints
+  (area < 0.01 units², not rendered by engine-web either) are skipped. There is no flat footprint layer:
+  the extrusions read well over the whole distance range (14–150 world units).
+- **Theme → style (M2a).** `ThemeResolver` (§6.6) → `MapLook` [V: `cpp/src/MapLook.cpp`,
+  `map_look_colors_light_and_scale_bar`]: engine-web's static-world colours (textured presets use the
+  texture tints: grass `#86A56E`, asphalt `#55585E`, pads `#C4C1BA`), road casings = pads (sidewalks),
+  alleys = asphalt/pad mix, arterial centre lines when `roads.laneMarkings`, water / parks from the preset,
+  background = the time-of-day fog (engine-web's clear colour). Building colours are
+  `palette[hashId(id) % 6]` (feature property `ci`), or the urban colour schemes (`si`) with urban facade
+  details. Time of day becomes the style `light` (sun direction → spherical position, 40 % of the sun
+  colour mixed into white, intensity from `sunI · sunMul`) plus a per-channel tint of every other colour:
+  75 % of the ratio (hemisphere sky + elevation-weighted sun) × exposure relative to `TIMES.day`, so day
+  shows the preset's exact colours and dusk / night darken the map (both factors calibrated on device:
+  the full values turned the toy palette at dusk deep red). `setTheme` sends only the changed paint properties and the light (no style
+  reload, no 300 ms cross-fade yet). Options without a style-layer equivalent (facade textures, outlines /
+  edge lines, facade details, `massing: "varied"`, cinematic grading, `zoomOut`) are accepted and
+  warn-logged once each (M2c / M4).
+- **Building styles (M2a).** Data-driven paint, not feature-state (the iOS SDK has no public feature-state
+  API): `fill-extrusion-color` = `match` on the `id` property over the theme expression, one branch per id
+  (the iOS SDK round-trips values through `NSExpression`, which does not keep label arrays reliably).
+  `state: "captured"` mixes 35 % of engine-web's glow `#FFD36E` into the colour and shows an accent ring
+  (`buildings-captured` line layer, `line-opacity` match). `null` clears, a new world clears every
+  override, `roof` / `facade` / `decorations` / `massing` / `replaceModel` are warn-logged once (M2c).
+  Unknown ids emit `error {unknown_building, "setBuildingStyle: unknown building \"<id>\""}` and a missing
+  world `error {not_ready}` (engine-web's codes and messages, `fatal: false`).
+- **Presses (M2a).** Platform single taps → `Engine::tap` → `MapAdapter::queryBuilding` (rendered-feature
+  query of the extrusion layer, which is 3D-aware) → `building:press {buildingId, coordinate}` for a
+  rendered building, or `map:press {coordinate}` for the ground. The SDK query has no hit point, so the
+  building coordinate is the ground point under the tap when it lies on the footprint, else the centroid.
+- **Overlay anchors (M2a).** Camera reports, viewport changes and anchor changes request one
+  `projectPoints` batch, at most one per 16 ms frame and one in flight (a reply for a stale anchor set is
+  dropped and re-requested). `overlay:positions` is emitted when the set changed or a position moved by
+  ≥ 0.25 dp or changed visibility (engine-web's `OverlayTracker`); `visible` = inside the viewport.
+- **Map UI (M2a).** The core resolves `MapUiSpec` into `MapUiState` [V: `m2a_map_ui_state`]: scale bar
+  (engine-web's `scaleBarFor` at the target's ground resolution), zoom buttons (±1.45× distance over
+  250 ms, clamped, through `Engine::zoomButton`) with the MapLibre compass, and the visible attribution
+  text (the world's `attribution` lines) with the MapLibre logo and attribution button. `setUi` replaces
+  the whole spec (absent = off, like engine-web); only changes reach the platform. `locationPuck` is
+  warn-logged once (the puck needs the player, M3).
 - **Camera model.** `MapSession` keeps the protocol `CameraState` and merges `setCamera` into it (§5.1).
   Poses sent to the adapter are MapLibre zoom levels; the conversion matches the ground scale at the target
   to engine-web's 40° reference frustum, so both engines frame the same area for the same `CameraState`
@@ -108,8 +159,8 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 - **Replies are asynchronous.** The core calls the adapter with its lock held; the adapter posts to the
   main thread and answers through the Engine's `on*` methods, which take the lock again. Pending
   `project`/`unproject` requests are answered with `ok: false` (`not_ready`) when the view detaches.
-- **M2 replacement.** An adapter implemented on `mbgl::Map` (patched fork) replaces both platform adapters;
-  `MapSession`, the style builder and the tests stay.
+- **Fork fallback.** Only if M2c needs it (§1): an adapter implemented on `mbgl::Map` (patched fork) would
+  replace both platform adapters; `MapSession`, the style builder and the tests stay.
 
 ## 3. Threading model
 
@@ -215,11 +266,11 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 <!-- protocol-commands:start -->
 | Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
-| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` → `error{unsupported, fatal: true}`; theme, labels, ui, locationSource warn-logged | M1 (world, camera), M2 (theme, labels, ui) |
-| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + `MapramaLayer` uniforms | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | ignored + warn log | M2 |
-| `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2 |
-| `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2 |
-| `setUi` | fire-and-forget | Platform ornaments (MapLibre scale bar / attribution) + `MapramaLayer` location puck | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | ignored + warn log | M2 |
+| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` → `error{unsupported, fatal: true}`; `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); labels and a non-`external` locationSource warn-logged once | M1 (world, camera), M2a (theme, ui), M2b (labels, procedural), M3 (location) |
+| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer uniforms (M2c) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facade / outline / details / varied massing / cinematic grading / zoomOut warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, outlines, grade), M4 (zoomOut) |
+| `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2b |
+| `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2b |
+| `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; location puck (M3) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` warn-logged once | M2a (puck M3) |
 | `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow: "<id>"` warn-logged (needs characters), other fields still applied | M1 (`follow` M3) |
 | `upsertCharacters` | fire-and-forget | `CharacterSystem::upsert` | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | ignored + warn log | M3 |
 | `removeCharacters` | fire-and-forget | `CharacterSystem::remove`, `TravelPlanner::cancel` | Removes characters; running travels emit `travel:cancel` | ignored + warn log | M3 |
@@ -230,8 +281,8 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `setDropLayer` | fire-and-forget | `DropSystem::setLayer` | Replaces the layer; builds instance buffers; collection radius and collectors | ignored + warn log | M3 |
 | `removeDropLayer` | fire-and-forget | `DropSystem::removeLayer` | Removes the layer and its instances | ignored + warn log | M3 |
 | `setGeofences` | fire-and-forget | `GeofenceSystem::setGeofences` | Replaces all geofences; membership of unchanged ids preserved | ignored + warn log | M3 |
-| `setBuildingStyle` | fire-and-forget | `MapramaLayer` building style table (looked up via `WorldStore::findBuilding`) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | ignored + warn log | M2 |
-| `setOverlayAnchors` | fire-and-forget | `CameraController::setOverlayAnchors` | Emits `overlay:positions` while anchors exist and the view changes | ignored + warn log | M2 |
+| `setBuildingStyle` | fire-and-forget | `MapSession` building overrides → extrusion paint (M2a); custom layer style table (M2c) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | `color` and `state: "captured"` (glow mix + accent ring) as data-driven extrusion paint (§2.1); `null` clears; roof / facade / decorations / massing / replaceModel warn-logged once; `error{unknown_building}` / `error{not_ready}` as engine-web | M2a (color, state), M2c (the rest) |
+| `setOverlayAnchors` | fire-and-forget | `MapSession` overlay anchors → `MapAdapter::projectPoints` | Emits `overlay:positions` while anchors exist and the view changes | one `projectPoints` batch per 16 ms frame while anchors exist and the camera / viewport / anchors change (§2.1) | M2a |
 | `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | `camera:change` → `SubscriptionRegistry` (emitted once on subscribe, then throttled); other topics warn-logged | M1 (`camera:change`), M3 |
 | `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics warn-logged | M1 (`camera:change`), M3 |
 | `request` | request → `response` | `project`, `unproject` → `CameraController`; `snapToRoad`, `route` → `TravelPlanner` | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` → `ok: false`, `unsupported` | M1 (`project`, `unproject`), M3 (`snapToRoad`, `route`) |
@@ -243,10 +294,10 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | Event | Emitted by | Trigger | Delivery | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `ready` | `Engine::start` → `Dispatcher::emitReady` | Engine created and sink attached | Once; `engine.kind = "native"` | emitted | M0 |
-| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed` | M0 / M3 |
-| `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2 |
-| `map:press` | `CameraController::tap` | Tap whose ray hits the ground and no building | Immediate | not emitted (tap logged) | M2 |
-| `building:press` | `CameraController::tap` + `MapramaLayer` ID-buffer picking | Tap on an extruded or replaced building | Immediate | not emitted | M2 |
+| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle` | M0 / M3 |
+| `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2b |
+| `map:press` | `MapSession::tap` → `MapAdapter::queryBuilding` | Tap whose ray hits the ground and no building | Immediate (after the platform query) | emitted (ground coordinate under the tap) | M2a |
+| `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a); custom-layer ID-buffer picking (M2c) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
 | `drop:collect` | `DropSystem::update` | Collector within `collectRadiusMeters`; nonce from platform CSPRNG | Immediate; drop removed first (never twice) | not emitted | M3 |
 | `travel:start` | `TravelPlanner::start` | Accepted `travel` | Immediate, before any progress | not emitted | M3 |
 | `travel:progress` | `SubscriptionRegistry` sampling `TravelPlanner::active` | Topic `travel:progress` subscribed | Throttled (`throttleMs`) | not emitted | M3 |
@@ -256,7 +307,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `geofence:exit` | `GeofenceSystem::update` | Character leaves a geofence (or geofence removed) | Immediate | not emitted | M3 |
 | `character:position` | `SubscriptionRegistry` sampling `CharacterSystem::states` | Topic subscribed (optionally per id) | Throttled | not emitted | M3 |
 | `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | emitted by `MapSession` (after a world load; gestures, animations and `setCamera`) | M1 |
-| `overlay:positions` | `CameraController::update` | Anchors exist and the view or anchors changed | At most once per frame | not emitted | M2 |
+| `overlay:positions` | `MapSession` (`projectPoints` replies) | Anchors exist and the view or anchors changed | At most once per frame (16 ms) | emitted | M2a |
 | `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `not_ready`; `unsupported` for M3 methods | M1 / M3 |
 <!-- protocol-events:end -->
 
@@ -367,6 +418,14 @@ bundle them. The resolved theme is applied in three places:
 A theme change interpolates numeric uniforms over 300 ms. Changes to toggles (facade, outline, massing)
 rebuild only the affected geometry chunks on workers.
 
+**M2a (official SDKs).** The built-in data is embedded by `scripts/generate-theme-data.mjs` into
+`cpp/src/ThemeData.cpp` instead of platform-bundled JSON files (no file loading in the wrappers; `npm test`
+fails when the file drifts from the protocol), and `ThemeResolver::resolve` is checked against
+`resolveTheme` for every preset × time of day × cinematic plus field overrides and custom preset objects
+[V: `theme.json` fixture, `theme_resolver_matches_resolve_theme`]. Place 1 is implemented with style
+layers, the style light and a time-of-day colour tint (§2.1); places 2 and 3 (custom layer uniforms, the
+post pass) and the 300 ms cross-fade are M2c.
+
 ### 6.7 Coordinates and zoom-out game view
 
 - World units follow `Projection` (a port of `createProjection` with identical math and verified within
@@ -443,20 +502,24 @@ The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan 
   `org.maplibre.gl:android-sdk:13.6.1` from Maven Central. Autolinking picks the package up from the
   podspec at the package root and `android/` (`react-native.config.js`); codegen (`codegenConfig`,
   `MapramaEngineNativeSpec`) generates the Fabric component and TurboModule glue on both platforms.
-- **M2+:** the patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR. App
-  builds consume these prebuilt artifacts, so they never apply patches.
+- **M2a:** still the official SDKs (no new native dependency). **Fork fallback only:** if M2c needs the
+  fork, the patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR; app
+  builds would consume these prebuilt artifacts, so they never apply patches.
 - Tests: `npm test -w @maprama/engine-native` runs these steps:
-  1. export fixtures from the built protocol package;
+  1. export fixtures from the built protocol package (including `resolveTheme` cases);
   2. check DESIGN.md coverage;
-  3. build the core plus the sanitizer test binary;
-  4. run the C++ conformance suites;
-  5. validate the C++-emitted events with the TS `decodeEvent`;
-  6. run the patch-queue fixture test.
+  3. check that `cpp/src/ThemeData.cpp` matches the protocol's theme data;
+  4. build the core plus the sanitizer test binary;
+  5. run the C++ conformance and behaviour suites;
+  6. validate the C++-emitted events with the TS `decodeEvent`;
+  7. run the patch-queue fixture test;
+  8. run the Jest tests of the `native` host.
 
 ## 10. Patch-queue workflow
 
-The queue is **not used in M1**: M1 runs on the official prebuilt SDKs (§1) and `UPSTREAM` stays unpinned.
-The first patches (the `maprama` layer type for the custom building layer) and the pin land with M2.
+The queue is **not used**: M1 and M2a run on the official prebuilt SDKs (§1), M2b and M2c are planned on
+them too, and `UPSTREAM` stays unpinned. The tooling is kept (and tested) for the fallback: if M2c's custom
+layer hits a wall, the first patches (a `maprama` layer type) and the pin land then.
 
 ```
 packages/engine-native/patches/
@@ -503,15 +566,15 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Projection | `createProjection` | v1 | **M0** (within 1e-6) |
 | WorldData load (`data`) | `init.world` | v1 | **M1** (flat map) |
 | WorldData `url` | `init.world` | v1 | **M1** (platform fetch) |
-| WorldData `procedural` | `init.world` | v1 | M2 (`unsupported` error in M1) |
+| WorldData `procedural` | `init.world` | v1 | M2b (`unsupported` error until then) |
 | Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow` M3) |
 | Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; M3 other topics |
-| Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | M2 |
-| Themes + time of day + cinematic | `setTheme` | v1 | M2 |
-| Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2 |
-| Map UI | `setUi` | v1 | M2 |
-| Presses | `map:press`, `building:press` | v1 | M2 |
-| Overlay anchors | `setOverlayAnchors`, `overlay:positions` | v1 | M2 |
+| Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | **M2a** extrusion, theme colours, colour / captured overrides; M2c facades, roofs, massing, replaced models |
+| Themes + time of day + cinematic | `setTheme` | v1 | **M2a** resolution, colours, light + time-of-day tint; M2c cinematic grading, outlines, cross-fade |
+| Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
+| Map UI | `setUi` | v1 | **M2a** (location puck M3) |
+| Presses | `map:press`, `building:press` | v1 | **M2a** (rendered-feature query) |
+| Overlay anchors | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
 | Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | M3 |
 | Travel + routing | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | M3 |
 | Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | M3 |
@@ -524,7 +587,7 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 - **M0 — foundation (done).** Design, interfaces, the JS-exact JSON codec, `Projection`,
   `WorldStore`, the skeleton dispatcher (`unsupported` responses, warn-logged fire-and-forget), fixture
   conformance tests, patch-queue tooling.
-- **M1 — map on screen (this change), on the official prebuilt MapLibre SDKs (§1).**
+- **M1 — map on screen (done), on the official prebuilt MapLibre SDKs (§1).**
   - `MapramaNativeView` + `MapramaEngineModule` on both platforms (codegen Fabric component + Obj-C/Java
     TurboModule, §4.1), the `native` engine host (`import '@maprama/engine-native'`).
   - `MapAdapter` (§2.1) implemented with `MLNMapView` (iOS) and `MapView`/`MapLibreMap` (Android).
@@ -533,11 +596,20 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
     `SubscriptionRegistry` with throttled `camera:change`.
   - Deferred from the original M1 plan: pinning `UPSTREAM`, the first patches and the CI XCFramework/AAR
     (all move to M2 with the fork), the core-thread command queue, frame snapshot and per-tick event
-    batching (§3 M1 simplification), and `procedural` worlds (M2).
-- **M2 — diorama look.** Fork + patch queue (pin `UPSTREAM`, `maprama` layer type, PMTiles if needed, CI
-  artifacts) and the `mbgl`-backed `MapAdapter`; extrusion, facades, roofs, massing, style table + picking,
-  `ThemeResolver`, the label system (GPU quads + accessibility pool), `labelsIndex`, map UI, presses,
-  overlay anchors, `procedural` worlds (port of engine-web's generator), core thread + frame snapshot.
+    batching (§3 M1 simplification), and `procedural` worlds (M2b).
+- **M2 — diorama look, on the official SDKs in three steps.**
+  - **M2a (this change).** `ThemeResolver` (embedded protocol data, conformance-tested), 3D buildings as a
+    `fill-extrusion` layer in theme colours, time of day as the style light + colour tint, `setTheme` paint
+    patches, `setBuildingStyle` (colour, captured), presses through rendered-feature queries, map UI (scale
+    bar, zoom buttons, attribution, MapLibre ornaments), overlay anchors (`overlay:positions`).
+  - **M2b.** Labels as a native view pool driven by the core (`labelsIndex`, `setLabels`,
+    `setLabelContent`, the label styles as far as views allow) and `procedural` worlds (port of
+    engine-web's generator).
+  - **M2c.** A custom render layer (iOS `MLNCustomStyleLayer` on Metal, Android `CustomLayerHost` on
+    GL / Vulkan) for roofs, facades, outlines, massing and replaced models, ID-buffer picking and cinematic
+    grading; the core thread + frame snapshot arrive with the layer's per-frame data.
+  - **Fallback.** Fork + patch queue (pin `UPSTREAM`, `maprama` layer type, CI artifacts) and an
+    `mbgl`-backed `MapAdapter`, only if M2c cannot be built on the SDKs' custom layer APIs.
 - **M3 — game systems.** cgltf skinning, `CharacterSystem` and location sources, `TravelPlanner` (A*,
   subway expansion), drops, geofences, all remaining events.
 - **M4 — parity and performance.**
@@ -557,15 +629,20 @@ The root `NOTICE` is intentionally not modified by M0. Add these entries when th
 | earcut.hpp | ISC | Roof and polygon triangulation (via MapLibre) | planned (M2) [U: bundled by MapLibre] |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Core behaviour summary (M1)
+## 13. Core behaviour summary (M1 + M2a)
 
 | Input | Output |
 | --- | --- |
 | Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.1.0", kind: "native"}}` |
 | Envelope failing `decodeCommand` rules | `error {code: "invalid_message", message: <exact decodeCommand error>, fatal: false}` |
-| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style sent, default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme, labels, ui, locationSource warn-logged |
+| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style sent, default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme and ui applied; labels and locationSource warn-logged |
 | `init` with `world.kind = "procedural"` | `error {code: "unsupported", fatal: true}` |
 | `setCamera` | Merged into the camera and applied to the map (§5.1); `follow: "<id>"` warn-logged |
+| `setTheme` | Resolved theme → changed paint properties + light; options without a style-layer equivalent warn-logged once |
+| `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; `error {unknown_building \| not_ready, fatal: false}` |
+| `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` warn-logged |
+| `setOverlayAnchors` | `overlay:positions {positions: [{id, x, y, visible}]}` at most once per 16 ms frame while the view changes |
+| Platform tap | `building:press {buildingId, coordinate}` or `map:press {coordinate}` |
 | `subscribe` / `unsubscribe` `camera:change` | `camera:change {camera: {center, distance, pitch, bearing ∈ [0, 360)}}` once on subscribe (after a world load), then throttled on every change |
 | `request` `project` / `unproject` | `response {ok: true, result: {x, y, visible} \| {coordinate \| null}}` through the adapter; `ok: false, not_ready` without a laid-out view |
 | `request` `snapToRoad` / `route` | `response {requestId, ok: false, error: {code: "unsupported", message}}` |
