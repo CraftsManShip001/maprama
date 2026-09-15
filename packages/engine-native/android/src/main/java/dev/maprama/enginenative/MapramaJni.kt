@@ -69,8 +69,10 @@ interface MapramaMapHost {
 
   /** M3b: downloads a binary resource (glTF / GLB models and their buffers / images; http(s) and file URLs); reply [MapramaJni.onBinaryFetched]. */
   fun fetchBinary(token: Long, url: String)
-   * Measures label cards (M2b): 3 strings (title, subtitle, accessibility label) and 4 ints (visual, kind, flags,
-   * icon) per item; reply [MapramaJni.onLabelsMeasured] with [w0, h0, …] in dp.
+
+  /**
+   * Measures label cards (M2b, incl. character name tags): 3 strings (title, subtitle, accessibility label) and 5 ints
+   * (visual, kind, flags, icon, colour) per item; reply [MapramaJni.onLabelsMeasured] with [w0, h0, …] in dp.
    */
   fun measureLabels(token: Long, strings: Array<String>, ints: IntArray)
 
