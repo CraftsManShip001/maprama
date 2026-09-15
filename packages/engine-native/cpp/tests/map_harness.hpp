@@ -127,6 +127,10 @@ class FakeAdapter final : public MapAdapter {
     for (const auto& s : sourceData) n += s.first == sourceId ? 1 : 0;
     return n;
   }
+  void measureLabels(std::uint64_t token, const std::vector<LabelCardContent>& items) override {
+    measures.emplace_back(token, items);
+  }
+  void setLabelFrame(const LabelFrame& frame) override { labelFrames.push_back(frame); }
 
   /// The paint change for `layer` / `property` in the last `setPaintProperties` batch, if any.
   const PaintPropertyChange* lastPaint(const std::string& layer, const std::string& property) const {
@@ -155,6 +159,8 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::pair<std::uint64_t, std::string>> binaryFetches;
   int locationStarts = 0;
   int locationStops = 0;
+  std::vector<std::pair<std::uint64_t, std::vector<LabelCardContent>>> measures;
+  std::vector<LabelFrame> labelFrames;
 };
 
 struct Harness {

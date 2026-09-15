@@ -131,26 +131,29 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
       }
       ctx.check(ok, "[" + name + "] -> fatal world_load_failed error");
     } else if (name.rfind("init_procedural", 0) == 0) {
-      // M2b: the core generates the world (no event without subscriptions); the inline-data world is then
+      // M2b: the core generates the world (only its `labelsIndex` event); the inline-data world is then
       // restored because the commands that follow target its building "b1".
-      ctx.check(newEvents == 0 && engine->worldStore().loaded() &&
-                    engine->worldStore().world()->name == "Procedural town",
-                "[" + name + "] generates and loads the procedural world without events");
+      ctx.check(newEvents == 1 && sink->eventMsg(eventsBefore).find("type")->asString() == "labelsIndex" &&
+                    engine->worldStore().loaded() && engine->worldStore().world()->name == "Procedural town",
+                "[" + name + "] generates and loads the procedural world (labelsIndex only)");
       if (!dataInit.empty()) engine->postMessage(dataInit);
     } else if (type == "setCamera" || (type == "unsubscribe" && topic && topic->asString() == "camera:change")) {
       // Handled by the M1 session: no warning, and no event without a camera:change subscription.
       ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");
     } else if (type == "init" || type == "setTheme" || type == "setUi" || type == "setBuildingStyle" ||
-               type == "setOverlayAnchors") {
-      // Handled by the M2a session: no "not implemented" warning (building "b1" exists; overlays need a map view,
-      // none here). Accepted-but-unrendered options (varied massing, grading, labels, decorations / massing /
-      // replaceModel overrides) are warn-logged once each. The init fixture's camera follows "player", which does
-      // not exist yet: engine-web fails `init.camera` with `unknown_character` (M3a does the same).
+               type == "setOverlayAnchors" || type == "setLabels" || type == "setLabelContent") {
+      // Handled by the M2a / M2b session: no "not implemented" warning (building "b1" exists; overlays and label
+      // views need a map view, none here). Accepted-but-unrendered options (varied massing, grading, decorations /
+      // massing / replaceModel overrides) are warn-logged once each. `init` emits `labelsIndex` (engine-web: from
+      // the world hooks, before `init.camera`); the init fixture's camera follows "player", which does not exist
+      // yet: engine-web then fails `init.camera` with `unknown_character` (M3a does the same).
       const Value* camera = decoded.find("camera");
       const bool follows = type == "init" && camera && camera->find("follow") && camera->find("follow")->isString();
-      bool ok = newEvents == (follows ? 1u : 0u);
+      const std::size_t expected = type == "init" ? (follows ? 2u : 1u) : 0u;
+      bool ok = newEvents == expected;
+      if (ok && type == "init") ok = sink->eventMsg(eventsBefore).find("type")->asString() == "labelsIndex";
       if (ok && follows) {
-        Value e = sink->eventMsg(eventsBefore);
+        Value e = sink->eventMsg(eventsBefore + 1);
         ok = e.find("type")->asString() == "error" && e.find("code")->asString() == "unknown_character" &&
              e.find("message")->asString() == "init: cannot follow \"" + camera->find("follow")->asString() + "\": no such character";
       }
@@ -167,11 +170,7 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
         ctx.check(started, "[" + name + "] -> travel:start");
       }
     } else {
-      // setLabels / setLabelContent: M2b (one not-implemented warning naming the command).
-      ctx.check(newEvents == 0, "[" + name + "] fire-and-forget emits no event (got " + std::to_string(newEvents) + ")");
-      ctx.check(sink->warnings() == warningsBefore + 1, "[" + name + "] logs 1 not-implemented warning");
-      const std::string& lastLog = sink->logs.back().second;
-      ctx.check(lastLog.find("\"" + type + "\"") != std::string::npos, "[" + name + "] warning names the command");
+      ctx.check(false, "[" + name + "] command type not covered by the dispatcher test");
     }
     ++seq;
   }

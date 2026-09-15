@@ -1,0 +1,92 @@
+# Native engine (M2b): labels drawn as native views from the core's placement. The station's subway POI gets
+# a holo card (accessibility label "name, type"), labelsIndex reports the Seongsu labels, custom content
+# (a content function -> setLabelContent) replaces the card text, the app style shows labels, and
+# `enabled: false` hides them all.
+# The control panel is scrolled by short, slow swipes inside it (a swipe at the screen centre pans the map).
+appId: dev.maprama.catalog
+name: Native engine M2b labels (holo, custom content, app style, off)
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: "camera: [0-9].*"
+    timeout: 20000
+# Default labels: holo cards; the subway POI at the station (camera target) is placed first among POIs.
+- extendedWaitUntil:
+    visible:
+      text: "성수, 지하철역 · STATION"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2b-holo
+- repeat:
+    while:
+      notVisible:
+        id: "native-labels-index"
+    times: 20
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- extendedWaitUntil:
+    visible:
+      id: "native-labels-index"
+      text: "labelsIndex: 78 labels.*"
+    timeout: 20000
+# Custom content: the content function's entries (setLabelContent) replace the subway card's text.
+- tapOn:
+    id: "native-labels-content-custom"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-labels-state"
+      text: "labels: holo · custom · on"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      text: "성수 ★, 지하철 · custom"
+    timeout: 20000
+- takeScreenshot: screenshots/native-m2b-custom
+# App style (map-app labels with POI badges and road names along the roads).
+- tapOn:
+    id: "native-labels-content-nameAndType"
+    waitToSettleTimeoutMs: 3000
+- tapOn:
+    id: "native-labels-style-app"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-labels-state"
+      text: "labels: app · nameAndType · on"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "maprama-label-.*"
+    timeout: 20000
+- assertNotVisible:
+    text: "성수 ★.*"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2b-app
+# Labels off: every card is gone.
+- tapOn:
+    id: "native-labels-enabled"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-labels-state"
+      text: "labels: app · nameAndType · off"
+    timeout: 20000
+- extendedWaitUntil:
+    notVisible:
+      id: "maprama-label-.*"
+    timeout: 20000
+- assertNotVisible:
+    text: "engine error.*"

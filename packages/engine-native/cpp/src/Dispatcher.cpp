@@ -160,9 +160,18 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
           break;
       }
       return;
-    case 2:  // setLabels -> LabelSystem (M2b)
-    case 3:  // setLabelContent -> LabelSystem (M2b)
-      ignoreNotImplemented(envelope);
+    case 2:  // setLabels -> MapSession LabelSystem (M2b)
+    case 3:  // setLabelContent -> MapSession LabelSystem (M2b)
+      if (session == nullptr) {
+        ignoreNotImplemented(envelope);
+        return;
+      }
+      ++stats_.handled;
+      if (commandIndex(envelope.type()) == 2) {
+        session->setLabels(*envelope.msg.find("labels"));
+      } else {
+        session->setLabelContent(*envelope.msg.find("entries"));
+      }
       return;
     case 6:  // upsertCharacters -> GameSession (M3a)
     case 7:  // removeCharacters -> GameSession

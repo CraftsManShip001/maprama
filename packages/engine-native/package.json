@@ -43,11 +43,13 @@
     "check-design": "node scripts/check-design-coverage.mjs",
     "theme-data": "node scripts/generate-theme-data.mjs",
     "check-theme-data": "node scripts/generate-theme-data.mjs --check",
+    "label-icons": "node scripts/generate-label-icons.mjs",
+    "check-label-icons": "node scripts/generate-label-icons.mjs --check",
     "build:core": "bash scripts/build-core.sh",
     "test:core": "bash scripts/build-core.sh --tests && ./build/maprama_core_tests --fixtures cpp/tests/fixtures --emit build/emitted-events.jsonl && node scripts/verify-emitted-events.mjs build/emitted-events.jsonl",
     "test:patch-queue": "bash scripts/patch-queue/test.sh",
     "test:js": "jest",
-    "test": "npm run export-fixtures && npm run check-design && npm run check-theme-data && npm run test:core && npm run test:patch-queue && npm run test:js"
+    "test": "npm run export-fixtures && npm run check-design && npm run check-theme-data && npm run check-label-icons && npm run test:core && npm run test:patch-queue && npm run test:js"
   },
   "codegenConfig": {
     "name": "MapramaEngineNativeSpec",

@@ -1,13 +1,14 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M3b (3D characters and drop models in the custom layer)** on top of M3a (game systems), M2c (diorama look,
-part 2: custom building layer),
-procedural worlds (M2b), M2a (diorama look, part 1) and M1 (map on screen). This package contains:
+Status: **M2b labels (native label views and character name tags)** integrated with M3b (3D characters and drop
+models in the custom layer), M3a (game systems), M2c (diorama look, part 2: custom building layer), procedural worlds
+(M2b), M2a (diorama look, part 1) and M1 (map on screen). This package contains:
 
 - this design;
 - the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, `ThemeResolver`, the dispatcher, the
+  label system (`LabelSystem`: engine-web's label selection and placement and the character name tags, §6.5), the
   map session (world → MapLibre style with 3D buildings in theme colours, camera, `camera:change`,
-  `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) behind the
+  `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors, labels) behind the
   `MapAdapter` interface (§2.1), the M2c building meshes (roofs, facade windows and details, outlines,
   captured flag; `BuildingMesh`, §6.2) and the game session (characters, location sources, travel + routing,
   drops, geofences, camera follow, §2.2) with its overlays as GeoJSON style layers and, since M3b, glTF /
@@ -109,6 +110,8 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `setSourceData(sourceId, geojson)` (M3a) | `MLNShapeSource.shape = [MLNShape shapeWithData:…]`, the latest data per source kept until `didFinishLoadingStyle` | `GeoJsonSource.setGeoJson(json)` in `getStyle {}` of the current style generation, one pending update per source | — |
 | `startLocationUpdates()` / `stopLocationUpdates()` (M3a) | `CLLocationManager` (best accuracy, no distance filter); not authorised → error, started again on `locationManagerDidChangeAuthorization` | `LocationManager` GPS + network providers (1 s); no `ACCESS_FINE/COARSE_LOCATION` → error | `Engine::onDeviceLocation(fix)`, `Engine::onDeviceLocationError(message)` |
 | (pan observer, M3a) | `mapView:regionWillChangeWithReason:animated:` with `MLNCameraChangeReasonGesturePan` | `addOnMoveListener` (`onMoveBegin`) | `Engine::onUserPan()` (stops `setCamera.follow`) |
+| `measureLabels(token, contents)` (M2b) | `MapramaLabelLayer` lays a scratch card out (`sizeThatFits` + engine-web paddings) | `LabelCardView.configure` (`Paint.measureText` + paddings) | `Engine::onLabelsMeasured(token, sizes)` |
+| `setLabelFrame(frame)` (M2b) | `MapramaLabelLayer applyFrame:` (views recycled by label id; applied in the same run-loop turn when called on the main thread) | `MapramaLabelLayer.apply` (same) | — |
 | (camera observer) | `mapViewRegionIsChanging:` / `regionDidChangeAnimated:` | `OnCameraMoveListener` / `OnCameraIdleListener` | `Engine::onCameraChanged(pose)` |
 | (tap observer, M2a) | `UITapGestureRecognizer` on the map (waits for the double-tap zoom, recognises alongside the SDK's own; not on the zoom buttons) | `addOnMapClickListener` | `Engine::tap(x, y)` → `queryBuilding` |
 
@@ -172,6 +175,12 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
   `projectPoints` batch, at most one per 16 ms frame and one in flight (a reply for a stale anchor set is
   dropped and re-requested). `overlay:positions` is emitted when the set changed or a position moved by
   ≥ 0.25 dp or changed visibility (engine-web's `OverlayTracker`); `visible` = inside the viewport.
+- **Labels (M2b).** The core builds engine-web's label index on every world load (`labelsIndex`), resolves
+  `setLabels` / `setLabelContent`, and on every camera report projects, declutters and clamps the labels
+  itself (§6.5) — no projection round trip, so the cards move with the map. The platform only measures cards
+  (`measureLabels`, cached by content key) and draws the placed ones (`setLabelFrame`, sent only when it
+  changed). On iOS `automaticallyAdjustsContentInset` is off (`contentInset` zero) so the camera target is
+  the view centre, as in engine-web and in the core's projection.
 - **Map UI (M2a).** The core resolves `MapUiSpec` into `MapUiState` [V: `m2a_map_ui_state`]: scale bar
   (engine-web's `scaleBarFor` at the target's ground resolution), zoom buttons (±1.45× distance over
   250 ms, clamped, through `Engine::zoomButton`) with the MapLibre compass, and the visible attribution
@@ -351,13 +360,13 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 <!-- protocol-commands:start -->
 | Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
-| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `GameSession`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` worlds are generated by the C++ port of engine-web's generators, converted to WorldData and loaded the same way, framed at the generator's start point (M2b, §6.8; the game session plans on the generator's road graph, §2.2); `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); `locationSource` applied when the world loads (M3a); `camera.follow` of an unknown character → `error{unknown_character}` ("init: …"); labels warn-logged once | M1 (world, camera), M2a (theme, ui), M2b (labels, procedural), **M3a** (location) |
+| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `GameSession`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` worlds are generated by the C++ port of engine-web's generators, converted to WorldData and loaded the same way, framed at the generator's start point (M2b, §6.8; the game session plans on the generator's road graph, §2.2); `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); `locationSource` applied when the world loads (M3a); `camera.follow` of an unknown character → `error{unknown_character}` ("init: …"); `labels` applied at once and `labelsIndex` emitted after the load, before `init.camera` (M2b) | M1 (world, camera), M2a (theme, ui), **M2b** (labels, procedural), **M3a** (location) |
 | `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer (M2c) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facades, facade details, outlines and window lights rebuilt in the custom building layer (M2c); varied massing / cinematic grading / zoomOut warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, details, outlines), M4 (grade, massing, zoomOut) |
-| `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2b |
-| `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2b |
+| `setLabels` | fire-and-forget | `LabelSystem::setSpec` → `MapSession` label frames | Replaces the spec (defaults: enabled, `holo`, icons `auto`, `nameAndType`); re-measures and re-places the labels | spec replaced; `holo`, `app`, `minimal`, `clean`, `sticker` drawn as native views; `ground` → app, `sign` → sticker views (warn-logged once: 3D ground / sign labels are not drawn natively); `enabled: false` hides all; no `labelsIndex` (same world, as engine-web) | **M2b** (`ground` / `sign` as 3D labels: later) |
+| `setLabelContent` | fire-and-forget | `LabelSystem::setContent` | Replaces host content by label id (used with `content: "custom"`) | all entries replaced; applied with `content: "custom"` (labels without an entry keep `nameAndType`) | **M2b** |
 | `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; `GameSession` location puck (M3a) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` = puck layers under the player (§2.2) | M2a, **M3a** (puck) |
 | `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow` through `GameSession` (§2.2): unknown id → `error{unknown_character}` and nothing applied, `null` / `center` without `follow` / user pan stop following, the camera eases towards the character every tick (after a running animation) | M1, **M3a** (`follow`) |
-| `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; glTF / GLB models loaded off the engine lock and drawn skinned in the custom layer (clips by `animations` / conventional names, cadence, 150 ms cross-fades), the procedural body while loading / without a model / after `error{model_load_failed}` (M3b, §6.4); `showNameTag` warn-logged once | **M3a**, **M3b** (glTF), M2b (name tags) |
+| `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; glTF / GLB models loaded off the engine lock and drawn skinned in the custom layer (clips by `animations` / conventional names, cadence, 150 ms cross-fades), the procedural body while loading / without a model / after `error{model_load_failed}` (M3b, §6.4); `showNameTag` draws the name tag as a label view (engine-web `nameTagAnchor`, §6.5) | **M3a**, **M3b** (glTF), **M2b** (name tags) |
 | `removeCharacters` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Removes characters; running travels emit `travel:cancel` | as engine-web (also stops following the character) | **M3a** |
 | `setLocationSource` | fire-and-forget | `GameSession` (`LocationService`) + `MapAdapter::startLocationUpdates` | `device` starts GPS (main thread), `external` waits for `pushLocation`, `simulated` runs the demo loop | as engine-web; device failures → `error{location_unavailable}` | **M3a** |
 | `pushLocation` | fire-and-forget | `GameSession` (`LocationService::push`) | Smoothed fix for the player (effective with `external`) | smoothed, drives `follow: "location"` characters along the roads | **M3a** |
@@ -380,7 +389,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | --- | --- | --- | --- | --- | --- |
 | `ready` | `Engine::start` → `Dispatcher::emitReady` | Engine created and sink attached | Once; `engine.kind = "native"` | emitted | M0 |
 | `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), game session (`not_ready`, `unknown_character`, `invalid_character`, `location_unavailable`, `internal`), `model_load_failed` (M3b) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle`; the M3a game codes (§2.2); `model_load_failed` (engine-web's messages `character <id>: failed to load <uri>: <reason>`, `drop <layer>/<id>: …`) | M0 / **M3a** / **M3b** |
-| `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2b |
+| `labelsIndex` | `MapSession` → `LabelSystem::setWorld` (`buildLabelEntries`) | After every successful world load | Once per load | emitted with engine-web's ids and payload (fixture-tested on the Seongsu sample: 78 labels) | **M2b** |
 | `map:press` | `MapSession::tap` → `MapAdapter::queryBuilding` | Tap whose ray hits the ground and no building | Immediate (after the platform query) | emitted (ground coordinate under the tap) | M2a |
 | `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a; the custom layer has no picking hook, roofs above the walls are not pickable) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
 | `drop:collect` | `GameSession` tick (`DropCollector::check`) | Collector within `collectRadiusMeters` (squared distance in flat world units); UUID v4 nonce from `std::random_device` | Immediate; drop marked collected first (never twice), then its marker pops | emitted | **M3a** |
@@ -545,7 +554,7 @@ the vertex shader (the plan above) remains an option if drop counts grow.
   propeller and pitch, translucent subway ghost train) with pop-in (`easeOutBack` 0.35 s), wheel spin, propeller,
   car bob and engine-web's `hideBody` / `onBike` rules. Not drawn: ink outline hulls, silhouettes of characters
   behind buildings (the custom layer draws before the extrusions, so there is no "behind" pass; characters are
-  simply occluded), name tags (label pool), `wave`.
+  simply occluded) and `wave`; name tags are label views (§6.5).
 - **Why no nlohmann/json.** The core must reproduce `decodeCommand` byte for byte. That needs JS semantics
   nlohmann does not have:
   - every number is a double, and `1e400` parses to `Infinity`;
@@ -570,11 +579,43 @@ the vertex shader (the plan above) remains an option if drop counts grow.
 | Text shaping (Hangul, emoji) | Platform shaping for free | Needs shaping. We reuse MapLibre's glyph pipeline and HarfBuzz patch set [U] |
 | Accessibility | Free | Needs mirrored accessibility elements |
 
-**Decision.** GPU quads rendered by `MapramaLayer` for every style, which is consistent with engine-web's
-three.js sprites. Accessibility is provided by a small pool (≤ 30) of invisible native accessibility elements
-placed at the most prominent labels' `LabelInstance.anchor`. Host overlays (`setOverlayAnchors`) remain the
-path for rich interactive native UI. Icons come from the atlas generated from the protocol's `LABEL_ICONS`.
-The `holo` icon tile treatment (`auto`/`white`/`black`/`color`) is a shader branch.
+**Original decision (fork plan).** GPU quads rendered by `MapramaLayer` for every style, consistent with
+engine-web's three.js sprites, with a small pool of invisible native accessibility elements.
+
+**M2b decision (official SDKs, implemented).** Native views, because the official SDKs have no glyph pipeline
+for a custom layer and the label counts on screen are small (engine-web's own rules cap them: ≤ 5 road holo
+cards, collision culling). The split keeps the adapters thin:
+
+- **Core (`cpp/include/maprama/LabelSystem.hpp`).** A port of engine-web's pure label rules
+  (`packages/engine-web/src/labels/index.ts`): `buildLabelEntries` (ids `district:<name>[#n]`,
+  `road:<id>:<k>` anchors every 42 units from 16 units along named non-alley non-bridge roads with a 30-unit
+  same-name dedupe, `poi:<id>`; priorities, icons, subtitles), `resolveLabelContent` (content modes),
+  `holoEligible` / `domLabelVisible`, greedy `placeHolo` (priority, then target distance, ≤ 5 roads) and the
+  app-style greedy pass (priority order, rotated boxes, upright road angles), `clampLabelX` (6 dp edge margin;
+  the holo dot and leader line keep the true anchor) and HUD exclusion zones (engine-web's status / bottom
+  strips plus the native ornaments' actual frames: zoom buttons, compass, scale bar, logo, attribution).
+  Anchors are projected by `MapProjector`, a port of MapLibre's perspective (512-dp tiles, 36.87° field of
+  view, camera `0.5·height / tan(fov/2)` dp from the centre; heights at the centre's ground scale), so holo
+  cards float `HOLO_HEIGHT` world units above the ground (district 7, POI 3.6, road 2.8) exactly like
+  engine-web. Conformance: `labels.json` is exported from engine-web's own `src/labels/*.ts` (transpiled by
+  `scripts/web-labels.mjs`, engine-web unchanged): entries + `labelsIndex` of four worlds (Seongsu: 78),
+  every content mode, HUD boxes, 60 random holo placement sets, and the visibility / clamp / rotation /
+  upright / tile rules [V: `label_tests.cpp`].
+- **Platform (`ios/MapramaLabelLayer.mm`, `android/…/MapramaLabelLayer.kt`).** Draws the frame's cards with
+  recycled views keyed by label id and measures cards for the core. Looks follow engine-web's stylesheet
+  (`dom-styles.ts`): `holo` = ground dot with a pulsing ring, gradient leader line and a glass card (iOS:
+  backdrop blur material + tint; Android: a denser gradient, no backdrop blur) with the icon tile
+  (`white` / `black` / `color`, `auto` = black at night); `app` / `minimal` / `clean` / `sticker` = text with
+  halos, POI badges, pills. Pop-in (dot → line → card) is skipped under reduced motion. System fonts are used
+  (engine-web's IBM Plex Sans KR / Jua are not bundled; `sticker` uses the rounded system design on iOS).
+  Each visible card is an accessibility element labelled "name, type" with the id `maprama-label-<label id>`.
+- **Icons.** `scripts/generate-label-icons.mjs` converts engine-web's `HOLO_ICONS` / `POI_GLYPHS` SVGs into
+  vector shapes (move / line / cubic / close, arcs converted to cubics) with fill / stroke roles
+  (`currentColor`, accent `var(--c)`, white), plus `ICON_COLORS` and the default subtitles, into
+  `cpp/src/LabelIcons.cpp`; `npm test` fails when it drifts from engine-web. Both platforms replay the shapes
+  into `CGPath` / `android.graphics.Path` (crisp at any scale, tinted per tile) — no PNGs.
+- **Deferred.** `ground` and `sign` 3D labels (drawn as `app` / `sticker` views until the custom layer, M2c),
+  labels occluded by buildings (views are never depth-tested), the `zoomOut` fade of district labels (M4).
 
 ### 6.6 Theme application
 
@@ -768,7 +809,8 @@ per character. The model frames also keep MapLibre rendering at the display rate
 - Tests: `npm test -w @maprama/engine-native` runs these steps:
   1. export fixtures from the built protocol package (including `resolveTheme` cases);
   2. check DESIGN.md coverage;
-  3. check that `cpp/src/ThemeData.cpp` matches the protocol's theme data;
+  3. check that `cpp/src/ThemeData.cpp` matches the protocol's theme data and `cpp/src/LabelIcons.cpp`
+     engine-web's label icons;
   4. build the core plus the sanitizer test binary;
   5. run the C++ conformance and behaviour suites;
   6. validate the C++-emitted events with the TS `decodeEvent`;
@@ -831,11 +873,11 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; **M3a** other topics |
 | Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | **M2a** extrusion, theme colours, colour / captured overrides; **M2c** gable / dome / flat roofs, facade windows + storefronts, facade details, captured flag (custom layer); M4 varied massing, decorations, replaced models |
 | Themes + time of day + cinematic | `setTheme` | v1 | **M2a** resolution, colours, light + time-of-day tint; **M2c** outlines, window lights at night; M4 cinematic grading, fog / haze, cross-fade |
-| Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
+| Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | **M2b** `labelsIndex`, content modes, `holo` / `app` / `minimal` / `clean` / `sticker` as native views; character name tags; `ground` / `sign` 3D labels drawn as app / sticker views |
 | Map UI | `setUi` | v1 | **M2a** (location puck **M3a**) |
 | Presses | `map:press`, `building:press` | v1 | **M2a** (rendered-feature query) |
 | Overlay anchors | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
-| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** all location sources (device feed on both platforms), camera follow; **M3b** glTF characters (GPU skinning, clips, cross-fades), procedural body, vehicles, `model_load_failed`; M2b name tags; outlines / silhouettes open |
+| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** all location sources (device feed on both platforms), camera follow; **M3b** glTF characters (GPU skinning, clips, cross-fades), procedural body, vehicles, `model_load_failed`; **M2b** name tags (label views, engine-web anchors); outlines / silhouettes open |
 | Travel + routing | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | **M3a** (route line + pin layers) |
 | Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | **M3a** collection; **M3b** 3D items (instanced), glTF drops, bob / spin / pop, beams + rings; note sprites, "+value" text, chime open |
 | Geofences | `setGeofences`, `geofence:*` | v1 | **M3a** (fill + ring layers; no pulse) |
@@ -863,7 +905,8 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
     patches, `setBuildingStyle` (colour, captured), presses through rendered-feature queries, map UI (scale
     bar, zoom buttons, attribution, MapLibre ornaments), overlay anchors (`overlay:positions`).
   - **M2b.** Labels as a native view pool driven by the core (`labelsIndex`, `setLabels`,
-    `setLabelContent`, the label styles as far as views allow) and `procedural` worlds (**done**: C++ port
+    `setLabelContent`, the label styles as far as views allow, character name tags; **done**, §6.5) and
+    `procedural` worlds (**done**: C++ port
     of engine-web's generators with a conformance fixture, loaded through the WorldData path, §6.8).
   - **M2c (done).** The custom building layer on the SDKs' custom layer APIs (iOS
     `MLNCustomStyleLayer` on Metal, Android `CustomLayerHost` on GL ES 3 with `android-sdk-opengl`): roofs,
@@ -879,9 +922,9 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
     smoothing, drop collection and geofence tracking, fixture-conformance tested.
   - **M3a (done).** `GameSession` (§2.2): every M3 command, event and request on `engine="native"`
     with engine-web semantics, drawn with GeoJSON style layers; device location feeds; camera follow.
-  - **M3b (this change).** glTF characters (cgltf, GPU skinning, 150 ms cross-fades), the procedural body,
+  - **M3b (done).** glTF characters (cgltf, GPU skinning, 150 ms cross-fades), the procedural body,
     vehicles and 3D drop items as a model pass of the M2c custom layer, depth-shared with the extrusions
-    (§6.3, §6.4); name tags stay with the M2b label view pool.
+    (§6.3, §6.4); name tags are drawn by the M2b label views (§6.5).
 - **M4 — parity and performance.**
   - Zoom-out game view.
   - Device perf and memory measured against §8.
@@ -897,17 +940,19 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | earcut.hpp | ISC | — | **not used**: roof caps use a small ear-clipping triangulator in `BuildingMesh.cpp` (MapLibre's bundled copy is not reachable through the prebuilt SDKs) |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Core behaviour summary (M1 + M2a + M2b procedural worlds + M2c + M3a + M3b)
+## 13. Core behaviour summary (M1 + M2a + M2b labels and procedural worlds + M2c + M3a + M3b)
 
 | Input | Output |
 | --- | --- |
 | Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.1.0", kind: "native"}}` |
 | Envelope failing `decodeCommand` rules | `error {code: "invalid_message", message: <exact decodeCommand error>, fatal: false}` |
-| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style (with the game layers) sent, game state rebuilt (§2.2), default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme, ui and locationSource applied; labels warn-logged |
+| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style (with the game layers) sent, game state rebuilt (§2.2), default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme, ui, labels and locationSource applied; `labelsIndex {labels}` after the load (before `init.camera`) |
 | `init` with `world.kind = "procedural"` | World generated by the C++ port of engine-web's town / grid generators (same seed → same world, §6.8), converted to WorldData and loaded like `data` (extruded buildings keep the generator's palette index); default framing at the generator's start point, then `init.camera`; the game state is rebuilt on the generator's road graph, stations, start and demo loop ways (§2.2) |
 | `setCamera` | Merged into the camera and applied to the map (§5.1); `follow` eases the camera towards the character every tick; unknown id → `error {unknown_character, "setCamera: cannot follow \"<id>\": no such character"}` |
 | `setTheme` | Resolved theme → changed paint properties + light, and the rebuilt custom building layer (facades, details, outlines, window lights); varied massing / grading / zoomOut warn-logged once |
 | `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; roof / facade / captured flag in the custom building layer; `error {unknown_building \| not_ready, fatal: false}` |
+| `setLabels` / `setLabelContent` | Spec / host content replaced; cards re-measured (`measureLabels`) and re-placed (`setLabelFrame`); `ground` / `sign` warn-logged once |
+| Camera report / viewport / theme / ui change | Labels re-placed synchronously; `setLabelFrame` only when the placement changed |
 | World load, `setTheme`, `setBuildingStyle`, adapter attach | `MapAdapter::setBuildingLayer(data)` after the style, only when the layer content changed |
 | Game tick with characters or drops on screen | `MapAdapter::setModelLayer(frame)`: palettes, instances and draws of every body, vehicle and drop item (one empty frame when the last disappears) |
 | `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` draws the puck under the player |

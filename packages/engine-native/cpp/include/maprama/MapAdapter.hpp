@@ -101,6 +101,76 @@ struct MapUiState {
   bool operator!=(const MapUiState& o) const { return !(*this == o); }
 };
 
+// ---------------------------------------------------------------------------------------------------------
+// Labels (M2b, DESIGN.md §6.5): the core selects, projects and declutters labels; the platform draws each
+// placed label as a recycled native view (card) at the position the core computed.
+// ---------------------------------------------------------------------------------------------------------
+
+/// Look a label card is drawn with. `ground` / `sign` (3D labels) are drawn as `App` / `Sticker` until the
+/// custom layer exists (M2c).
+enum class LabelVisual : std::uint8_t { Holo, App, Minimal, Clean, Sticker };
+/// Icon tile of `Holo` cards (`HoloIconTile::Auto` resolved by the time of day: white by day, black at night).
+enum class LabelTile : std::uint8_t { White, Black, Color };
+
+/// Everything that decides a card's look and size (not its position). Cards with the same `key` have the
+/// same size, so the platform measures each key once (`measureLabels`).
+struct LabelCardContent {
+  std::string key;
+  LabelVisual visual = LabelVisual::Holo;
+  LabelKind kind = LabelKind::Poi;
+  /// District over water (`app` styles: italic blue).
+  bool water = false;
+  /// Arterial road (`app` styles: bold amber; `clean`: glass pill; `sticker`: yellow pill).
+  bool arterial = false;
+  std::string title;
+  /// Shown when `showSubtitle` (holo: second line; app styles: POIs only).
+  std::string subtitle;
+  LabelIcon icon = LabelIcon::Plaza;
+  /// Holo: icon tile; app styles: POI badge (POIs only).
+  bool showIcon = true;
+  bool showSubtitle = true;
+  /// Host-supplied content (`content: "custom"`): holo subtitles use the accent style.
+  bool custom = false;
+  /// Accessibility label: name + type (the shown subtitle, else the default one).
+  std::string accessibilityLabel;
+};
+
+/// Measured card size (dp) in `measureLabels` request order.
+struct LabelSize {
+  double width = 0.0;
+  double height = 0.0;
+};
+
+/// One placed label for the current camera (dp, origin top-left of the map view).
+struct LabelCard {
+  /// Stable label id (`poi:<id>`, `road:<id>:<n>`, `district:<name>`), the key for view recycling.
+  std::string id;
+  LabelCardContent content;
+  /// Card centre and size (the size the core placed it with).
+  double x = 0.0;
+  double y = 0.0;
+  double width = 0.0;
+  double height = 0.0;
+  /// Rotation around the centre in radians (road labels of the app styles), 0 otherwise.
+  double angle = 0.0;
+  double opacity = 1.0;
+  /// Holo only: the ground dot (true anchor) and the top end of the leader line (under the card).
+  double dotX = 0.0;
+  double dotY = 0.0;
+  double lineX = 0.0;
+  double lineY = 0.0;
+};
+
+/// The complete set of label views to show; every label not in `cards` is hidden.
+struct LabelFrame {
+  LabelVisual visual = LabelVisual::Holo;
+  LabelTile tile = LabelTile::White;
+  /// Night palette (engine-web: time-of-day `lights` > 0.8).
+  bool night = false;
+  /// Placement order (later cards on top).
+  std::vector<LabelCard> cards;
+};
+
 class MapAdapter {
  public:
   virtual ~MapAdapter() = default;
@@ -187,6 +257,17 @@ class MapAdapter {
     (void)token;
     (void)url;
   }
+  // ---- labels (M2b) --------------------------------------------------------------------------------
+  // Default implementations do nothing (an adapter without label views shows no labels).
+
+  /// Measures the cards the platform would draw for `items` (same fonts / paddings as `setLabelFrame`).
+  /// Reply: `Engine::onLabelsMeasured(token, sizes)` with one size per item, in order.
+  virtual void measureLabels(std::uint64_t /*token*/, const std::vector<LabelCardContent>& /*items*/) {}
+
+  /// Shows exactly the cards of `frame` (recycling views by `LabelCard::id`) and hides every other label
+  /// view. Sent whenever the placement changes (camera, labels, content, theme, viewport). May be applied
+  /// synchronously when called on the main thread (it never calls back into the Engine).
+  virtual void setLabelFrame(const LabelFrame& /*frame*/) {}
 };
 
 }  // namespace maprama

@@ -69,6 +69,25 @@ interface MapramaMapHost {
 
   /** M3b: downloads a binary resource (glTF / GLB models and their buffers / images; http(s) and file URLs); reply [MapramaJni.onBinaryFetched]. */
   fun fetchBinary(token: Long, url: String)
+   * Measures label cards (M2b): 3 strings (title, subtitle, accessibility label) and 4 ints (visual, kind, flags,
+   * icon) per item; reply [MapramaJni.onLabelsMeasured] with [w0, h0, …] in dp.
+   */
+  fun measureLabels(token: Long, strings: Array<String>, ints: IntArray)
+
+  /**
+   * Shows exactly these label cards and hides the others (M2b, [LabelFrameData.decode]). Called on the main thread
+   * for camera changes (apply at once) or on the JS thread for commands (post).
+   */
+  fun setLabelFrame(
+    visual: Int,
+    tile: Int,
+    night: Boolean,
+    ids: Array<String>,
+    keys: Array<String>,
+    strings: Array<String>,
+    ints: IntArray,
+    numbers: DoubleArray,
+  )
 }
 
 /** JNI entry points of libmaprama_engine.so (`android/src/main/cpp/maprama_jni.cpp`). */
@@ -131,6 +150,11 @@ internal object MapramaJni {
       bitmap.recycle()
     }
   }
+  /** Reply to [MapramaMapHost.measureLabels]: [w0, h0, w1, h1, …] in dp, in request order. */
+  @JvmStatic external fun onLabelsMeasured(handle: Long, token: Long, sizes: DoubleArray)
+
+  /** Vector data of a label icon ([IconDrawingData] layout); [glyph] = the POI badge glyph. Null when there is none. */
+  @JvmStatic external fun labelIconData(glyph: Boolean, icon: Int): FloatArray?
 
   @JvmStatic external fun frame(handle: Long, timestampMs: Double)
 

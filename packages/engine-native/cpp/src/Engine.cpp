@@ -188,6 +188,11 @@ class CoreEngine final : public Engine {
     if (!stopped_) game_.onUserPan();
   }
 
+  void onLabelsMeasured(std::uint64_t token, std::vector<LabelSize> sizes) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) session_.onLabelsMeasured(token, sizes);
+  }
+
   CameraState cameraState() const override {
     std::lock_guard<std::mutex> lock(mutex_);
     return session_.cameraState();
