@@ -8,11 +8,14 @@
 // characters survive (JNI's "modified UTF-8" would turn them into CESU-8).
 #include <android/log.h>
 #include <jni.h>
+#include <pthread.h>
 
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -30,6 +33,14 @@ constexpr const char* kTag = "MapramaEngine";
 JavaVM* gVm = nullptr;
 jclass gModuleClass = nullptr;
 jmethodID gDispatchEvent = nullptr;
+/// `MapramaJni.decodeImage` (M3b glTF textures), cached at load time: worker threads cannot FindClass app classes.
+jclass gJniClass = nullptr;
+jmethodID gDecodeImage = nullptr;
+
+/// Native threads that attach to the VM (the M3b model workers deliver results, emit events and call the adapter)
+/// are detached when they exit (ART aborts when an attached thread ends).
+pthread_key_t gDetachKey;
+std::once_flag gDetachKeyOnce;
 
 JNIEnv* currentEnv() {
   JNIEnv* env = nullptr;
@@ -37,6 +48,12 @@ JNIEnv* currentEnv() {
   const jint status = gVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
   if (status == JNI_EDETACHED) {
     if (gVm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+    std::call_once(gDetachKeyOnce, [] {
+      pthread_key_create(&gDetachKey, [](void*) {
+        if (gVm != nullptr) gVm->DetachCurrentThread();
+      });
+    });
+    pthread_setspecific(gDetachKey, env);
   }
   return env;
 }
@@ -119,6 +136,47 @@ jstring toJString(JNIEnv* env, std::string_view utf8) {
   return env->NewString(units.data(), static_cast<jsize>(units.size()));
 }
 
+/// M3b glTF base colour textures: PNG / JPEG -> RGBA8 through `MapramaJni.decodeImage` (BitmapFactory, straight
+/// alpha). Called on the model worker threads.
+bool decodeImageAndroid(const std::uint8_t* data, std::size_t size, maprama::ModelTexture& out) {
+  if (gJniClass == nullptr || gDecodeImage == nullptr || size == 0 || size > static_cast<std::size_t>(INT_MAX)) return false;
+  JNIEnv* env = currentEnv();
+  if (env == nullptr) return false;
+  bool ok = false;
+  jbyteArray input = env->NewByteArray(static_cast<jsize>(size));
+  if (input == nullptr) {
+    clearException(env, "decodeImage NewByteArray");
+    return false;
+  }
+  env->SetByteArrayRegion(input, 0, static_cast<jsize>(size), reinterpret_cast<const jbyte*>(data));
+  auto result = static_cast<jintArray>(env->CallStaticObjectMethod(gJniClass, gDecodeImage, input));
+  clearException(env, "MapramaJni.decodeImage");
+  if (result != nullptr) {
+    const jsize n = env->GetArrayLength(result);
+    jint* px = n >= 2 ? env->GetIntArrayElements(result, nullptr) : nullptr;
+    if (px != nullptr) {
+      const jint w = px[0], h = px[1];
+      if (w > 0 && h > 0 && static_cast<jlong>(w) * h + 2 == n) {
+        out.width = w;
+        out.height = h;
+        out.rgba.resize(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(w) * static_cast<std::size_t>(h); ++i) {
+          const auto argb = static_cast<std::uint32_t>(px[2 + i]);
+          out.rgba[i * 4] = static_cast<std::uint8_t>((argb >> 16) & 0xFF);
+          out.rgba[i * 4 + 1] = static_cast<std::uint8_t>((argb >> 8) & 0xFF);
+          out.rgba[i * 4 + 2] = static_cast<std::uint8_t>(argb & 0xFF);
+          out.rgba[i * 4 + 3] = static_cast<std::uint8_t>(argb >> 24);
+        }
+        ok = true;
+      }
+      env->ReleaseIntArrayElements(result, px, JNI_ABORT);
+    }
+    env->DeleteLocalRef(result);
+  }
+  env->DeleteLocalRef(input);
+  return ok;
+}
+
 /// Engine output -> MapramaEngineModule.dispatchEvent (TurboModule EventEmitter) and logcat.
 class JniMessageSink final : public maprama::MessageSink {
  public:
@@ -181,6 +239,8 @@ class JniMapAdapter final : public maprama::MapAdapter {
     setSourceData_ = env->GetMethodID(cls, "setSourceData", "(Ljava/lang/String;Ljava/lang/String;)V");
     startLocationUpdates_ = env->GetMethodID(cls, "startLocationUpdates", "()V");
     stopLocationUpdates_ = env->GetMethodID(cls, "stopLocationUpdates", "()V");
+    modelLayerChanged_ = env->GetMethodID(cls, "modelLayerChanged", "()V");
+    fetchBinary_ = env->GetMethodID(cls, "fetchBinary", "(JLjava/lang/String;)V");
     env->DeleteLocalRef(cls);
     jclass stringClass = env->FindClass("java/lang/String");
     stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
@@ -303,6 +363,20 @@ class JniMapAdapter final : public maprama::MapAdapter {
 
   const std::shared_ptr<maprama::android::BuildingLayerState>& buildingState() const { return buildingState_; }
 
+  void setModelLayer(std::shared_ptr<const maprama::ModelLayerFrame> frame) override {
+    // The render thread reads the frame through the shared state; Kotlin coalesces the redraws.
+    buildingState_->setModelFrame(std::move(frame));
+    withEnv("modelLayerChanged", [&](JNIEnv* env) { env->CallVoidMethod(host_, modelLayerChanged_); });
+  }
+
+  void fetchBinary(std::uint64_t token, const std::string& url) override {
+    withEnv("fetchBinary", [&](JNIEnv* env) {
+      jstring u = toJString(env, url);
+      env->CallVoidMethod(host_, fetchBinary_, static_cast<jlong>(token), u);
+      env->DeleteLocalRef(u);
+    });
+  }
+
   void setSourceData(const std::string& sourceId, std::string geojson) override {
     withEnv("setSourceData", [&](JNIEnv* env) {
       jstring id = toJString(env, sourceId);
@@ -355,6 +429,8 @@ class JniMapAdapter final : public maprama::MapAdapter {
   jmethodID setSourceData_ = nullptr;
   jmethodID startLocationUpdates_ = nullptr;
   jmethodID stopLocationUpdates_ = nullptr;
+  jmethodID modelLayerChanged_ = nullptr;
+  jmethodID fetchBinary_ = nullptr;
 };
 
 /// What the Kotlin view holds as a `long` handle.
@@ -383,6 +459,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
   env->DeleteLocalRef(local);
   gDispatchEvent = env->GetStaticMethodID(gModuleClass, "dispatchEvent", "(Ljava/lang/String;Ljava/lang/String;)V");
   clearException(env, "GetStaticMethodID dispatchEvent");
+  jclass jni = env->FindClass("dev/maprama/enginenative/MapramaJni");
+  if (jni != nullptr) {
+    gJniClass = static_cast<jclass>(env->NewGlobalRef(jni));
+    env->DeleteLocalRef(jni);
+    gDecodeImage = env->GetStaticMethodID(gJniClass, "decodeImage", "([B)[I");
+  }
+  clearException(env, "MapramaJni.decodeImage lookup");
   return JNI_VERSION_1_6;
 }
 
@@ -392,6 +475,7 @@ JNIEXPORT jlong JNICALL Java_dev_maprama_enginenative_MapramaJni_create(JNIEnv* 
   handle->engineId = toUtf8(env, engineId);
   maprama::EngineConfig config;
   config.validateOutgoingEvents = validateEvents == JNI_TRUE;
+  config.decodeImage = decodeImageAndroid;
   handle->engine = maprama::createEngine(std::make_shared<JniMessageSink>(handle->engineId), config);
   handle->adapter = std::make_shared<JniMapAdapter>(env, host);
   maprama::EngineRegistry::shared().add(handle->engineId, handle->engine);
@@ -511,6 +595,21 @@ JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onUserPan(JNIEnv
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onTextFetched(JNIEnv* env, jclass, jlong handle, jlong token,
                                                                                jboolean ok, jstring body) {
   if (handle != 0) fromHandle(handle)->engine->onTextFetched(static_cast<std::uint64_t>(token), ok == JNI_TRUE, toUtf8(env, body));
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onBinaryFetched(JNIEnv* env, jclass, jlong handle, jlong token,
+                                                                                 jboolean ok, jbyteArray bytes, jstring message) {
+  if (handle == 0) return;
+  const bool success = ok == JNI_TRUE && bytes != nullptr;
+  std::string payload;
+  if (success) {
+    const jsize n = env->GetArrayLength(bytes);
+    payload.resize(static_cast<std::size_t>(n));
+    if (n > 0) env->GetByteArrayRegion(bytes, 0, n, reinterpret_cast<jbyte*>(&payload[0]));
+  } else {
+    payload = toUtf8(env, message);
+  }
+  fromHandle(handle)->engine->onBinaryFetched(static_cast<std::uint64_t>(token), success, std::move(payload));
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_frame(JNIEnv*, jclass, jlong handle, jdouble timestampMs) {

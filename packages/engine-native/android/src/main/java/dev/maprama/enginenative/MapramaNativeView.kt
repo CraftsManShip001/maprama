@@ -23,8 +23,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.uimanager.ThemedReactContext
+import java.io.File
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import org.json.JSONTokener
 import org.maplibre.android.MapLibre
@@ -72,6 +75,9 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   private var sourceUpdates = 0
   private var sourceTotalMs = 0.0
   private var sourceMaxMs = 0.0
+
+  /** M3b: one main-thread redraw per batch of model frames (the core sends one per game tick). */
+  private val modelRepaintQueued = AtomicBoolean(false)
 
   /** Device location feed (`setLocationSource {kind: "device"}`); the permission is the app's job. */
   private var locationListener: LocationListener? = null
@@ -249,6 +255,18 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     map?.triggerRepaint()
   }
 
+  override fun modelLayerChanged() {
+    if (!modelRepaintQueued.compareAndSet(false, true)) return
+    mainHandler.post {
+      modelRepaintQueued.set(false)
+      if (destroyed) return@post
+      val m = map ?: return@post
+      val style = m.style
+      if (style != null && style.isFullyLoaded && style.getLayer(BUILDING_LAYER) == null) installBuildingLayer(style)
+      m.triggerRepaint()
+    }
+  }
+
   /**
    * M2c: puts the custom building layer (a native `CustomLayerHost` sharing the engine's latest building layer
    * data) directly below the `buildings` fill-extrusion of [style], once per style, and reports how many layers
@@ -392,6 +410,36 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
           "failed to load $url: ${e.message ?: e.javaClass.simpleName}"
         }
       mainHandler.post { if (handle != 0L) MapramaJni.onTextFetched(handle, token, ok, body) }
+    }
+  }
+
+  override fun fetchBinary(token: Long, url: String) {
+    thread(name = "maprama-fetch", isDaemon = true) {
+      var bytes: ByteArray? = null
+      var message = ""
+      try {
+        if (url.startsWith("file:")) {
+          bytes = File(URI(url)).readBytes()
+        } else {
+          val connection = URL(url).openConnection() as HttpURLConnection
+          connection.connectTimeout = 15000
+          connection.readTimeout = 30000
+          try {
+            val status = connection.responseCode
+            if (status in 200..299) {
+              bytes = connection.inputStream.use { it.readBytes() }
+            } else {
+              message = "HTTP $status while loading $url"
+            }
+          } finally {
+            connection.disconnect()
+          }
+        }
+      } catch (e: Exception) {
+        message = "failed to load $url: ${e.message ?: e.javaClass.simpleName}"
+      }
+      val data = bytes
+      mainHandler.post { if (handle != 0L) MapramaJni.onBinaryFetched(handle, token, data != null, data, message) }
     }
   }
 
@@ -613,7 +661,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }
 
     init {
-      Log.i(TAG, "MapramaNativeView (M3a, MapLibre Android SDK)")
+      Log.i(TAG, "MapramaNativeView (M3b, MapLibre Android SDK)")
     }
   }
 }
