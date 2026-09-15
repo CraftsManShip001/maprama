@@ -107,7 +107,7 @@ import '@maprama/engine-native';
 | 항목 | M3a 상태 |
 | --- | --- |
 | 렌더러 | 공식 prebuilt MapLibre Native SDK (iOS CocoaPods `MapLibre` 6.30, Android `org.maplibre.gl:android-sdk-opengl` 13.6.1)의 스타일 레이어 + 커스텀 렌더 레이어(M2c: iOS `MLNCustomStyleLayer`·Metal, Android C++ `CustomLayerHost`·GL ES 3)로 지붕·외벽·외곽선. 포크는 커스텀 레이어로 안 될 때만 쓰는 대안 |
-| 월드 | `data`·`url` WorldData 렌더: 배경, 수면·공원 면, 등급별 도로 선, POI·역 원, 높이를 반영한 3D 건물(`fill-extrusion`). `procedural`은 M2b에서 C++ 코어가 engine-web 생성기 포팅으로 같은 시드의 같은 월드를 만들어 같은 경로로 렌더 |
+| 월드 | `data`·`url` WorldData 렌더: 배경, 수면·공원 면, 등급별 도로 선, POI·역 원, 높이를 반영한 3D 건물(`fill-extrusion`). `procedural`은 M2b에서 C++ 코어가 engine-web 생성기 포팅으로 같은 시드의 같은 월드를 만들어 같은 경로로 렌더하고, 게임 시스템은 생성기의 도로 그래프·역·시작점·데모 루프로 동작 |
 | 테마 | 프리셋과 옵션을 웹 엔진과 같은 규칙으로 해석 (C++ `ThemeResolver`, 프로토콜 데이터에서 생성하고 적합성 테스트). 시간대는 스타일 조명 + 색 틴트. `setTheme`은 페인트 속성과 조명을 바꾸고 커스텀 레이어의 외벽·디테일·외곽선·밤 창문 불빛을 다시 만듦(M2c). 시네마틱 그레이딩·다양한 매스는 M4 |
 | 건물 스타일 | `setBuildingStyle`의 `color`와 `state: 'captured'` 강조(M2a), `roof`(박공·돔·평지붕)·`facade`·점령 깃발(M2c 커스텀 레이어), `null`로 초기화. 없는 건물은 `unknown_building` 오류. 장식·매스·모델 교체는 M4 |
 | 카메라 | `setCamera` (병합, `distance`가 `zoom`보다 우선, `animate`, `follow`로 캐릭터 추적 — 없는 캐릭터는 `unknown_character`, `center`만 보내거나 사용자가 팬하면 추적 해제), 팬·핀치 줌·회전·피치(0–60°) 제스처. 거리 한계는 웹 엔진과 같은 14–150 월드 단위 |

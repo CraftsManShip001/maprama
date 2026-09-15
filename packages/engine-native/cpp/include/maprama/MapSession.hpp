@@ -40,6 +40,7 @@ namespace maprama {
 
 class WorldStore;
 struct WorldLoadReport;
+struct ProceduralWorld;
 
 /// Monotonic clock in milliseconds (injectable for tests).
 using ClockMs = std::function<double()>;
@@ -68,8 +69,10 @@ class MapSessionHooks {
   virtual void extendLayers(json::Value& layers, const MapLook& look) = 0;
   /// The complete style was just sent to the adapter (`setStyleJson`).
   virtual void styleSent() = 0;
-  /// A world was loaded and its style sent; called before `init.camera` is applied.
-  virtual void worldLoaded(const json::Value& initMsg) = 0;
+  /// A world was loaded and its style sent; called before `init.camera` is applied. `procedural` is the
+  /// generated world of `init.world.kind = "procedural"` (valid only during the call; its road graph, start,
+  /// demo loop ways and layout are what engine-web's game systems use), nullptr for `data` / `url` worlds.
+  virtual void worldLoaded(const json::Value& initMsg, const ProceduralWorld* procedural) = 0;
   /// `setCamera.follow`: a character id, or nullopt (null, or `center` without `follow`) to stop following.
   /// Returns false for an unknown character (the command then fails with `unknown_character`).
   virtual bool setFollow(const std::optional<std::string>& characterId) = 0;
@@ -155,12 +158,15 @@ class MapSession {
     std::optional<WorldPoint> start;
     /// Palette index per `WorldData::buildings` entry (engine-web keeps the generator's `ci`).
     std::vector<std::uint32_t> palette;
+    /// The generated world itself, handed to the hooks (M3a plans on the generator's graph); nullptr otherwise.
+    const ProceduralWorld* generated = nullptr;
   };
 
   /// `init` with `world.kind = "procedural"`: generate (ProceduralWorld.hpp), convert to WorldData, load.
   void loadProceduralWorld(const json::Value& source, const json::Value& initMsg);
+  void loadWorldValue(const json::Value& worldData, const json::Value& initMsg, const std::string& url);
   void loadWorldValue(const json::Value& worldData, const json::Value& initMsg, const std::string& url,
-                      const WorldExtras& extras = {});
+                      const WorldExtras& extras);
   void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg, const WorldExtras& extras);
   void setThemeState(const json::Value& themeSpec);
   void setUiState(const json::Value& uiSpec);

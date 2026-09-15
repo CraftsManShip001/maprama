@@ -112,7 +112,7 @@ class GameSession final : public MapSessionHooks {
   void extendSources(json::Value& sources) override;
   void extendLayers(json::Value& layers, const MapLook& look) override;
   void styleSent() override;
-  void worldLoaded(const json::Value& initMsg) override;
+  void worldLoaded(const json::Value& initMsg, const ProceduralWorld* procedural) override;
   bool setFollow(const std::optional<std::string>& characterId) override;
 
   // ---- state (tests, diagnostics) ----------------------------------------------------------------
@@ -183,6 +183,9 @@ class GameSession final : public MapSessionHooks {
   std::optional<Projection> proj_;
   PlanWorld plan_;
   double groundY_;
+  /// engine-web `CharacterManager.spawnPoint` base: the plaza (else the origin) of a data world, the
+  /// generator's start of a procedural one.
+  WorldPoint spawnBase_{};
 
   std::vector<std::unique_ptr<Character>> chars_;
   /// Upserts received before the first world (engine-web `pendingChars`, merged by id).

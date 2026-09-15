@@ -374,7 +374,12 @@ void MapSession::loadProceduralWorld(const Value& source, const Value& initMsg) 
   extras.start = generated.start;
   extras.palette.reserve(generated.buildings.size());
   for (const ProceduralBuilding& b : generated.buildings) extras.palette.push_back(static_cast<std::uint32_t>(b.ci));
+  extras.generated = &generated;
   loadWorldValue(worldData, initMsg, {}, extras);
+}
+
+void MapSession::loadWorldValue(const Value& worldData, const Value& initMsg, const std::string& url) {
+  loadWorldValue(worldData, initMsg, url, WorldExtras{});
 }
 
 void MapSession::loadWorldValue(const Value& worldData, const Value& initMsg, const std::string& url,
@@ -430,7 +435,7 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   }
   sendState();
   // engine-web: world hooks (characters, drops, geofences) run before `init.camera` (which may follow a character).
-  if (hooks_ != nullptr) hooks_->worldLoaded(initMsg);
+  if (hooks_ != nullptr) hooks_->worldLoaded(initMsg, extras.generated);
   if (const Value* camera = member(initMsg, "camera")) setCamera(*camera, "init");
   overlayDirty_ = true;
   lastPositions_.clear();

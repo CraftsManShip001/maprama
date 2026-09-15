@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "maprama/MapLook.hpp"
+#include "maprama/ProceduralWorld.hpp"
 #include "maprama/WorldStore.hpp"
 
 namespace maprama {
@@ -334,10 +335,9 @@ void GameSession::applyUpsert(const std::vector<Value>& specs) {
 }
 
 WorldPoint GameSession::spawnPoint(const Character& ch) const {
-  // engine-web `CharacterManager.spawnPoint` (data worlds): the plaza, else the world origin; NPCs of a crowd
-  // scatter 30 units around it by their id hash; snapped to a road.
-  const WorldData& w = *world_.world();
-  const WorldPoint base = w.plaza ? *w.plaza : WorldPoint{0, 0};
+  // engine-web `CharacterManager.spawnPoint`: the plaza (else the world origin) of a data world, the start of a
+  // procedural one; NPCs of a crowd scatter 30 units around it by their id hash; snapped to a road.
+  const WorldPoint base = spawnBase_;
   WorldPoint p = base;
   if (!ch.isPlayer() && chars_.size() > 1) {
     const std::uint32_t h = hashId(ch.id());
@@ -629,14 +629,16 @@ void GameSession::styleSent() {
   wake();
 }
 
-void GameSession::worldLoaded(const Value& /*initMsg*/) {
-  // engine-web `Features.worldLoaded`.
+void GameSession::worldLoaded(const Value& /*initMsg*/, const ProceduralWorld* procedural) {
+  // engine-web `Features.worldLoaded`, with the per-kind world model of engine-web `loadWorld`: a procedural
+  // world plans on the generator's road graph and stations, spawns at its start, loops the simulated walker
+  // through its `loopWays` and stands characters at `groundYFor(layout)`.
   const WorldData& w = *world_.world();
   const Projection& next = *world_.projection();
   std::vector<TravelEvent> events;
   trips_.cancelAll([this](std::string_view id) { return followerOf(id); }, events);
   processTravelEvents(events);
-  const double ground = groundYFor(std::nullopt);
+  const double ground = groundYFor(procedural != nullptr ? std::optional<ProceduralLayout>(procedural->layout) : std::nullopt);
   if (proj_) {
     // Characters keep their geographic position (engine-web `CharacterManager.rebase`).
     for (const auto& ch : chars_) {
@@ -650,7 +652,8 @@ void GameSession::worldLoaded(const Value& /*initMsg*/) {
     }
   }
   proj_ = next;
-  plan_ = planWorldFromData(w);
+  plan_ = procedural != nullptr ? planWorldFromProcedural(*procedural) : planWorldFromData(w);
+  spawnBase_ = procedural != nullptr ? procedural->start : (w.plaza ? *w.plaza : WorldPoint{0, 0});
   groundY_ = ground;
   worldReady_ = true;
   if (!pendingChars_.empty()) {
@@ -658,7 +661,8 @@ void GameSession::worldLoaded(const Value& /*initMsg*/) {
     pendingChars_.clear();
     applyUpsert(pending);
   }
-  location_.worldChanged(buildDemoLoop(plan_.graph, {}, dataWorldStart(w)));
+  location_.worldChanged(procedural != nullptr ? buildDemoLoop(plan_.graph, procedural->loopWays, procedural->start)
+                                               : buildDemoLoop(plan_.graph, {}, dataWorldStart(w)));
   applyLocationKind(locationSource_);
   for (const std::string& id : collector_.layerIds()) {
     for (const DropState& d : collector_.removeLayer(id)) {
