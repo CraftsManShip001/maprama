@@ -115,10 +115,32 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       respondNotImplemented(envelope);
       return;
     }
-    case 1:  // setTheme -> ThemeResolver
-    case 2:  // setLabels -> LabelSystem
-    case 3:  // setLabelContent -> LabelSystem
-    case 4:  // setUi -> platform UI overlay (MapLibre ornaments)
+    case 1:  // setTheme -> ThemeResolver + MapSession style (M2a)
+    case 4:  // setUi -> MapSession map UI ornaments (M2a)
+    case 15:  // setBuildingStyle -> MapSession building overrides (M2a: color, captured state)
+    case 16:  // setOverlayAnchors -> MapSession overlay:positions (M2a)
+      if (session == nullptr) {
+        ignoreNotImplemented(envelope);
+        return;
+      }
+      ++stats_.handled;
+      switch (commandIndex(envelope.type())) {
+        case 1:
+          session->setTheme(*envelope.msg.find("theme"));
+          break;
+        case 4:
+          session->setUi(*envelope.msg.find("ui"));
+          break;
+        case 15:
+          session->setBuildingStyle(envelope.msg.find("buildingId")->asString(), *envelope.msg.find("style"));
+          break;
+        default:
+          session->setOverlayAnchors(*envelope.msg.find("anchors"));
+          break;
+      }
+      return;
+    case 2:  // setLabels -> LabelSystem (M2b)
+    case 3:  // setLabelContent -> LabelSystem (M2b)
     case 6:  // upsertCharacters -> CharacterSystem
     case 7:  // removeCharacters -> CharacterSystem
     case 8:  // setLocationSource -> CharacterSystem
@@ -128,8 +150,6 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
     case 12:  // setDropLayer -> DropSystem
     case 13:  // removeDropLayer -> DropSystem
     case 14:  // setGeofences -> GeofenceSystem
-    case 15:  // setBuildingStyle -> maprama layer building style table
-    case 16:  // setOverlayAnchors -> CameraController
       ignoreNotImplemented(envelope);
       return;
     default:  // unreachable: decodeCommand rejects unknown types

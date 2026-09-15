@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "maprama/CameraMath.hpp"
+#include "maprama/ThemeResolver.hpp"
 
 namespace maprama {
 
@@ -13,21 +14,12 @@ namespace {
 
 using json::Value;
 
-// engine-web zoom-out MAP_COLORS (flat map look) plus building / POI colors for the M1 map.
-constexpr const char* kBackground = "#E4DFD6";
-constexpr const char* kGround = "#EEEAE2";
-constexpr const char* kWater = "#9CCBEB";
-constexpr const char* kPark = "#C4E2B2";
-constexpr const char* kArterial = "#F7C45C";
-constexpr const char* kArterialCasing = "#D99A32";
-constexpr const char* kLocal = "#FFFFFF";
-constexpr const char* kLocalCasing = "#D6D0C4";
-constexpr const char* kAlley = "#F3F0EA";
-constexpr const char* kBuilding = "#DAD4CA";
-constexpr const char* kBuildingOutline = "#B9B0A2";
-constexpr const char* kStation = "#2F5BEA";
+/// Background of the empty style (before a world is loaded).
+constexpr const char* kEmptyBackground = "#E4DFD6";
+/// Ring drawn around captured buildings (dp).
+constexpr double kCapturedRingWidth = 3.0;
 
-// engine-web `ROAD_W` (world units) x 1.1 as in the zoom-out map; the arterial casing adds 0.7 units.
+// engine-web `ROAD_W` (world units) x 1.1 as in the zoom-out map; casings (sidewalks) add 0.5 / 0.7 units.
 double roadWidthUnits(RoadClass cls) {
   switch (cls) {
     case RoadClass::Arterial:
@@ -85,19 +77,25 @@ Value metersLineWidth(double meters, double lat) {
                        meters / camera_math::mapLibreMetersPerPixel(z1, lat)});
 }
 
-Value roadLayer(const std::string& id, RoadClass cls, const char* color, double meters, double lat) {
+Value color(std::uint32_t rgb) { return Value(cssHex(rgb)); }
+
+Value roadLayer(const std::string& id, RoadClass cls, std::uint32_t rgb, double meters, double lat) {
   return Value::object({
       {"id", id},
       {"type", "line"},
       {"source", world_style::kSourceRoads},
       {"filter", Value::array({"==", Value::array({"get", "cls"}), std::string(enumName(cls))})},
       {"layout", Value::object({{"line-cap", "round"}, {"line-join", "round"}})},
-      {"paint", Value::object({{"line-color", color}, {"line-width", metersLineWidth(meters, lat)}})},
+      {"paint", Value::object({{"line-color", color(rgb)}, {"line-width", metersLineWidth(meters, lat)}})},
   });
 }
 
-Value backgroundLayer() {
-  return Value::object({{"id", "background"}, {"type", "background"}, {"paint", Value::object({{"background-color", kBackground}})}});
+Value fillLayer(const char* id, const char* src, std::uint32_t rgb) {
+  return Value::object({{"id", id}, {"type", "fill"}, {"source", src}, {"paint", Value::object({{"fill-color", color(rgb)}})}});
+}
+
+Value backgroundLayer(const std::string& rgb) {
+  return Value::object({{"id", "background"}, {"type", "background"}, {"paint", Value::object({{"background-color", rgb}})}});
 }
 
 Value styleShell() {
@@ -113,16 +111,61 @@ std::string joinAttribution(const std::vector<std::string>& attribution) {
   return out;
 }
 
+/// `["match", ["get", key], 0, c0, 1, c1, …, c0]` over a color table.
+template <std::size_t N>
+Value indexedColor(const char* key, const std::array<std::uint32_t, N>& colors) {
+  Value expr = Value::array({"match", Value::array({"get", key})});
+  for (std::size_t i = 0; i < N; ++i) {
+    expr.push(static_cast<double>(i));
+    expr.push(color(colors[i]));
+  }
+  expr.push(color(colors[0]));
+  return expr;
+}
+
+// `match` branches use one literal label per building id (never label arrays): the iOS SDK round-trips
+// paint values through NSExpression, which does not preserve array labels reliably.
+
+/// Building color: overrides by id (in the caller's order), else the theme color.
+Value buildingColor(const MapLook& look, const BuildingPaint& paint) {
+  Value themed = look.schemeTints ? indexedColor("si", *look.schemeTints) : indexedColor("ci", look.palette);
+  if (paint.colors.empty()) return themed;
+  Value expr = Value::array({"match", Value::array({"get", "id"})});
+  for (const auto& [id, rgb] : paint.colors) {
+    expr.push(id);
+    expr.push(color(rgb));
+  }
+  expr.push(std::move(themed));
+  return expr;
+}
+
+Value capturedOpacity(const BuildingPaint& paint) {
+  if (paint.captured.empty()) return Value(0);
+  Value expr = Value::array({"match", Value::array({"get", "id"})});
+  for (const std::string& id : paint.captured) {
+    expr.push(id);
+    expr.push(1);
+  }
+  expr.push(0);
+  return expr;
+}
+
 }  // namespace
 
-Value buildWorldStyleValue(const WorldData& world, const Projection& projection) {
-  const double lat = world.origin.lat;
-  const double unit = world.unitMeters;
-  Value style = styleShell();
-  Value& sources = *style.find("sources");
-  Value& layers = *style.find("layers");
+std::vector<RenderedBuilding> renderedBuildings(const WorldData& world) {
+  std::vector<RenderedBuilding> out;
+  out.reserve(world.buildings.size());
+  for (std::size_t i = 0; i < world.buildings.size(); ++i) {
+    const BuildingFootprint& b = world.buildings[i];
+    if (std::fabs(shoelaceArea2(b.footprint)) / 2.0 < world_style::kMinFootprintArea) continue;
+    out.push_back(RenderedBuilding{i, out.size(), hashId(b.id) % 6u});
+  }
+  return out;
+}
 
-  // Diorama area (world bounds) drawn in the ground color over the background.
+Value buildWorldSources(const WorldData& world, const Projection& projection, const std::vector<RenderedBuilding>& buildings) {
+  const double unit = world.unitMeters;
+  Value sources = Value::object();
   {
     const WorldBounds& b = world.bounds;
     std::vector<Vec2> area{{b.minX, b.minZ}, {b.maxX, b.minZ}, {b.maxX, b.maxZ}, {b.minX, b.maxZ}};
@@ -156,8 +199,15 @@ Value buildWorldStyleValue(const WorldData& world, const Projection& projection)
   }
   {
     Value features = Value::array();
-    for (const BuildingFootprint& b : world.buildings) {
-      Value props = Value::object({{"id", b.id}, {"height", b.height * unit}});
+    for (const RenderedBuilding& rb : buildings) {
+      const BuildingFootprint& b = world.buildings[rb.worldIndex];
+      // engine-web: height = max(0.2, height) world units; the theme's heightScale is applied by the layer.
+      const double meters = std::max(world_style::kMinBuildingHeightUnits, b.height) * unit;
+      Value props = Value::object({{"id", b.id},
+                                   {"height", meters},
+                                   {"ci", static_cast<double>(rb.ci)},
+                                   {"si", static_cast<double>(rb.index % 5)}});
+      if (b.levels) props.set("levels", *b.levels);
       if (b.kind) props.set("kind", std::string(enumName(*b.kind)));
       if (b.name) props.set("name", *b.name);
       features.push(feature(polygon(projection, b.footprint), std::move(props)));
@@ -179,38 +229,52 @@ Value buildWorldStyleValue(const WorldData& world, const Projection& projection)
     }
     sources.set(world_style::kSourceStations, source(std::move(features)));
   }
+  return sources;
+}
 
-  layers.push(backgroundLayer());
-  layers.push(Value::object({{"id", "area"}, {"type", "fill"}, {"source", world_style::kSourceArea},
-                             {"paint", Value::object({{"fill-color", kGround}})}}));
-  layers.push(Value::object({{"id", "parks"}, {"type", "fill"}, {"source", world_style::kSourceParks},
-                             {"paint", Value::object({{"fill-color", kPark}})}}));
-  layers.push(Value::object({{"id", "water"}, {"type", "fill"}, {"source", world_style::kSourceWater},
-                             {"paint", Value::object({{"fill-color", kWater}})}}));
+Value buildWorldLayers(const WorldData& world, const MapLook& look, const BuildingPaint& paint) {
+  const double lat = world.origin.lat;
+  const double unit = world.unitMeters;
+  Value layers = Value::array();
+  layers.push(backgroundLayer(cssHex(look.background)));
+  layers.push(fillLayer("area", world_style::kSourceArea, look.ground));
+  layers.push(fillLayer("parks", world_style::kSourceParks, look.park));
+  layers.push(fillLayer("water", world_style::kSourceWater, look.water));
+
   const double arterial = roadWidthUnits(RoadClass::Arterial) * unit;
   const double local = roadWidthUnits(RoadClass::Local) * unit;
   const double alley = roadWidthUnits(RoadClass::Alley) * unit;
-  layers.push(roadLayer("roads-alley", RoadClass::Alley, kAlley, alley, lat));
-  layers.push(roadLayer("roads-local-casing", RoadClass::Local, kLocalCasing, local + 0.5 * unit, lat));
-  layers.push(roadLayer("roads-local", RoadClass::Local, kLocal, local, lat));
-  layers.push(roadLayer("roads-arterial-casing", RoadClass::Arterial, kArterialCasing, arterial + 0.7 * unit, lat));
-  layers.push(roadLayer("roads-arterial", RoadClass::Arterial, kArterial, arterial, lat));
-  layers.push(Value::object({{"id", "buildings"}, {"type", "fill"}, {"source", world_style::kSourceBuildings},
-                             {"paint", Value::object({{"fill-color", kBuilding}, {"fill-outline-color", kBuildingOutline}})}}));
+  layers.push(roadLayer("roads-alley", RoadClass::Alley, look.alley, alley, lat));
+  layers.push(roadLayer("roads-local-casing", RoadClass::Local, look.pad, local + 0.5 * unit, lat));
+  layers.push(roadLayer("roads-local", RoadClass::Local, look.road, local, lat));
+  layers.push(roadLayer("roads-arterial-casing", RoadClass::Arterial, look.pad, arterial + 0.7 * unit, lat));
+  layers.push(roadLayer("roads-arterial", RoadClass::Arterial, look.road, arterial, lat));
+  {
+    Value centre = roadLayer("roads-arterial-centerline", RoadClass::Arterial, look.centerLine, 0.12 * unit, lat);
+    centre.find("layout")->set("line-cap", "butt");
+    Value& p = *centre.find("paint");
+    p.set("line-dasharray", Value::array({3, 3}));
+    p.set("line-opacity", look.laneMarkings ? 1 : 0);
+    layers.push(std::move(centre));
+  }
+
+  Value poiColor = Value::array({"match", Value::array({"get", "cat"})});
+  for (std::size_t i = 0; i < look.poi.size(); ++i) {
+    poiColor.push(std::string(EnumNames<PoiCategory>::values[i]));
+    poiColor.push(color(look.poi[i]));
+  }
+  poiColor.push(color(look.poi[static_cast<std::size_t>(PoiCategory::Plaza)]));
   layers.push(Value::object({
       {"id", "pois"},
       {"type", "circle"},
       {"source", world_style::kSourcePois},
       {"paint", Value::object({
                     {"circle-radius", 4.5},
-                    {"circle-color",
-                     Value::array({"match", Value::array({"get", "cat"}), "cafe", "#B7773B", "store", "#D0508A", "music",
-                                   "#7B4FD6", "school", "#E0A100", "book", "#3E8E7E", "park", "#4F9A46", "subway",
-                                   kStation, "#7A8594"})},
+                    {"circle-color", std::move(poiColor)},
                     {"circle-stroke-width", 1.5},
-                    {"circle-stroke-color", "#FFFFFF"},
-                    // Flat map: discs lie in the ground plane (viewport-aligned billboards lose their near
-                    // half to clipping on pitched cameras with the M1 SDKs).
+                    {"circle-stroke-color", color(look.marker)},
+                    // Discs lie in the ground plane (viewport-aligned billboards lose their near half to
+                    // clipping on pitched cameras with the official SDKs); buildings occlude them.
                     {"circle-pitch-alignment", "map"},
                 })},
   }));
@@ -218,10 +282,51 @@ Value buildWorldStyleValue(const WorldData& world, const Projection& projection)
       {"id", "stations"},
       {"type", "circle"},
       {"source", world_style::kSourceStations},
-      {"paint", Value::object({{"circle-radius", 7}, {"circle-color", kStation}, {"circle-stroke-width", 2.5},
-                               {"circle-stroke-color", "#FFFFFF"}, {"circle-pitch-alignment", "map"}})},
+      {"paint", Value::object({{"circle-radius", 7}, {"circle-color", color(look.station)}, {"circle-stroke-width", 2.5},
+                               {"circle-stroke-color", color(look.marker)}, {"circle-pitch-alignment", "map"}})},
   }));
+  layers.push(Value::object({
+      {"id", world_style::kLayerCapturedRing},
+      {"type", "line"},
+      {"source", world_style::kSourceBuildings},
+      {"layout", Value::object({{"line-join", "round"}})},
+      {"paint", Value::object({{"line-color", color(look.capturedRing)},
+                               {"line-width", kCapturedRingWidth},
+                               {"line-opacity", capturedOpacity(paint)}})},
+  }));
+  layers.push(Value::object({
+      {"id", world_style::kLayerBuildings},
+      {"type", "fill-extrusion"},
+      {"source", world_style::kSourceBuildings},
+      {"paint", Value::object({
+                    {"fill-extrusion-color", buildingColor(look, paint)},
+                    {"fill-extrusion-height", Value::array({"*", Value::array({"get", "height"}), look.heightScale})},
+                    {"fill-extrusion-base", 0},
+                    {"fill-extrusion-vertical-gradient", true},
+                })},
+  }));
+  return layers;
+}
+
+Value lightValue(const MapLight& light) {
+  return Value::object({{"anchor", "map"},
+                        {"position", Value::array({light.radial, light.azimuthal, light.polar})},
+                        {"color", cssHex(light.color)},
+                        {"intensity", light.intensity}});
+}
+
+Value composeStyle(Value sources, Value layers, const MapLight& light) {
+  Value style = styleShell();
+  style.set("sources", std::move(sources));
+  style.set("layers", std::move(layers));
+  style.set("light", lightValue(light));
   return style;
+}
+
+Value buildWorldStyleValue(const WorldData& world, const Projection& projection) {
+  const ResolvedTheme theme = ThemeResolver::builtIn().resolve(Value::object());
+  const MapLook look = mapLookFor(theme);
+  return composeStyle(buildWorldSources(world, projection, renderedBuildings(world)), buildWorldLayers(world, look, {}), look.light);
 }
 
 std::string buildWorldStyle(const WorldData& world, const Projection& projection) {
@@ -230,7 +335,7 @@ std::string buildWorldStyle(const WorldData& world, const Projection& projection
 
 std::string buildEmptyStyle() {
   Value style = styleShell();
-  style.find("layers")->push(backgroundLayer());
+  style.find("layers")->push(backgroundLayer(kEmptyBackground));
   return json::stringify(style);
 }
 

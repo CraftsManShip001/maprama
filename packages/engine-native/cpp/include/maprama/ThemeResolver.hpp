@@ -1,15 +1,15 @@
-// Maprama native core — theme resolution (theme.ts `resolveTheme`).
+// Maprama native core — theme resolution (theme.ts `resolveTheme`), DESIGN.md §6.6.
 //
-// Interface only in the skeleton. Built-in preset data is not duplicated in
-// C++: the platform layer bundles `@maprama/protocol/themes/*.json` (emitted
-// by the protocol build) and passes them to the resolver at startup.
+// Built-in preset data is not transcribed by hand: `scripts/generate-theme-data.mjs` embeds the
+// `@maprama/protocol` build output (PRESETS, TIMES, CINE, PRESET_DEFAULTS, BASE_THEME_DEFAULTS) into
+// `cpp/src/ThemeData.cpp`, and `npm test` fails when that file drifts from the protocol package. The
+// conformance suite checks `resolve` against `resolveTheme` outputs exported from TypeScript.
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
-#include <string_view>
-#include <variant>
 #include <vector>
 
 #include "maprama/json.hpp"
@@ -45,7 +45,7 @@ struct ThemePreset {
   double sunMul = 1.0;
 };
 
-/// `TimeOfDayPreset` (CSS gradient strings are parsed by the renderer into ramp textures).
+/// `TimeOfDayPreset` (CSS gradient strings are parsed by the renderer into ramp textures, M2c).
 struct TimeOfDayPreset {
   std::uint32_t fog = 0;
   double fogNear = 0.0;
@@ -62,6 +62,20 @@ struct TimeOfDayPreset {
   std::string haze;
   std::string vignette;
   std::optional<std::string> grade;
+};
+
+/// `PresetDefaults`.
+struct PresetDefaults {
+  bool facade = false;
+  bool outline = false;
+  Massing massing = Massing::Box;
+  bool lanes = false;
+  bool crosswalks = false;
+  bool props = false;
+  bool parked = false;
+  bool traffic = false;
+  std::optional<bool> cine;
+  std::optional<bool> details;
 };
 
 /// `ResolvedTheme`.
@@ -92,19 +106,39 @@ struct ResolvedTheme {
   ZoomOutBehavior zoomOut = ZoomOutBehavior::None;
 };
 
+/// Parses a full `ThemePreset` object (one that passed `checkThemePreset`, e.g. `ThemeSpec.base`).
+ThemePreset parseThemePreset(const json::Value& preset);
+
+/// `ResolvedTheme` as the same JSON object `resolveTheme` returns (diagnostics and conformance tests).
+json::Value resolvedThemeToJson(const ResolvedTheme& theme);
+
 class ThemeResolver {
  public:
-  virtual ~ThemeResolver() = default;
+  /// The resolver over `@maprama/protocol`'s built-in data (generated `ThemeData.cpp`), parsed once.
+  static const ThemeResolver& builtIn();
 
-  /// Registers built-in data (`themes/<preset>.json`, times, cinematic overrides, preset defaults).
-  virtual Result<bool> loadBuiltIns(const json::Value& presets, const json::Value& times, const json::Value& cine,
-                                    const json::Value& presetDefaults) = 0;
+  /// Loads built-in data `{presets, times, cine, presetDefaults, baseDefaults}` (the generated JSON shape).
+  static Result<ThemeResolver> fromJson(const json::Value& data);
 
-  /// `resolveTheme(spec)`: spec field -> PRESET_DEFAULTS[base] -> BASE_THEME_DEFAULTS.
-  /// `spec` has already passed `validateThemeSpec` (the dispatcher decodes first).
-  virtual Result<ResolvedTheme> resolve(const json::Value& themeSpec) const = 0;
+  /// `resolveTheme(spec)`: spec field -> PRESET_DEFAULTS[base] -> BASE_THEME_DEFAULTS. `spec` has passed
+  /// `checkThemeSpec` (the dispatcher decodes first); an unknown preset name falls back to `realistic`.
+  ResolvedTheme resolve(const json::Value& themeSpec) const;
 
-  virtual const ThemePreset* builtInPreset(PresetName name) const = 0;
+  const ThemePreset& preset(PresetName name) const { return presets_[static_cast<std::size_t>(name)]; }
+  /// `TIMES[timeOfDay]` without cinematic overrides.
+  const TimeOfDayPreset& time(TimeOfDay timeOfDay) const { return times_[static_cast<std::size_t>(timeOfDay)]; }
+
+ private:
+  std::array<ThemePreset, EnumNames<PresetName>::values.size()> presets_{};
+  std::array<TimeOfDayPreset, EnumNames<TimeOfDay>::values.size()> times_{};
+  /// `CINE[timeOfDay]` partial objects, merged over `times_` when cinematic.
+  std::array<json::Value, EnumNames<TimeOfDay>::values.size()> cine_{};
+  std::array<PresetDefaults, EnumNames<PresetName>::values.size()> defaults_{};
+  bool baseCinematic_ = false;
+  bool baseShadows_ = true;
+  bool baseDetails_ = false;
+  ZoomOutBehavior baseZoomOut_ = ZoomOutBehavior::None;
+  TimeOfDay baseTimeOfDay_ = TimeOfDay::Day;
 };
 
 }  // namespace maprama
