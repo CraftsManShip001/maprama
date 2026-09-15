@@ -63,10 +63,13 @@ struct MapLook {
   MapLight light;
 };
 
-/// Per-building override from `setBuildingStyle`, as far as M2a renders it.
+/// Per-building override from `setBuildingStyle`: color / captured (extrusion paint, M2a) and roof /
+/// facade (custom building layer, M2c).
 struct BuildingOverride {
   std::optional<std::uint32_t> color;
   bool captured = false;
+  std::optional<RoofShape> roof;
+  std::optional<bool> facade;
 };
 
 /// Style values for a resolved theme.

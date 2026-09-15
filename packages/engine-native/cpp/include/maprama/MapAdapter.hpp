@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -25,6 +26,8 @@
 #include "maprama/types.hpp"
 
 namespace maprama {
+
+struct BuildingLayerData;
 
 /// A camera in MapLibre terms (512-px tiles, `zoom` is MapLibre's zoom level).
 struct MapCameraPose {
@@ -112,6 +115,12 @@ class MapAdapter {
 
   /// Shows / hides the map UI ornaments.
   virtual void setUi(const MapUiState& ui) = 0;
+
+  /// M2c: the meshes and uniforms of the custom building layer (roofs, facades, outlines, captured flag).
+  /// The platform draws the latest data in its custom render layer, placed directly below the `buildings`
+  /// fill-extrusion layer of every style it loads (see `BuildingMesh.hpp`); the data is immutable and may be
+  /// read from the render thread. Sent after `setStyleJson` and whenever the theme or a building style changes.
+  virtual void setBuildingLayer(std::shared_ptr<const BuildingLayerData> data) = 0;
 
   /// Applies gesture limits. Called after a world load and whenever the viewport changes.
   virtual void setCameraLimits(const MapCameraLimits& limits) = 0;

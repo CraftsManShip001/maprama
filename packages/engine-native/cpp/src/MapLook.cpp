@@ -218,11 +218,10 @@ std::uint32_t buildingOverrideColor(const MapLook& look, std::uint32_t ci, std::
 }
 
 std::vector<std::string> unrenderedThemeOptions(const ResolvedTheme& theme) {
+  // Facades, facade details and outlines are drawn by the custom building layer (M2c, BuildingMesh.hpp);
+  // `edgeLines` is carried by engine-web's render params but not drawn by it either.
   std::vector<std::string> out;
-  if (theme.buildings.facade && theme.preset.facade != FacadeSet::None) out.emplace_back("buildings.facade (facade textures)");
-  if (theme.buildings.outline || theme.preset.edgeLines) out.emplace_back("buildings.outline (edge lines)");
-  if (theme.buildings.details) out.emplace_back("buildings.details (facade details)");
-  if (theme.buildings.massing == Massing::Varied) out.emplace_back("buildings.massing \"varied\"");
+  if (theme.buildings.massing == Massing::Varied) out.emplace_back("buildings.massing \"varied\" (buildings stay boxes)");
   if (theme.cinematic) out.emplace_back("cinematic (color grading; its lighting is applied)");
   if (theme.zoomOut != ZoomOutBehavior::None) out.emplace_back("zoomOut \"" + std::string(enumName(theme.zoomOut)) + "\"");
   return out;

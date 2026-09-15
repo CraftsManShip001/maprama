@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "maprama/BuildingMesh.hpp"
 #include "maprama/CameraController.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MapLook.hpp"
@@ -103,6 +104,8 @@ class MapSession {
   const std::string& styleJson() const;
   const ResolvedTheme& theme() const { return theme_; }
   const MapLook& look() const { return look_; }
+  /// The custom building layer (M2c) of the current world / theme / building styles; nullptr before a world.
+  const BuildingLayerData* buildingLayer() const { return buildingLayer_.get(); }
   MapCameraPose poseFor(const CameraState& state) const;
   MapCameraLimits limits() const;
   std::size_t pendingRequests() const { return pendingRequests_.size(); }
@@ -124,6 +127,8 @@ class MapSession {
   void setUiState(const json::Value& uiSpec);
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.
   void applyLook();
+  /// Rebuilds the custom building layer; when its content changed, keeps it and (if `send`) hands it to the adapter.
+  void updateBuildingLayer(bool send);
   BuildingPaint buildingPaint() const;
   void pushUi();
   double metersPerDp() const;
@@ -168,6 +173,8 @@ class MapSession {
   MapLight light_;
   mutable std::string styleJson_;
   mutable bool styleDirty_ = false;
+  std::shared_ptr<const BuildingLayerData> buildingLayer_;
+  std::uint64_t buildingLayerVersion_ = 0;
 
   // Map UI.
   MapUiSpec ui_;
