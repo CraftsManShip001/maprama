@@ -35,10 +35,12 @@ tags:
       id: "native-picked"
       text: "picked: w407169878 \\(captured, #FF8800\\)"
     timeout: 20000
+# Scroll until the Close-up / Orbit row (below the roof state line) is on screen: on shorter screens (iPhone
+# 17e) the roof state alone can be visible while that row is still below the fold.
 - repeat:
     while:
       notVisible:
-        id: "native-roof-state"
+        id: "native-closeup"
     times: 16
     commands:
       - swipe:
