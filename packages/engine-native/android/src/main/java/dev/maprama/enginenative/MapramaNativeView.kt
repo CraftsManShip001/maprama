@@ -1,17 +1,26 @@
 package dev.maprama.enginenative
 
+import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.uimanager.ThemedReactContext
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
+import org.json.JSONTokener
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -20,11 +29,15 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.PaintPropertyValue
+import org.maplibre.android.style.light.Position
 
 /**
- * Hosts a MapLibre `MapView` (official Android SDK, M1, TextureView mode) and owns one native engine
- * registered under the `engineId` prop. Implements the core's map adapter ([MapramaMapHost]): every call
- * is posted to the main thread and applied once the map is ready; replies go back through [MapramaJni].
+ * Hosts a MapLibre `MapView` (official Android SDK, TextureView mode) and owns one native engine registered
+ * under the `engineId` prop. Implements the core's map adapter ([MapramaMapHost]): every call is posted to
+ * the main thread and applied once the map is ready; style patches wait for the style they belong to;
+ * replies go back through [MapramaJni]. The map UI ornaments are drawn from values the core computes.
  */
 class MapramaNativeView(private val reactContext: ThemedReactContext) :
   FrameLayout(reactContext),
@@ -41,11 +54,21 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   private var viewportHeight = 0
   private var destroyed = false
 
+  /** Incremented by every `setStyleJson`: patches queued for an older style are dropped. */
+  private var styleGeneration = 0
+
+  // Map UI (MapUiState).
+  private val scaleBar = ScaleBarView(reactContext, density)
+  private val zoomButtons = LinearLayout(reactContext)
+  private val attributionLabel = TextView(reactContext)
+  private var logoShown = false
+
   init {
     MapLibre.getInstance(reactContext)
     val options = MapLibreMapOptions.createFromAttributes(reactContext).textureMode(true)
     mapView = MapView(reactContext, options)
     addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    createOrnaments()
     mapView.onCreate(null)
     mapView.onStart()
     mapView.onResume()
@@ -113,6 +136,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     val h = b - t
     mapView.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
     mapView.layout(0, 0, w, h)
+    layoutOrnaments(w, h)
   }
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -128,6 +152,8 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     MapramaJni.setViewport(handle, width / density.toDouble(), height / density.toDouble(), density.toDouble())
   }
 
+  private fun dp(value: Int): Int = (value * density).toInt()
+
   // ---- Map ---------------------------------------------------------------------------------------
 
   private fun onMapReady(m: MapLibreMap) {
@@ -135,10 +161,19 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     map = m
     m.uiSettings.isRotateGesturesEnabled = true
     m.uiSettings.isTiltGesturesEnabled = true
+    // Ornaments follow MapUiState (the core sends one on attach); hidden until then.
+    m.uiSettings.isLogoEnabled = false
+    m.uiSettings.isAttributionEnabled = false
+    m.uiSettings.isCompassEnabled = false
     m.setMinPitchPreference(0.0)
     m.setMaxPitchPreference(60.0)
     m.addOnCameraMoveListener { reportCamera() }
     m.addOnCameraIdleListener { reportCamera() }
+    m.addOnMapClickListener { point ->
+      val screen = m.projection.toScreenLocation(point)
+      if (handle != 0L) MapramaJni.tap(handle, screen.x / density.toDouble(), screen.y / density.toDouble())
+      false
+    }
     if (m.style == null && pendingOnMap.isEmpty()) m.setStyle(Style.Builder().fromJson(EMPTY_STYLE))
     val queued = ArrayList(pendingOnMap)
     pendingOnMap.clear()
@@ -162,9 +197,60 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }
   }
 
+  /** Runs [block] once the style of the current `setStyleJson` generation has loaded. */
+  private fun onStyle(block: (Style) -> Unit) = onMap { m ->
+    val generation = styleGeneration
+    m.getStyle { style -> if (!destroyed && generation == styleGeneration) block(style) }
+  }
+
   // ---- MapramaMapHost (called from libmaprama_engine.so) -----------------------------------------
 
-  override fun setStyleJson(json: String) = onMap { m -> m.setStyle(Style.Builder().fromJson(json)) }
+  override fun setStyleJson(json: String) = onMap { m ->
+    styleGeneration++
+    m.setStyle(Style.Builder().fromJson(json))
+  }
+
+  override fun setPaintProperties(layers: Array<String>, properties: Array<String>, values: Array<String>) = onStyle { style ->
+    for (i in layers.indices) {
+      val layer = style.getLayer(layers[i]) ?: continue
+      val value = paintValue(values[i]) ?: continue
+      try {
+        layer.setProperties(PaintPropertyValue(properties[i], value))
+      } catch (e: Exception) {
+        Log.w(TAG, "cannot set ${properties[i]} on layer ${layers[i]}: ${e.message}")
+      }
+    }
+  }
+
+  override fun setLight(radial: Double, azimuthal: Double, polar: Double, color: String, intensity: Double) = onStyle { style ->
+    val light = style.light ?: return@onStyle
+    light.anchor = "map"
+    light.position = Position(radial.toFloat(), azimuthal.toFloat(), polar.toFloat())
+    light.setColor(color)
+    light.intensity = intensity.toFloat()
+  }
+
+  override fun setUi(
+    scaleBar: Boolean,
+    scaleBarWidth: Double,
+    scaleBarLabel: String,
+    zoomButtons: Boolean,
+    compass: Boolean,
+    attribution: Boolean,
+    attributionText: String,
+    logo: Boolean,
+  ) = onMap { m ->
+    m.uiSettings.isLogoEnabled = logo
+    m.uiSettings.isAttributionEnabled = attribution
+    m.uiSettings.isCompassEnabled = compass
+    logoShown = logo
+    this.scaleBar.visibility = if (scaleBar) View.VISIBLE else View.GONE
+    this.scaleBar.update((scaleBarWidth * density).toInt(), scaleBarLabel)
+    this.zoomButtons.visibility = if (zoomButtons) View.VISIBLE else View.GONE
+    attributionLabel.visibility = if (attribution) View.VISIBLE else View.GONE
+    attributionLabel.text = attributionText
+    requestLayout()
+  }
 
   override fun setCameraLimits(minZoom: Double, maxZoom: Double, minPitch: Double, maxPitch: Double) = onMap { m ->
     m.setMinZoomPreference(minZoom)
@@ -185,12 +271,46 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     if (handle != 0L) MapramaJni.onProjected(handle, token, point.x / density.toDouble(), point.y / density.toDouble())
   }
 
+  override fun projectPoints(token: Long, lngLats: DoubleArray) = onMap { m ->
+    val xy = DoubleArray(lngLats.size)
+    var i = 0
+    while (i + 1 < lngLats.size) {
+      val point = m.projection.toScreenLocation(LatLng(lngLats[i + 1], lngLats[i]))
+      xy[i] = point.x / density.toDouble()
+      xy[i + 1] = point.y / density.toDouble()
+      i += 2
+    }
+    if (handle != 0L) MapramaJni.onPointsProjected(handle, token, xy)
+  }
+
   override fun unproject(token: Long, x: Double, y: Double) = onMap { m ->
     val coordinate = m.projection.fromScreenLocation(PointF((x * density).toFloat(), (y * density).toFloat()))
     if (handle != 0L) {
       val valid = !coordinate.latitude.isNaN() && !coordinate.longitude.isNaN()
       MapramaJni.onUnprojected(handle, token, valid, coordinate.longitude, coordinate.latitude)
     }
+  }
+
+  override fun queryBuilding(token: Long, x: Double, y: Double) = onMap { m ->
+    val point = PointF((x * density).toFloat(), (y * density).toFloat())
+    var buildingId: String? = null
+    val style = m.style
+    if (style != null && style.isFullyLoaded) {
+      for (feature in m.queryRenderedFeatures(point, BUILDINGS_LAYER)) {
+        val id = try {
+          if (feature.hasProperty("id")) feature.getStringProperty("id") else null
+        } catch (e: Exception) {
+          null
+        }
+        if (id != null) {
+          buildingId = id
+          break
+        }
+      }
+    }
+    val ground = m.projection.fromScreenLocation(point)
+    val hit = !ground.latitude.isNaN() && !ground.longitude.isNaN()
+    if (handle != 0L) MapramaJni.onBuildingQueried(handle, token, buildingId, hit, ground.longitude, ground.latitude)
   }
 
   override fun fetchText(token: Long, url: String) {
@@ -225,12 +345,116 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }, delayMs.toLong().coerceAtLeast(0L))
   }
 
+  // ---- Map UI --------------------------------------------------------------------------------------
+
+  private fun createOrnaments() {
+    scaleBar.visibility = View.GONE
+    addView(scaleBar, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+
+    zoomButtons.orientation = LinearLayout.VERTICAL
+    zoomButtons.visibility = View.GONE
+    zoomButtons.addView(zoomButton("+", "Zoom in") { if (handle != 0L) MapramaJni.zoomButton(handle, true) })
+    val spacer = View(context)
+    zoomButtons.addView(spacer, LinearLayout.LayoutParams(dp(1), dp(8)))
+    zoomButtons.addView(zoomButton("−", "Zoom out") { if (handle != 0L) MapramaJni.zoomButton(handle, false) })
+    addView(zoomButtons, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+
+    attributionLabel.visibility = View.GONE
+    attributionLabel.textSize = 10f
+    attributionLabel.setTextColor(Color.rgb(51, 51, 51))
+    attributionLabel.setPadding(dp(5), dp(2), dp(5), dp(2))
+    attributionLabel.background = GradientDrawable().apply {
+      cornerRadius = 4 * density
+      setColor(Color.argb(191, 255, 255, 255))
+    }
+    attributionLabel.contentDescription = "maprama-attribution"
+    addView(attributionLabel, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+  }
+
+  private fun zoomButton(text: String, description: String, onPress: () -> Unit): TextView =
+    TextView(context).apply {
+      this.text = text
+      textSize = 22f
+      gravity = Gravity.CENTER
+      setTextColor(Color.rgb(38, 38, 38))
+      contentDescription = description
+      background = GradientDrawable().apply {
+        cornerRadius = 8 * density
+        setColor(Color.argb(240, 255, 255, 255))
+      }
+      layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+      isClickable = true
+      setOnClickListener { onPress() }
+    }
+
+  private fun layoutOrnaments(w: Int, h: Int) {
+    val unspecified = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+    // Scale bar: bottom-left, above the MapLibre logo when it is shown.
+    scaleBar.measure(unspecified, unspecified)
+    val scaleBottom = h - dp(if (logoShown) 40 else 12)
+    scaleBar.layout(dp(12), scaleBottom - scaleBar.measuredHeight, dp(12) + scaleBar.measuredWidth, scaleBottom)
+    // Zoom buttons: right edge, vertically centred.
+    zoomButtons.measure(unspecified, unspecified)
+    val zx = w - dp(12) - zoomButtons.measuredWidth
+    val zy = (h - zoomButtons.measuredHeight) / 2
+    zoomButtons.layout(zx, zy, zx + zoomButtons.measuredWidth, zy + zoomButtons.measuredHeight)
+    // Attribution text: bottom-right (MapLibre's logo and attribution button sit bottom-left on Android).
+    attributionLabel.measure(MeasureSpec.makeMeasureSpec((w - dp(120)).coerceAtLeast(dp(40)), MeasureSpec.AT_MOST), unspecified)
+    val ax = w - dp(8) - attributionLabel.measuredWidth
+    val ay = h - dp(8) - attributionLabel.measuredHeight
+    attributionLabel.layout(ax, ay, ax + attributionLabel.measuredWidth, ay + attributionLabel.measuredHeight)
+  }
+
+  /** Label over a bar of a given pixel width (the core computes both, engine-web `scaleBarFor`). */
+  private class ScaleBarView(context: Context, private val density: Float) : LinearLayout(context) {
+    private val label = TextView(context)
+    private val line = View(context)
+
+    init {
+      orientation = VERTICAL
+      isClickable = false
+      contentDescription = "maprama-scale-bar"
+      label.textSize = 11f
+      label.setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+      label.setTextColor(Color.rgb(38, 38, 38))
+      line.setBackgroundColor(Color.rgb(38, 38, 38))
+      addView(label, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+      addView(line, LayoutParams(1, (4 * density).toInt()))
+    }
+
+    fun update(widthPx: Int, text: String) {
+      label.text = text
+      line.layoutParams = LayoutParams(widthPx.coerceAtLeast(1), (4 * density).toInt()).apply { topMargin = (2 * density).toInt() }
+    }
+  }
+
   companion object {
+    private const val TAG = "MapramaEngine"
+    private const val BUILDINGS_LAYER = "buildings"
     private const val EMPTY_STYLE =
       """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#E4DFD6"}}]}"""
 
+    /** A style-spec value as JSON -> the value `Layer.setProperties` takes (String / Float / Boolean / Expression). */
+    private fun paintValue(json: String): Any? {
+      val trimmed = json.trim()
+      if (trimmed.startsWith("[")) {
+        return try {
+          Expression.Converter.convert(trimmed)
+        } catch (e: Exception) {
+          Log.w(TAG, "invalid paint expression: ${e.message}")
+          null
+        }
+      }
+      return when (val value = try { JSONTokener(trimmed).nextValue() } catch (e: Exception) { null }) {
+        is String -> value
+        is Boolean -> value
+        is Number -> value.toFloat()
+        else -> null
+      }
+    }
+
     init {
-      Log.i("MapramaEngine", "MapramaNativeView (M1, MapLibre Android SDK)")
+      Log.i(TAG, "MapramaNativeView (M2a, MapLibre Android SDK)")
     }
   }
 }

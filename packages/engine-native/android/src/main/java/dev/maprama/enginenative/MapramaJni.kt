@@ -8,13 +8,37 @@ package dev.maprama.enginenative
 interface MapramaMapHost {
   fun setStyleJson(json: String)
 
+  /** Paint properties of existing style layers (`values` are style-spec JSON), applied once the style loaded. */
+  fun setPaintProperties(layers: Array<String>, properties: Array<String>, values: Array<String>)
+
+  /** The style light: spherical position (azimuth clockwise from north, polar 0 = overhead), color `#RRGGBB`. */
+  fun setLight(radial: Double, azimuthal: Double, polar: Double, color: String, intensity: Double)
+
+  /** Map UI ornaments computed by the core (`MapUiState`). */
+  fun setUi(
+    scaleBar: Boolean,
+    scaleBarWidth: Double,
+    scaleBarLabel: String,
+    zoomButtons: Boolean,
+    compass: Boolean,
+    attribution: Boolean,
+    attributionText: String,
+    logo: Boolean,
+  )
+
   fun setCameraLimits(minZoom: Double, maxZoom: Double, minPitch: Double, maxPitch: Double)
 
   fun moveCamera(lng: Double, lat: Double, zoom: Double, pitch: Double, bearing: Double, durationMs: Double)
 
   fun project(token: Long, lng: Double, lat: Double)
 
+  /** `lngLats` = [lng0, lat0, lng1, lat1, …]; reply [MapramaJni.onPointsProjected] with [x0, y0, …] in dp. */
+  fun projectPoints(token: Long, lngLats: DoubleArray)
+
   fun unproject(token: Long, x: Double, y: Double)
+
+  /** Rendered-feature query on the `buildings` layer + ground coordinate; reply [MapramaJni.onBuildingQueried]. */
+  fun queryBuilding(token: Long, x: Double, y: Double)
 
   fun fetchText(token: Long, url: String)
 
@@ -41,11 +65,21 @@ internal object MapramaJni {
 
   @JvmStatic external fun onProjected(handle: Long, token: Long, x: Double, y: Double)
 
+  /** [xy] = [x0, y0, x1, y1, …] in dp, in request order. */
+  @JvmStatic external fun onPointsProjected(handle: Long, token: Long, xy: DoubleArray)
+
   @JvmStatic external fun onUnprojected(handle: Long, token: Long, hit: Boolean, lng: Double, lat: Double)
+
+  @JvmStatic external fun onBuildingQueried(handle: Long, token: Long, buildingId: String?, groundHit: Boolean, lng: Double, lat: Double)
 
   @JvmStatic external fun onTextFetched(handle: Long, token: Long, ok: Boolean, bodyOrError: String)
 
   @JvmStatic external fun frame(handle: Long, timestampMs: Double)
+
+  /** Single tap on the map, dp. */
+  @JvmStatic external fun tap(handle: Long, x: Double, y: Double)
+
+  @JvmStatic external fun zoomButton(handle: Long, zoomIn: Boolean)
 
   /** Returns false when no engine is registered under [engineId]. */
   @JvmStatic external fun postMessage(engineId: String, envelope: String): Boolean
