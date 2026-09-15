@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "name": "Sample crossing",
+  "origin": { "lng": 126.9784, "lat": 37.5667 },
+  "unitMeters": 8,
+  "bounds": { "minX": -60, "minZ": -60, "maxX": 60, "maxZ": 60 },
+  "roads": [
+    { "id": "road-sejong", "name": "Sejong-daero", "cls": "arterial", "pts": [[-60, 0], [-20, 0.5], [20, -0.5], [60, 0]] },
+    { "id": "road-cross", "name": "Taepyeong-ro", "cls": "local", "pts": [[0, -60], [0, 60]] },
+    { "id": "road-alley", "cls": "alley", "pts": [[20, 0], [21, 10], [19, 17]] },
+    { "id": "road-footbridge", "name": "Pond bridge", "cls": "local", "bridge": true, "pts": [[0, 30], [22, 30], [57, 30]] }
+  ],
+  "buildings": [
+    { "id": "bld-tower", "name": "Pentagon Tower", "kind": "glass", "levels": 24, "height": 9,
+      "footprint": [[6, -6], [14, -6], [16, -11], [10, -16], [4, -11]] },
+    { "id": "bld-l-office", "name": "L Office", "kind": "office", "levels": 10, "height": 4,
+      "footprint": [[20, -5], [32, -5], [32, -10], [25, -10], [25, -18], [20, -18]] },
+    { "id": "bld-rotunda", "name": "Rotunda", "kind": "glass", "levels": 16, "height": 6.5,
+      "footprint": [[-7, -12], [-7.67, -14.5], [-9.5, -16.33], [-12, -17], [-14.5, -16.33], [-16.33, -14.5], [-17, -12], [-16.33, -9.5], [-14.5, -7.67], [-12, -7], [-9.5, -7.67], [-7.67, -9.5]] },
+    { "id": "bld-apartments", "name": "Rotated Apartments", "kind": "apartment", "levels": 12, "height": 5,
+      "footprint": [[-33.58, -12.25], [-24.37, -16.14], [-22.42, -11.53], [-31.63, -7.64]] },
+    { "id": "bld-brick-trapezoid", "kind": "brick", "levels": 4, "height": 1.8,
+      "footprint": [[-6, 5], [-8, 12], [-16, 12], [-18, 5]] },
+    { "id": "bld-brick-small", "kind": "brick", "levels": 5, "height": 2.4,
+      "footprint": [[-22, 5], [-22, 11], [-30, 11], [-30, 5]] },
+    { "id": "bld-courtyard", "name": "U Courtyard", "kind": "apartment", "levels": 8, "height": 3.5,
+      "footprint": [[5, 5], [18, 5], [18, 16], [14, 16], [14, 9], [9, 9], [9, 16], [5, 16]] },
+    { "id": "bld-annex", "height": 3,
+      "footprint": [[5, 20], [15, 20], [15, 27], [5, 27]] }
+  ],
+  "water": [
+    [[25, 20], [45, 18], [55, 30], [40, 42], [22, 35]]
+  ],
+  "parks": [
+    { "name": "Corner Park", "poly": [[-45, -25], [-35, -28], [-30, -40], [-44, -45]] }
+  ],
+  "pois": [
+    { "id": "poi-cafe", "name": "Corner Coffee", "cat": "cafe", "x": -10, "z": 8 },
+    { "id": "poi-subway", "name": "City Hall Stn.", "cat": "subway", "x": 3, "z": -3 },
+    { "id": "poi-park", "name": "Corner Park", "cat": "park", "x": -38, "z": -35 }
+  ],
+  "stations": [
+    { "id": "st-west", "name": "West Gate", "x": -50, "z": -3 },
+    { "id": "st-east", "name": "East Gate", "x": 50, "z": 3 }
+  ],
+  "districts": [
+    { "name": "Jung-gu", "x": -30, "z": -30 },
+    { "name": "Pond", "x": 40, "z": 30, "water": true }
+  ],
+  "plaza": { "x": -22, "z": 26 },
+  "attribution": ["Hand-made sample data"]
+}

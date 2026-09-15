@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "customConditions": ["react-native"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "jest/**/*.ts", "jest/**/*.tsx", "plugin/__tests__/**/*.ts"]
+}

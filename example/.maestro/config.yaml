@@ -1,0 +1,10 @@
+# Maestro workspace config: run the top-level flows in order; `subflows/` are only used via runFlow.
+flows:
+  - "*.yaml"
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - 01-screens-render
+    - 02-travel-arrive
+    - 03-drops-collect
+    - 04-labels-holo

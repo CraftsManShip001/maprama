@@ -1,0 +1,14 @@
+# Expo
+.expo/
+dist/
+expo-env.d.ts
+
+# Generated native projects (Continuous Native Generation: `npx expo prebuild`)
+/ios
+/android
+
+# Maestro output
+.maestro/screenshots/
+
+# Local env (API keys)
+.env*.local

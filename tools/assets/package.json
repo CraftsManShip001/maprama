@@ -1,0 +1,46 @@
+{
+  "name": "@diorama/assets",
+  "version": "0.0.0",
+  "description": "diorama CLI: inspect, validate and optimize glTF/GLB models for Diorama engines.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "diorama": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@diorama/protocol": "0.0.0",
+    "@gltf-transform/core": "4.5.0",
+    "@gltf-transform/extensions": "4.5.0",
+    "@gltf-transform/functions": "4.5.0",
+    "draco3dgltf": "1.5.7",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.4"
+  },
+  "devDependencies": {
+    "@types/draco3dgltf": "1.4.3",
+    "@types/node": "26.5.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}

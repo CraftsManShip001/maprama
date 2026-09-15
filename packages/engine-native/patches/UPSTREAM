@@ -1,0 +1,2 @@
+# Upstream maplibre/maplibre-native ref the patch queue applies to (first non-comment line).
+# Not pinned yet: milestone M1 pins a release tag (see DESIGN.md §10). Until then pass --base explicitly.

@@ -1,0 +1,47 @@
+{
+  "name": "@diorama/engine-web",
+  "version": "0.0.0",
+  "description": "Diorama web render engine (three.js) implementing the @diorama/protocol message contract.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./engine-html": {
+      "types": "./dist/engine-html.d.ts",
+      "import": "./dist/engine-html.js",
+      "default": "./dist/engine-html.js"
+    },
+    "./engine.html": "./dist/engine.html",
+    "./iife": "./dist/engine.iife.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "esbuild dev/main.ts --bundle --format=esm --sourcemap --outdir=dev/build --servedir=dev --serve=5173",
+    "screenshot": "node scripts/screenshot.mjs",
+    "fixtures": "node scripts/make-glb-fixture.mjs"
+  },
+  "dependencies": {
+    "@diorama/protocol": "*",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "4.5.0",
+    "@types/three": "0.186.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}

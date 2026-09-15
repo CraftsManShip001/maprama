@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "Mini Seongsu fixture",
+  "origin": { "lng": 127.0559, "lat": 37.5446 },
+  "unitMeters": 8,
+  "bounds": { "minX": -100, "minZ": -100, "maxX": 100, "maxZ": 100 },
+  "roads": [],
+  "buildings": [],
+  "water": [],
+  "parks": [],
+  "pois": [
+    { "id": "p1", "name": "성수 카페 온더", "cat": "cafe", "x": 10, "z": -5 },
+    { "id": "p2", "name": "서울숲 음악당", "cat": "music", "x": -60, "z": -8 }
+  ],
+  "stations": [
+    { "id": "s1", "name": "성수역", "x": 0, "z": 0 },
+    { "id": "s2", "name": "뚝섬역", "x": -80, "z": -2 }
+  ],
+  "districts": [],
+  "attribution": ["© OpenStreetMap contributors"]
+}

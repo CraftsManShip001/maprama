@@ -1,0 +1,193 @@
+/*
+ * Diorama docs identity: ink-violet neutrals, one cobalt accent, Jua display
+ * headings, IBM Plex Sans KR body, JetBrains Mono code (same tokens as the
+ * approved preview).
+ */
+:root {
+  --dio-ink: #221e35;
+  --dio-ink-2: #5b5873;
+  --dio-ink-3: #8a87a0;
+  --dio-ground: #eff0f5;
+  --dio-surface: #ffffff;
+  --dio-surface-2: #e6e8f1;
+  --dio-line: #d9dbe6;
+  --dio-accent: #2f5bea;
+  --dio-accent-soft: #dfe6fd;
+  --dio-mod: #a8651a;
+  --dio-code-bg: #1e1b2c;
+  --dio-lift: 0 1px 0 rgba(34, 30, 53, 0.04), 0 18px 40px -24px rgba(34, 30, 53, 0.35);
+
+  --vp-font-family-base: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --dio-display: 'Jua', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+
+  --vp-c-brand-1: #2f5bea;
+  --vp-c-brand-2: #2449c9;
+  --vp-c-brand-3: #2f5bea;
+  --vp-c-brand-soft: rgba(47, 91, 234, 0.12);
+
+  --vp-c-bg: #fbfbfd;
+  --vp-c-bg-alt: var(--dio-ground);
+  --vp-c-bg-soft: var(--dio-surface-2);
+  --vp-c-text-1: var(--dio-ink);
+  --vp-c-text-2: var(--dio-ink-2);
+  --vp-c-text-3: var(--dio-ink-3);
+  --vp-c-divider: var(--dio-line);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #2f5bea 10%, #7b61ff 60%, #e3a23b 100%);
+  --vp-home-hero-image-background-image: none;
+  --vp-button-brand-bg: #2f5bea;
+  --vp-button-brand-hover-bg: #2449c9;
+  --vp-code-block-bg: var(--dio-code-bg);
+  --vp-custom-block-tip-bg: var(--dio-accent-soft);
+}
+
+.dark {
+  --dio-ink: #ece9f6;
+  --dio-ink-2: #ada9c1;
+  --dio-ink-3: #7f7b95;
+  --dio-ground: #14121c;
+  --dio-surface: #1d1a28;
+  --dio-surface-2: #282536;
+  --dio-line: #332f46;
+  --dio-accent: #8aa3ff;
+  --dio-accent-soft: #232b4f;
+  --dio-mod: #e3ab55;
+  --dio-code-bg: #0e0d15;
+  --dio-lift: 0 18px 40px -24px rgba(0, 0, 0, 0.7);
+
+  --vp-c-brand-1: #8aa3ff;
+  --vp-c-brand-2: #a9bbff;
+  --vp-c-brand-3: #5d7ef5;
+  --vp-c-brand-soft: rgba(138, 163, 255, 0.16);
+  --vp-c-bg: #14121c;
+  --vp-c-bg-alt: #110f18;
+  --vp-c-bg-soft: #1d1a28;
+  --vp-button-brand-bg: #5d7ef5;
+  --vp-button-brand-text: #0f0e18;
+  --vp-button-brand-hover-text: #0f0e18;
+}
+
+/* ---- typography ---- */
+.vp-doc h1,
+.vp-doc h2,
+.VPHero .name,
+.VPHero .text,
+.VPFeature .title,
+.dio-section h2,
+.dio-section h3 {
+  font-family: var(--dio-display);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.vp-doc h1 { font-size: 34px; }
+.vp-doc h2 { font-size: 26px; border-top: 0; margin-top: 56px; }
+.vp-doc h2::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--vp-c-brand-1);
+  margin-bottom: 14px;
+}
+.vp-doc table { font-size: 14px; }
+.vp-doc :not(pre) > code { font-size: 0.86em; }
+
+/* ---- home hero ---- */
+.VPHero .name { line-height: 1.1; }
+.VPHero .text { font-size: clamp(28px, 4.2vw, 46px); line-height: 1.2; }
+.VPHero .tagline { font-size: 17px; max-width: 520px; }
+/* the hero image slot holds the live playground (not a square picture) */
+.VPHero .image { margin: 28px 0 0; width: 100%; }
+.VPHero .image .image-container { width: 100%; height: auto; transform: none; display: block; }
+.VPHero .image .image-bg { display: none; }
+@media (min-width: 960px) {
+  .VPHero.has-image .container { align-items: center; }
+  .VPHero .image { flex: 1 1 0; order: 2; margin: 0 0 0 32px; min-width: 0; min-height: 0; }
+}
+.VPFeature { border-radius: 14px; box-shadow: var(--dio-lift); }
+.VPFeature .title { font-size: 19px; }
+
+/* ---- home sections (decisions, stack, milestones) ---- */
+.dio-section { margin: 72px 0 0; }
+.dio-section h2 { font-size: 30px; margin: 0 0 6px; }
+.dio-section > p.sub { color: var(--vp-c-text-2); margin: 0 0 22px; }
+.dio-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.dio-card {
+  background: var(--dio-surface);
+  border: 1px solid var(--dio-line);
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  box-shadow: var(--dio-lift);
+}
+.dio-card h3 { font-size: 18px; margin: 0 0 6px; }
+.dio-card p { margin: 0; color: var(--vp-c-text-2); font-size: 14px; line-height: 1.65; }
+.dio-card .kicker { font: 600 11px/1 var(--vp-font-family-mono); letter-spacing: 0.06em; color: var(--vp-c-brand-1); text-transform: uppercase; margin-bottom: 10px; display: block; }
+
+.dio-stack { display: grid; gap: 8px; }
+.dio-layer {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) 1fr;
+  gap: 14px;
+  align-items: center;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--dio-surface);
+  border: 1px solid var(--dio-line);
+  border-left: 5px solid var(--dio-line);
+}
+.dio-layer.new { border-left-color: var(--vp-c-brand-1); }
+.dio-layer.mod { border-left-color: var(--dio-mod); }
+.dio-layer h3 { margin: 0; font-size: 17px; }
+.dio-layer .sub { margin: 2px 0 0; font-size: 12px; color: var(--vp-c-text-3); }
+.dio-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dio-chips span {
+  font: 500 12px/1 var(--vp-font-family-mono);
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--dio-surface-2);
+  color: var(--vp-c-text-1);
+}
+.dio-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--vp-c-text-2); margin-bottom: 12px; }
+.dio-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--dio-line); }
+.dio-legend i.new { background: var(--vp-c-brand-1); }
+.dio-legend i.mod { background: var(--dio-mod); }
+@media (max-width: 640px) {
+  .dio-layer { grid-template-columns: 1fr; }
+}
+
+.dio-milestones { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); counter-reset: ms; }
+.dio-milestones .dio-card { position: relative; }
+.dio-milestones .tag {
+  display: inline-block;
+  font: 600 12px/1 var(--vp-font-family-mono);
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  margin-bottom: 10px;
+}
+.dio-milestones ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--vp-c-text-2); }
+.dio-milestones .done { margin-top: 10px; font-size: 12px; color: var(--vp-c-text-1); border-top: 1px dashed var(--dio-line); padding-top: 8px; }
+
+/* ---- status badges used in guides ---- */
+.dio-badge {
+  display: inline-block;
+  font: 600 11px/1 var(--vp-font-family-mono);
+  padding: 4px 7px;
+  border-radius: 999px;
+  vertical-align: 2px;
+  background: var(--dio-surface-2);
+  color: var(--vp-c-text-2);
+}
+.dio-badge.v1 { background: var(--vp-c-brand-soft); color: var(--vp-c-brand-1); }
+.dio-badge.planned { background: rgba(227, 162, 59, 0.16); color: var(--dio-mod); }
+
+/* ---- playground page gets the full content width ---- */
+@media (min-width: 960px) {
+  .dio-wide .VPDoc:not(.has-sidebar) .container { max-width: 1280px; }
+  .dio-wide .VPDoc:not(.has-sidebar) .content { max-width: 1216px; }
+  .dio-wide .VPDoc .content-container { max-width: none; }
+}

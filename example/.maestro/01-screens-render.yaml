@@ -1,0 +1,101 @@
+# Launch → every catalog screen renders and its engine reports ready.
+appId: dev.diorama.catalog
+name: Every screen renders with engine ready
+tags:
+  - smoke
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: themes
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/01-themes
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: world
+- assertVisible:
+    id: "world-state"
+    text: "Seongsu-dong OSM sample.*"
+- takeScreenshot: screenshots/02-world
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: character
+- extendedWaitUntil:
+    visible:
+      id: "player-position"
+      text: "me: [0-9].*"
+    timeout: 20000
+# The sample glTF (a data: URI) must load: no model_load_failed in the event log or error badge.
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertNotVisible:
+    text: ".*model_load_failed.*"
+- takeScreenshot: screenshots/03-character
+# Same screen with the engine's default avatar, to compare with the sample robot above.
+- tapOn:
+    id: "character-model-default"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/03-character-default
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: travel
+- takeScreenshot: screenshots/04-travel
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: drops
+- takeScreenshot: screenshots/05-drops
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: labels
+- takeScreenshot: screenshots/06-labels
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: buildings
+- tapOn:
+    id: "geofence-enter"
+- extendedWaitUntil:
+    visible:
+      id: "geofence-state"
+      text: ".*inside"
+    timeout: 20000
+- tapOn:
+    id: "pick-building"
+- assertVisible:
+    id: "building-selected"
+    text: "selected: w.*"
+# The style editor renders under the selection readout, below the fold of the control panel.
+# Swipe on the panel itself: a screen-centre scroll would land on the map and pan it instead.
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        id: "building-roof-dome"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- tapOn:
+    id: "building-roof-dome"
+- assertVisible:
+    id: "building-selected"
+    text: "selected: w.*"
+- takeScreenshot: screenshots/07-buildings
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: multiplayer
+- extendedWaitUntil:
+    visible:
+      id: "mp-tick"
+      text: "server tick: [3-9].*"
+    timeout: 15000
+- takeScreenshot: screenshots/08-multiplayer

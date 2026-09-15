@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diorama engine-web playground</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #14121c; font: 13px/1.4 system-ui, sans-serif; color: #ece9f6; }
+  #map { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 12px; right: 12px; width: 230px; max-height: calc(100% - 24px); overflow: auto; z-index: 10;
+    background: rgba(20, 18, 28, .86); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); }
+  #panel[hidden] { display: none; }
+  #panel h1 { font-size: 13px; margin: 0 0 8px; }
+  #panel label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
+  #panel select { width: 120px; }
+  #panel button { width: 100%; margin-top: 8px; padding: 6px; border-radius: 8px; border: 0; background: #2f5bea; color: #fff; font: inherit; cursor: pointer; }
+  #panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #ada9c1; margin: 12px 0 4px; }
+  #panel .row { display: flex; flex-wrap: wrap; gap: 4px; }
+  #panel .row button { width: auto; flex: 1 0 30%; margin-top: 4px; padding: 5px 4px; }
+  #panel button[aria-pressed="true"] { background: #12a38a; }
+  #panel input[type=text] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 5px 6px; border-radius: 6px; border: 1px solid #3a3650; background: #1d1a28; color: inherit; font: inherit; }
+  #panel .log { margin-top: 8px; font-size: 11px; color: #ada9c1; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<aside id="panel" aria-label="Playground controls"></aside>
+<script type="module" src="./build/main.js"></script>
+</body>
+</html>

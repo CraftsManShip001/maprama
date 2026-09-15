@@ -1,0 +1,57 @@
+{
+  "name": "@diorama/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Diorama hosted service: world data and vector tiles, place search, transit, dynamic drops with verified collection, API keys, usage metering and webhooks (Cloudflare Workers + Hono).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js",
+      "default": "./dist/verify.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "openapi.yaml"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build:worker": "wrangler deploy --dry-run --outdir dist/worker",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "wrangler dev --local",
+    "dev:local": "tsx src/dev/local.ts",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "seed:world": "tsx scripts/seed-from-world.ts",
+    "import:addresses": "tsx scripts/import-addresses.ts",
+    "create-key": "tsx scripts/create-key.ts",
+    "lint:openapi": "npx --yes @redocly/cli@2.53.0 lint openapi.yaml"
+  },
+  "dependencies": {
+    "@diorama/protocol": "0.0.0",
+    "hono": "4.13.8",
+    "pmtiles": "4.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260915.1",
+    "@hono/node-server": "2.1.1",
+    "@types/node": "26.5.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0",
+    "wrangler": "4.131.2"
+  }
+}

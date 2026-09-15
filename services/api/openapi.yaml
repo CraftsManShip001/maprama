@@ -1,0 +1,884 @@
+openapi: 3.1.0
+info:
+  title: Diorama API
+  version: 0.1.0
+  summary: Hosted map data, search, transit and verified drops for Diorama apps.
+  description: |
+    The paid hosted service next to the open-source Diorama SDK.
+
+    ## Authentication
+    Every endpoint except `/v1/health` needs an API key:
+    `Authorization: Bearer <key>`. Map clients that cannot set headers may pass
+    `?key=<key>` **only** on `GET /v1/worlds/*` and `GET /v1/tiles/*`; elsewhere a
+    query key is rejected with `401 QUERY_KEY_NOT_ALLOWED`.
+
+    Keys have a role: `client` (apps/devices), `server` (app backends) and
+    `admin` (app owner). Keys are stored as SHA-256 hashes only.
+
+    ## Usage and billing
+    Billable requests add weighted units to the key's UTC-month counter:
+    `tile` 1, `world` 20, `search` 5 (search and reverse), `transit` 2,
+    `drops` 2, `collect` 10. A request is billable when its status is < 400,
+    or 422 for collect verification. Free keys receive `429 QUOTA_EXCEEDED`
+    once the monthly quota would be exceeded; pro keys continue and the excess
+    is recorded as overage. Metered responses carry `X-Diorama-Usage`,
+    `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
+
+    ## Errors
+    Errors are JSON `{ "error": { "code": "...", "message": "..." } }` with a
+    stable `code` (see the `ErrorCode` schema).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://localhost:8787
+    description: Local development (`npm run dev:local` or `wrangler dev --local`)
+security:
+  - bearerAuth: []
+tags:
+  - name: System
+    description: Health.
+  - name: Maps
+    description: WorldData JSON and vector tiles served from object storage.
+  - name: Search
+    description: Place search and reverse geocoding (Korean road-name addresses and OSM POIs).
+  - name: Transit
+    description: Public transit stations and lines.
+  - name: Drops
+    description: Deterministic dynamic drops and server-side collection verification.
+  - name: Webhooks
+    description: Signed webhooks to app servers.
+  - name: Receipts
+    description: Secrets for verifying signed collect receipts.
+  - name: Usage
+    description: Monthly usage for the calling key.
+
+paths:
+  /v1/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/worlds/{region}.json:
+    get:
+      tags: [Maps]
+      operationId: getWorld
+      summary: Get a WorldData JSON file
+      description: Billable unit `world`. Supports `If-None-Match` revalidation.
+      security:
+        - bearerAuth: []
+        - queryKey: []
+      parameters:
+        - $ref: '#/components/parameters/Region'
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: WorldData (schema version 1, see `@diorama/protocol`).
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+            X-RateLimit-Limit: { $ref: '#/components/headers/XRateLimitLimit' }
+            X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: WorldData as defined by `@diorama/protocol`.
+                additionalProperties: true
+        '304':
+          description: Not modified.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/tiles/{tileset}.json:
+    get:
+      tags: [Maps]
+      operationId: getTileJson
+      summary: Get TileJSON for a vector tileset
+      description: |
+        Built from the PMTiles header and metadata. When the request used
+        `?key=`, the tile URL template carries the same query key. Billable unit `tile`.
+      security:
+        - bearerAuth: []
+        - queryKey: []
+      parameters:
+        - $ref: '#/components/parameters/Tileset'
+      responses:
+        '200':
+          description: TileJSON 3.0.0.
+          headers:
+            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TileJson' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/tiles/{tileset}/{z}/{x}/{y}.mvt:
+    get:
+      tags: [Maps]
+      operationId: getTile
+      summary: Get a Mapbox Vector Tile
+      description: |
+        Read from a PMTiles v3 archive with byte-range requests. The body is
+        gzip-encoded when `Accept-Encoding` allows gzip (`Content-Encoding: gzip`),
+        identity otherwise. Empty, missing and out-of-zoom tiles return 204.
+        Billable unit `tile`.
+      security:
+        - bearerAuth: []
+        - queryKey: []
+      parameters:
+        - $ref: '#/components/parameters/Tileset'
+        - { name: z, in: path, required: true, schema: { type: integer, minimum: 0, maximum: 26 } }
+        - { name: x, in: path, required: true, schema: { type: integer, minimum: 0 } }
+        - { name: y, in: path, required: true, schema: { type: integer, minimum: 0 } }
+        - name: Accept-Encoding
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Tile bytes.
+          headers:
+            Content-Encoding:
+              description: '`gzip` when negotiated.'
+              schema: { type: string, enum: [gzip] }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+          content:
+            application/vnd.mapbox-vector-tile:
+              schema: { type: string, format: binary }
+        '204':
+          description: Empty tile.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/search:
+    get:
+      tags: [Search]
+      operationId: searchPlaces
+      summary: Search places by name or address
+      description: |
+        Matches normalized Korean names and addresses (spacing and punctuation
+        ignored) with a character-bigram index; one-character queries match word
+        prefixes. With `near`, score = 0.7 × text score + 0.3 × 1 / (1 + distance / 1 km).
+        Billable unit `search`.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 100 } }
+        - name: near
+          in: query
+          required: false
+          description: '`lng,lat`'
+          schema: { type: string, pattern: '^-?[0-9.]+,-?[0-9.]+$' }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+      responses:
+        '200':
+          description: Ranked results.
+          headers:
+            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, results]
+                properties:
+                  query: { type: string }
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/SearchResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/reverse:
+    get:
+      tags: [Search]
+      operationId: reverseGeocode
+      summary: Nearest address point
+      description: Nearest road-name address point within `radius` (max 200 m). Billable unit `search`.
+      parameters:
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: radius, in: query, required: false, schema: { type: number, minimum: 1, maximum: 200, default: 200 } }
+      responses:
+        '200':
+          description: The nearest address, or `null`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result:
+                    oneOf:
+                      - type: 'null'
+                      - type: object
+                        required: [id, name, address, coordinate, distanceMeters]
+                        properties:
+                          id: { type: string }
+                          name: { type: string }
+                          address: { type: [string, 'null'] }
+                          coordinate: { $ref: '#/components/schemas/LngLat' }
+                          distanceMeters: { type: number }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/transit/stations:
+    get:
+      tags: [Transit]
+      operationId: listStations
+      summary: Stations in a bounding box
+      description: At most 500 stations; the bbox may span at most 2° per axis. Billable unit `transit`.
+      parameters:
+        - name: bbox
+          in: query
+          required: true
+          description: '`west,south,east,north` in degrees'
+          schema: { type: string }
+      responses:
+        '200':
+          description: Stations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stations]
+                properties:
+                  stations:
+                    type: array
+                    items: { $ref: '#/components/schemas/Station' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/transit/lines/{lineId}:
+    get:
+      tags: [Transit]
+      operationId: getLine
+      summary: A transit line with ordered stations
+      description: Billable unit `transit`.
+      parameters:
+        - { name: lineId, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,64}$' } }
+      responses:
+        '200':
+          description: The line.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Line' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/drops/campaigns:
+    post:
+      tags: [Drops]
+      operationId: createCampaign
+      summary: Create a drop campaign
+      description: |
+        Requires role `admin` or `server`. Drops are not stored: every
+        campaign × time window × geohash (precision 6) cell yields its drops from a
+        seeded PRNG, so all clients see the same drops. Not metered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CampaignCreate' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [campaign]
+                properties:
+                  campaign: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+
+  /v1/drops/nearby:
+    get:
+      tags: [Drops]
+      operationId: getNearbyDrops
+      summary: Drops near a position in the current window
+      description: Sorted by distance, at most 1000. Billable unit `drops`.
+      parameters:
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: radius, in: query, required: false, schema: { type: number, minimum: 1, maximum: 3000, default: 500 } }
+        - { name: channel, in: query, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,64}$' } }
+      responses:
+        '200':
+          description: Drops.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [drops, generatedAt, expiresAt]
+                properties:
+                  drops:
+                    type: array
+                    items: { $ref: '#/components/schemas/DropSpec' }
+                  generatedAt: { type: integer, description: Server time (ms). }
+                  expiresAt:
+                    type: [integer, 'null']
+                    description: End of the earliest current window (ms); refetch after it.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/drops/collect:
+    post:
+      tags: [Drops]
+      operationId: collectDrop
+      summary: Verify a drop collection
+      description: |
+        The SDK judges collection on-device and forwards it here. Verification:
+        the drop exists in the current or previous window of its campaign
+        (`DROP_NOT_FOUND`, `DROP_EXPIRED`); the fix timestamp is within ±2 minutes
+        of the server clock (`STALE_FIX`); distance ≤ collectRadiusMeters +
+        min(accuracyMeters, 30) (`TOO_FAR`); the user has not collected the drop
+        (`ALREADY_COLLECTED`); the implied speed since the user's last verified
+        collect is ≤ 90 m/s (`TELEPORT`), where elapsed time is measured between
+        server verification times (client fix timestamps are not trusted for it). A reused `collectId` for the same drop
+        and user returns the original receipt (`replayed: true`); for a different
+        drop or user it is `409 COLLECT_ID_CONFLICT`. On success a
+        `drop.collected` webhook is enqueued. Billable unit `collect`
+        (also billed on 422).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectRequest' }
+      responses:
+        '200':
+          description: Verified.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: collectId already used for a different drop or user (`COLLECT_ID_CONFLICT`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422':
+          description: Verification failed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                tooFar:
+                  value: { error: { code: TOO_FAR, message: Fix is 55 m from the drop (allowed 50 m) } }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+
+  /v1/webhooks:
+    post:
+      tags: [Webhooks]
+      operationId: setWebhookEndpoint
+      summary: Create or replace the app's webhook endpoint
+      description: |
+        Requires role `admin`. A new signing secret is generated only when the
+        app has no endpoint yet or the body has `rotateSecret: true`; otherwise
+        the URL is updated and the existing secret is returned unchanged
+        (`secretRotated: false`), so already-deployed verifiers keep working.
+        The response also returns the app's `receiptSecret` (also available from
+        `GET /v1/receipts/secret`).
+
+        URL policy (SSRF guard): `https` only, no credentials, no IP-literal hosts
+        (IPv4 or IPv6), no single-label hosts, and no `localhost`, `*.local`,
+        `*.internal`, `*.localdomain` or `*.home.arpa` names. Local development
+        servers started with `allowInsecureLocalWebhooks` (`npm run dev:local`)
+        additionally accept `localhost`, `127.0.0.1` and `[::1]` over http.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: https URL on a public hostname (see the URL policy above).
+                rotateSecret:
+                  type: boolean
+                  default: false
+                  description: Generate a new signing secret for an existing endpoint.
+      responses:
+        '201':
+          description: Endpoint stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, secret, secretRotated, receiptSecret, createdAt, updatedAt]
+                properties:
+                  url: { type: string }
+                  secret: { type: string, description: 'Signing secret (`whsec_...`), the current one whether or not it was rotated.' }
+                  secretRotated: { type: boolean, description: 'Whether this call generated a new signing secret.' }
+                  receiptSecret: { type: string, description: Per-app secret for `verifyReceipt`. }
+                  createdAt: { type: integer }
+                  updatedAt: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+
+  /v1/receipts/secret:
+    get:
+      tags: [Receipts]
+      operationId: getReceiptSecret
+      summary: Read the app's receipt verification secret
+      description: |
+        Requires role `admin`. Returns the per-app secret for `verifyReceipt`
+        (derived from the service `RECEIPT_SECRET` and the key's `appId`). It
+        does not read or change webhook configuration. Responses are
+        `Cache-Control: no-store`. Not metered.
+      responses:
+        '200':
+          description: Receipt secret.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [receiptSecret]
+                properties:
+                  receiptSecret: { type: string, description: Per-app secret for `verifyReceipt`. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/webhooks/test:
+    post:
+      tags: [Webhooks]
+      operationId: testWebhook
+      summary: Send a test event synchronously
+      description: Requires role `admin`. Up to 3 attempts with 1 s and 4 s backoff; every attempt is recorded.
+      responses:
+        '200':
+          description: Delivery result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deliveryId, delivered, attempts]
+                properties:
+                  deliveryId: { type: string }
+                  delivered: { type: boolean }
+                  attempts:
+                    type: array
+                    items:
+                      type: object
+                      required: [attempt, ok, responseStatus, error, attemptedAt]
+                      properties:
+                        attempt: { type: integer }
+                        ok: { type: boolean }
+                        responseStatus: { type: [integer, 'null'] }
+                        error: { type: [string, 'null'] }
+                        attemptedAt: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No endpoint configured (`WEBHOOK_NOT_CONFIGURED`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/usage:
+    get:
+      tags: [Usage]
+      operationId: getUsage
+      summary: Current UTC-month usage for the calling key
+      responses:
+        '200':
+          description: Usage breakdown.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Usage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+webhooks:
+  dropCollected:
+    post:
+      operationId: onDropCollected
+      summary: A drop collection was verified
+      description: |
+        Sent to the app's endpoint with `Diorama-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`,
+        `Diorama-Event` and `Diorama-Delivery` headers. Verify with
+        `verifyWebhookSignature` from `@diorama/api/verify`. Respond 2xx; non-2xx
+        or network errors are retried up to 3 attempts in total.
+      security: []
+      parameters:
+        - { name: Diorama-Signature, in: header, required: true, schema: { type: string } }
+        - { name: Diorama-Event, in: header, required: true, schema: { type: string, enum: [drop.collected, webhook.test] } }
+        - { name: Diorama-Delivery, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEvent' }
+      responses:
+        '200':
+          description: Accepted by the app server.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: '`Authorization: Bearer dio_...`'
+    queryKey:
+      type: apiKey
+      in: query
+      name: key
+      description: Only for `GET /v1/worlds/*` and `GET /v1/tiles/*`.
+
+  parameters:
+    Region:
+      name: region
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
+    Tileset:
+      name: tileset
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
+
+  headers:
+    ETag:
+      description: Entity tag of the stored object.
+      schema: { type: string }
+    CacheControl:
+      description: '`private, max-age=86400, stale-while-revalidate=604800`'
+      schema: { type: string }
+    XDioramaUsage:
+      description: '`<used units>/<monthly quota>` after this request.'
+      schema: { type: string }
+    XRateLimitLimit:
+      description: Monthly quota in billable units.
+      schema: { type: integer }
+    XRateLimitRemaining:
+      description: Remaining billable units this month.
+      schema: { type: integer }
+
+  responses:
+    BadRequest:
+      description: '`INVALID_REQUEST` or `INVALID_JSON`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: '`MISSING_KEY`, `INVALID_KEY`, `MALFORMED_AUTHORIZATION` or `QUERY_KEY_NOT_ALLOWED`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: '`FORBIDDEN_ROLE`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: '`NOT_FOUND`.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: '`PAYLOAD_TOO_LARGE` (body > 256 KiB).'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    QuotaExceeded:
+      description: '`QUOTA_EXCEEDED` (free plan only).'
+      headers:
+        X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+        X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_REQUEST
+        - INVALID_JSON
+        - MISSING_KEY
+        - INVALID_KEY
+        - MALFORMED_AUTHORIZATION
+        - QUERY_KEY_NOT_ALLOWED
+        - FORBIDDEN_ROLE
+        - NOT_FOUND
+        - WEBHOOK_NOT_CONFIGURED
+        - COLLECT_ID_CONFLICT
+        - PAYLOAD_TOO_LARGE
+        - DROP_NOT_FOUND
+        - DROP_EXPIRED
+        - TOO_FAR
+        - STALE_FIX
+        - ALREADY_COLLECTED
+        - TELEPORT
+        - QUOTA_EXCEEDED
+        - INTERNAL_ERROR
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string }
+    LngLat:
+      type: object
+      required: [lng, lat]
+      properties:
+        lng: { type: number, minimum: -180, maximum: 180 }
+        lat: { type: number, minimum: -90, maximum: 90 }
+    Bbox:
+      type: array
+      description: '`[west, south, east, north]`'
+      minItems: 4
+      maxItems: 4
+      items: { type: number }
+    DropSpec:
+      type: object
+      description: '`DropSpec` from `@diorama/protocol`. `id` = `d1.<campaignId>.<window>.<geohash>.<index>`.'
+      required: [id, type, coordinate]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [coin, cd, vinyl, note, model] }
+        coordinate: { $ref: '#/components/schemas/LngLat' }
+        rarity: { type: string, enum: [common, rare, legendary] }
+        value: { type: number }
+        payload: {}
+    SearchResult:
+      type: object
+      required: [id, kind, name, address, category, coordinate, score]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [poi, address, station] }
+        name: { type: string }
+        address: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
+        coordinate: { $ref: '#/components/schemas/LngLat' }
+        distanceMeters: { type: number, description: Present when `near` was given. }
+        score: { type: number }
+    Station:
+      type: object
+      required: [id, name, coordinate, lineIds]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        coordinate: { $ref: '#/components/schemas/LngLat' }
+        lineIds:
+          type: array
+          items: { type: string }
+    Line:
+      type: object
+      required: [id, name, color, stations]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        color: { type: string, description: CSS hex color. }
+        stations:
+          type: array
+          description: In travel order.
+          items: { $ref: '#/components/schemas/Station' }
+    TileJson:
+      type: object
+      required: [tilejson, name, scheme, tiles, minzoom, maxzoom, bounds, center, vector_layers]
+      properties:
+        tilejson: { type: string, const: 3.0.0 }
+        name: { type: string }
+        description: { type: string }
+        version: { type: string }
+        attribution: { type: string }
+        scheme: { type: string, const: xyz }
+        tiles:
+          type: array
+          items: { type: string }
+        minzoom: { type: integer }
+        maxzoom: { type: integer }
+        bounds:
+          type: array
+          items: { type: number }
+        center:
+          type: array
+          items: { type: number }
+        vector_layers:
+          type: array
+          items: { type: object }
+    DropArea:
+      oneOf:
+        - type: object
+          required: [center, radiusMeters]
+          properties:
+            center: { $ref: '#/components/schemas/LngLat' }
+            radiusMeters: { type: number, minimum: 1, maximum: 50000 }
+        - type: object
+          required: [bbox]
+          properties:
+            bbox: { $ref: '#/components/schemas/Bbox' }
+    CampaignCreate:
+      type: object
+      required: [channel, type, rarityWeights, payloadPool, area, density, windowMinutes, startsAt, endsAt, collectRadiusMeters]
+      properties:
+        channel: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,64}$' }
+        type:
+          type: string
+          enum: [coin, cd, vinyl, note]
+          description: '`model` is not supported for campaigns yet.'
+        rarityWeights:
+          type: object
+          properties:
+            common: { type: number, minimum: 0 }
+            rare: { type: number, minimum: 0 }
+            legendary: { type: number, minimum: 0 }
+        payloadPool:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {}
+          description: JSON values; each drop gets one (≤ 64 KiB total).
+        area: { $ref: '#/components/schemas/DropArea' }
+        density: { type: number, exclusiveMinimum: 0, maximum: 1000, description: Expected drops per km². }
+        windowMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        collectRadiusMeters: { type: number, minimum: 1, maximum: 500 }
+    Campaign:
+      allOf:
+        - $ref: '#/components/schemas/CampaignCreate'
+        - type: object
+          required: [id, appId, createdAt]
+          properties:
+            id: { type: string }
+            appId: { type: string }
+            createdAt: { type: integer }
+    CollectRequest:
+      type: object
+      required: [dropId, collectId, userId, fix]
+      properties:
+        dropId: { type: string }
+        collectId: { type: string, pattern: '^[A-Za-z0-9_.:-]{8,128}$' }
+        userId: { type: string, minLength: 1, maxLength: 128 }
+        fix:
+          type: object
+          required: [lng, lat, accuracyMeters, timestamp]
+          properties:
+            lng: { type: number }
+            lat: { type: number }
+            accuracyMeters: { type: number, minimum: 0 }
+            timestamp: { type: integer, description: Milliseconds since the Unix epoch. }
+    CollectResponse:
+      type: object
+      required: [receipt, replayed, collect]
+      properties:
+        receipt:
+          type: string
+          description: '`base64url(canonical JSON claims).base64url(HMAC-SHA256)`; verify with `verifyReceipt`.'
+        replayed: { type: boolean }
+        collect:
+          type: object
+          required: [dropId, collectId, userId, collectedAt]
+          properties:
+            dropId: { type: string }
+            collectId: { type: string }
+            userId: { type: string }
+            collectedAt: { type: integer }
+    ReceiptClaims:
+      type: object
+      required: [v, appId, dropId, collectId, userId, payload, collectedAt]
+      properties:
+        v: { type: integer, const: 1 }
+        appId: { type: string }
+        dropId: { type: string }
+        collectId: { type: string }
+        userId: { type: string }
+        payload: {}
+        collectedAt: { type: integer }
+        type: { type: string }
+        rarity: { type: string }
+    WebhookEvent:
+      type: object
+      required: [id, type, createdAt, appId, data]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [drop.collected, webhook.test] }
+        createdAt: { type: integer }
+        appId: { type: string }
+        data:
+          description: For `drop.collected`, the receipt claims plus the `receipt` token.
+          oneOf:
+            - allOf:
+                - $ref: '#/components/schemas/ReceiptClaims'
+                - type: object
+                  required: [receipt]
+                  properties:
+                    receipt: { type: string }
+            - type: object
+              required: [message]
+              properties:
+                message: { type: string }
+    Usage:
+      type: object
+      required: [month, appId, plan, monthlyQuota, usedUnits, remainingUnits, overageUnits, breakdown]
+      properties:
+        month: { type: string, example: 2026-09 }
+        appId: { type: string }
+        plan: { type: string, enum: [free, pro] }
+        monthlyQuota: { type: integer }
+        usedUnits: { type: integer }
+        remainingUnits: { type: integer }
+        overageUnits: { type: integer }
+        breakdown:
+          type: array
+          items:
+            type: object
+            required: [unit, weight, requests, units, overageUnits]
+            properties:
+              unit: { type: string, enum: [tile, world, search, transit, drops, collect] }
+              weight: { type: integer }
+              requests: { type: integer }
+              units: { type: integer }
+              overageUnits: { type: integer }

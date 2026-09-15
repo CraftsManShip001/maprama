@@ -1,0 +1,86 @@
+{
+  "name": "@diorama/react-native",
+  "version": "0.0.0",
+  "description": "Diorama for React Native: a 2.5D game map with characters, travel, drops, labels and geofences.",
+  "license": "Apache-2.0",
+  "main": "./lib/module/index.js",
+  "types": "./lib/typescript/index.d.ts",
+  "source": "./src/index.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./lib/typescript/index.d.ts",
+      "default": "./lib/module/index.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "lib",
+    "plugin/build",
+    "app.plugin.js",
+    "README.md",
+    "!**/__tests__",
+    "!**/__mocks__"
+  ],
+  "scripts": {
+    "clean": "node -e \"for (const d of ['lib','plugin/build']) require('node:fs').rmSync(d,{recursive:true,force:true})\"",
+    "build": "npm run clean && bob build && npm run build:plugin",
+    "build:plugin": "tsc -p plugin/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p plugin/tsconfig.json --noEmit",
+    "test": "jest"
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "exclude": "**/{__tests__,__mocks__}/**",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "peerDependencies": {
+    "expo-location": "*",
+    "react": ">=18.3.0",
+    "react-native": ">=0.76.0",
+    "react-native-webview": ">=13.12.0"
+  },
+  "peerDependenciesMeta": {
+    "expo-location": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@diorama/engine-web": "*",
+    "@diorama/protocol": "*"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@expo/config-plugins": "57.0.9",
+    "@jest/globals": "30.5.1",
+    "@react-native/babel-preset": "0.86.3",
+    "@react-native/jest-preset": "0.86.3",
+    "@testing-library/react-native": "14.0.1",
+    "@types/react": "19.2.18",
+    "babel-jest": "30.5.1",
+    "jest": "30.5.1",
+    "jest-environment-node": "30.5.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-builder-bob": "0.43.1",
+    "react-native-webview": "14.0.1",
+    "test-renderer": "1.2.0",
+    "typescript": "5.9.3"
+  }
+}

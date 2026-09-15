@@ -1,0 +1,31 @@
+{
+  "name": "diorama-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Diorama (codename): a React Native 2.5D game-map library.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "tools/*",
+    "services/*",
+    "example"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build:protocol": "npm run build -w @diorama/protocol",
+    "build": "npm run build:protocol && npm run build --workspaces --if-present",
+    "test": "npm run build:protocol && npm run test --workspaces --if-present",
+    "typecheck": "npm run build:protocol && npm run typecheck --workspaces --if-present",
+    "lint": "node -e \"console.log('lint: no linter configured yet (placeholder)')\"",
+    "docs:dev": "node docs/scripts/ensure-deps.mjs && npm --prefix docs run dev",
+    "docs:build": "node docs/scripts/ensure-deps.mjs && npm --prefix docs run build"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}

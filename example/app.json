@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Diorama Catalog",
+    "slug": "diorama-catalog",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "scheme": "diorama-catalog",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "dev.diorama.catalog",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "dev.diorama.catalog"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "@diorama/react-native",
+        {
+          "features": ["characters", "drops", "labels", "travel"],
+          "locationPermissionText": "Diorama Catalog shows your position on the 2.5D map."
+        }
+      ]
+    ]
+  }
+}

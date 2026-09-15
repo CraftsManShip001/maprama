@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+coverage/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+ios/build/
+ios/Pods/
+android/build/
+android/app/build/
+android/.gradle/
+.gradle/
+**/ios/build/
+**/ios/Pods/
+**/android/build/
+**/android/app/build/
+**/android/.gradle/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store

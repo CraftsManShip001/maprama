@@ -1,0 +1,25 @@
+{
+  "name": "@diorama/docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Diorama (codename) developer documentation: guides, API reference, service reference and the interactive playground.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "gen": "node scripts/gen-assets.mjs && node scripts/gen-api.mjs && node scripts/gen-openapi.mjs",
+    "dev": "npm run gen && vitepress dev . --port 5174",
+    "build": "npm run gen && vitepress build .",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.53.1",
+    "redoc": "2.5.4",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.13.0",
+    "typedoc-vitepress-theme": "1.1.4",
+    "typescript": "5.9.3",
+    "vitepress": "1.6.4",
+    "vue": "3.5.42",
+    "yaml": "2.9.1"
+  }
+}

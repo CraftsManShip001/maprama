@@ -1,0 +1,28 @@
+# Labels: switch the style to holo, then use the custom content function.
+appId: dev.diorama.catalog
+name: Labels switch to holo
+tags:
+  - labels
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: labels
+- tapOn:
+    id: "labels-style-holo"
+- assertVisible:
+    id: "labels-state"
+    text: "style: holo.*"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/labels-holo
+- tapOn:
+    id: "labels-content-function"
+- assertVisible:
+    id: "labels-state"
+    text: "style: holo · icons: auto · content: function.*"
+- tapOn:
+    id: "labels-refresh"
+- assertNotVisible:
+    text: "engine error.*"
+- takeScreenshot: screenshots/labels-holo-custom

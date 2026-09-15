@@ -1,0 +1,54 @@
+# Travel: walk to the far preset (≈350 m of road, about 13 s at the engine's demo speed) and wait for
+# travel:arrive, then relaunch and check that the near preset (≈75 m of road) arrives with a two-digit length.
+# Taps cap Maestro's wait-to-settle: the map keeps animating, so an uncapped tap can block for 20+ s and
+# return after the walk has already ended.
+appId: dev.diorama.catalog
+name: Travel arrives
+tags:
+  - travel
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: travel
+- tapOn:
+    id: "mode-walk"
+    waitToSettleTimeoutMs: 500
+- tapOn:
+    id: "travel-go-far"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "travel-status"
+      text: "status: travelling.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "travel-eta"
+      text: "ETA [0-9]+ s.*"
+    timeout: 20000
+- takeScreenshot: screenshots/travel-progress
+- extendedWaitUntil:
+    visible:
+      id: "travel-status"
+      text: "status: arrived"
+    timeout: 180000
+- takeScreenshot: screenshots/travel-arrived
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: travel
+- tapOn:
+    id: "mode-walk"
+    waitToSettleTimeoutMs: 500
+- tapOn:
+    id: "travel-go-near"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "travel-status"
+      text: "status: arrived"
+    timeout: 60000
+- assertVisible:
+    text: ".*arrived: walk [0-9]{2} m.*"
+- takeScreenshot: screenshots/travel-near-arrived

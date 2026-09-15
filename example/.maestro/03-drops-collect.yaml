@@ -1,0 +1,49 @@
+# Drops: push external location fixes onto the nearest drop and expect onCollect.
+# The player walks between fixes and can pass over another drop on the way, so one tap can collect
+# more than one drop. The counts below are therefore "at least" checks.
+# The onCollect toast only shows for 4 s, and a Maestro tap on this screen takes about 10 s to return
+# (the live map keeps the hierarchy busy), so the flow checks the event log line that the same
+# onCollect handler writes ("Collected <item> (<rarity>) from <layer>") instead of the toast.
+appId: dev.diorama.catalog
+name: Drops collect
+tags:
+  - drops
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: drops
+- assertVisible:
+    id: "collected-count"
+    text: "collected: 0"
+- tapOn:
+    id: "walk-to-drop"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "collected-count"
+      text: "collected: [1-9]"
+    timeout: 20000
+- takeScreenshot: screenshots/drops-collected
+- tapOn:
+    id: "walk-to-drop"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "collected-count"
+      text: "collected: [2-9]"
+    timeout: 20000
+# The event log sits below the fold of the control panel; swipe on the panel, not the map.
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        text: ".*Collected .* from .*"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- assertVisible:
+    text: ".*Collected .* from .*"
+- takeScreenshot: screenshots/drops-log

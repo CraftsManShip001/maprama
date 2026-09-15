@@ -1,0 +1,30 @@
+# Opens one catalog screen from a fresh launch and waits for the engine.
+# env: SCREEN = themes | world | character | travel | drops | labels | buildings | multiplayer
+appId: dev.diorama.catalog
+---
+- launchApp:
+    stopApp: true
+    permissions:
+      location: inuse
+- extendedWaitUntil:
+    visible:
+      id: "catalog-list"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: "nav-${SCREEN}"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "nav-${SCREEN}"
+- extendedWaitUntil:
+    visible:
+      id: "engine-status"
+      text: "engine ready"
+    timeout: 60000
+    label: "engine ready on ${SCREEN}"
+# No React Native red box / fatal engine error.
+- assertNotVisible:
+    text: "Render Error"
+- assertNotVisible:
+    text: "engine error.*"

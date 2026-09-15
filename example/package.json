@@ -1,0 +1,36 @@
+{
+  "name": "@diorama/example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Diorama feature catalog: an Expo Router app demonstrating every @diorama/react-native feature.",
+  "license": "Apache-2.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "prebuild:ios": "expo prebuild --platform ios --no-install",
+    "export:ios": "expo export --platform ios",
+    "typecheck": "tsc --noEmit",
+    "e2e": "maestro test .maestro"
+  },
+  "dependencies": {
+    "@diorama/protocol": "*",
+    "@diorama/react-native": "*",
+    "expo": "57.0.22",
+    "expo-constants": "~57.0.18",
+    "expo-linking": "~57.0.10",
+    "expo-location": "~57.0.17",
+    "expo-router": "~57.0.21",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-webview": "14.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "typescript": "5.9.3"
+  }
+}

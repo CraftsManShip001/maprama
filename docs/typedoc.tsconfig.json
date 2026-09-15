@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "customConditions": ["react-native"],
+    "baseUrl": ".",
+    "paths": {
+      "@diorama/protocol": ["../packages/protocol/src/index.ts"]
+    }
+  },
+  "include": ["../packages/protocol/src/**/*.ts", "../packages/react-native/src/**/*.ts", "../packages/react-native/src/**/*.tsx"],
+  "exclude": ["../packages/**/*.test.ts", "../packages/**/*.test.tsx", "../packages/**/__tests__/**", "../packages/**/__fixtures__/**", "../packages/**/__mocks__/**"]
+}
