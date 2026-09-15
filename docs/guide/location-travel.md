@@ -77,7 +77,7 @@ await map.current!.travel('me', destination, ['walk'], { timeScale: 5 }); // 이
 - 거리(`travel:start`의 `legs[].meters`, `travel:progress`의 `remainingMeters`)는 배속과 무관합니다.
 - `travel:progress`의 `etaSeconds`는 **지금 배속으로** 도착까지 남은 실제 시간(벽시계 초)입니다. 실제 속도 기준 ETA ÷ `timeScale`이에요.
 - `route` 요청의 `etaSeconds`는 배속과 무관한 실제 소요 시간입니다.
-- `character:position`의 `speedMps`는 화면 속 캐릭터의 지도 위 속도(초당 m)입니다. 이동 중에는 실제 속도 × `timeScale`이라서, GPS가 그 캐릭터에 대해 보고할 값과 같아요.
+- `character:position`의 `speedMps`는 화면 속 캐릭터의 지도 위 속도(초당 m)입니다. 이동 중에는 실제 속도 × `timeScale`이라서, GPS가 그 캐릭터에 대해 보고할 값과 같아요. 같은 기준이라 `simulated` 위치 소스의 캐릭터는 데모 루프를 빨리 감은 속도로 걷는 만큼 약 24 m/s로 보고됩니다(실제 보행 속도가 아닙니다).
 - 걷기 애니메이션은 캐릭터 크기에 대한 화면 속 속도에 맞춰 재생됩니다. 실제 속도처럼 화면에서 느릴 때도 최소 0.5배 속도로 움직입니다.
 
 ### 프로미스와 타임아웃

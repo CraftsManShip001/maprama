@@ -18,6 +18,9 @@ tags:
 - assertVisible:
     id: "world-state"
     text: "Seongsu-dong OSM sample.*"
+# Give slow (software-GPU) devices time to draw the first world frame before the screenshot.
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: screenshots/02-world
 - runFlow:
     file: subflows/open-screen.yaml
@@ -44,16 +47,22 @@ tags:
     file: subflows/open-screen.yaml
     env:
       SCREEN: travel
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: screenshots/04-travel
 - runFlow:
     file: subflows/open-screen.yaml
     env:
       SCREEN: drops
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: screenshots/05-drops
 - runFlow:
     file: subflows/open-screen.yaml
     env:
       SCREEN: labels
+- waitForAnimationToEnd:
+    timeout: 5000
 - takeScreenshot: screenshots/06-labels
 - runFlow:
     file: subflows/open-screen.yaml
