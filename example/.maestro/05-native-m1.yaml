@@ -1,0 +1,47 @@
+# Native engine (M1): the Seongsu world as a flat MapLibre map, camera presets update the camera:change
+# readout, and a project/unproject round trip answers.
+appId: dev.maprama.catalog
+name: Native engine M1 map, camera and project
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: "camera: [0-9].*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m1
+- tapOn:
+    id: "native-preset-top"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: ".* 900 m · pitch 0° · bearing 0°"
+    timeout: 20000
+- takeScreenshot: screenshots/native-m1-top
+- tapOn:
+    id: "native-preset-tilt"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: ".* 250 m · pitch 60° · bearing 120°"
+    timeout: 20000
+- tapOn:
+    id: "native-project"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-project-result"
+      text: "project: x .*unproject: [0-9].*"
+    timeout: 20000
+- assertNotVisible:
+    text: "engine error.*"
+- takeScreenshot: screenshots/native-m1-tilt

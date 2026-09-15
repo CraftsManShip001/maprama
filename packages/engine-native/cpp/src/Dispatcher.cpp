@@ -1,7 +1,9 @@
 #include "maprama/Dispatcher.hpp"
 
+#include <optional>
 #include <utility>
 
+#include "maprama/MapSession.hpp"
 #include "maprama/WorldStore.hpp"
 
 namespace maprama {
@@ -68,15 +70,55 @@ void Dispatcher::emit(Value event) {
 void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
   // One case per ENGINE_COMMAND_TYPES entry, in declaration order; the owning subsystem is noted per case
   // (DESIGN.md §4). Typed spec decoding + subsystem calls land milestone by milestone (DESIGN.md §10).
+  MapSession* session = subsystems_.session;
   switch (commandIndex(envelope.type())) {
-    case 0:  // init -> WorldStore, ThemeResolver, LabelSystem, CameraController, CharacterSystem
-      handleInit(envelope);
+    case 0:  // init -> WorldStore + MapSession (M1: world style + camera); ThemeResolver, LabelSystem (M2)
+      if (session != nullptr) {
+        ++stats_.handled;
+        session->init(envelope.msg);
+      } else {
+        handleInit(envelope);
+      }
       return;
+    case 5:  // setCamera -> MapSession camera (M1)
+      if (session != nullptr) {
+        ++stats_.handled;
+        session->setCamera(*envelope.msg.find("camera"));
+        return;
+      }
+      ignoreNotImplemented(envelope);
+      return;
+    case 17:  // subscribe -> subscription registry (M1: camera:change)
+    case 18: {  // unsubscribe
+      const std::string& topic = envelope.msg.find("topic")->asString();
+      if (session != nullptr && topic == enumName(SubscriptionTopic::CameraChange)) {
+        ++stats_.handled;
+        if (commandIndex(envelope.type()) == 17) {
+          session->subscribeCamera(envelope.msg.find("throttleMs")->asNumber());
+        } else {
+          session->unsubscribeCamera();
+        }
+        return;
+      }
+      ignoreNotImplemented(envelope, session != nullptr ? "topic " + json::quote(topic) +
+                                                              " is not implemented yet (M3); ignored"
+                                                        : std::string());
+      return;
+    }
+    case 19: {  // request -> MapSession (project/unproject, M1), TravelPlanner (snapToRoad/route, M3)
+      const std::optional<RequestMethod> method = parseEnum<RequestMethod>(envelope.msg.find("method")->asString());
+      if (session != nullptr && method && (*method == RequestMethod::Project || *method == RequestMethod::Unproject)) {
+        ++stats_.handled;
+        session->request(envelope.msg.find("requestId")->asString(), *method, *envelope.msg.find("params"));
+        return;
+      }
+      respondNotImplemented(envelope);
+      return;
+    }
     case 1:  // setTheme -> ThemeResolver
     case 2:  // setLabels -> LabelSystem
     case 3:  // setLabelContent -> LabelSystem
     case 4:  // setUi -> platform UI overlay (MapLibre ornaments)
-    case 5:  // setCamera -> CameraController
     case 6:  // upsertCharacters -> CharacterSystem
     case 7:  // removeCharacters -> CharacterSystem
     case 8:  // setLocationSource -> CharacterSystem
@@ -88,12 +130,7 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
     case 14:  // setGeofences -> GeofenceSystem
     case 15:  // setBuildingStyle -> maprama layer building style table
     case 16:  // setOverlayAnchors -> CameraController
-    case 17:  // subscribe -> subscription registry (dispatcher)
-    case 18:  // unsubscribe -> subscription registry (dispatcher)
       ignoreNotImplemented(envelope);
-      return;
-    case 19:  // request -> CameraController (project/unproject), TravelPlanner (snapToRoad/route)
-      respondNotImplemented(envelope);
       return;
     default:  // unreachable: decodeCommand rejects unknown types
       ignoreNotImplemented(envelope, "unknown command type");

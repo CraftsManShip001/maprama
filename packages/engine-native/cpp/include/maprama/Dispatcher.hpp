@@ -1,10 +1,12 @@
 // Maprama native core — command dispatcher.
 //
 // Decodes envelopes exactly like `decodeCommand`, then routes each command to
-// its subsystem (DESIGN.md §4 mapping table). Skeleton behaviour:
+// its subsystem (DESIGN.md §5 mapping table).
 //   - decode failure            -> `error` event {code: "invalid_message", fatal: false}
-//   - `request` (any method)    -> `response` {ok: false, error.code: "unsupported"}
-//   - `init` with world kind "data" -> WorldStore::load (other init parts logged as not implemented)
+//   - with a MapSession (M1): `init`, `setCamera`, `subscribe`/`unsubscribe` of `camera:change` and
+//     `request` `project`/`unproject` go to the session
+//   - `request` (other methods, or no session) -> `response` {ok: false, error.code: "unsupported"}
+//   - `init` without a session  -> WorldStore::load (M0 path; other init parts logged as not implemented)
 //   - other fire-and-forget     -> ignored with a LogLevel::Warn log (the protocol has no warning event)
 #pragma once
 
@@ -27,10 +29,13 @@ class DropSystem;
 class GeofenceSystem;
 class LabelSystem;
 class CameraController;
+class MapSession;
 
 /// Non-owning subsystem pointers; nullptr = not implemented yet.
 struct Subsystems {
   WorldStore* world = nullptr;
+  /// M1 map session (world style, camera, camera:change, project/unproject). nullptr = M0 behaviour.
+  MapSession* session = nullptr;
   ThemeResolver* theme = nullptr;
   CharacterSystem* characters = nullptr;
   TravelPlanner* travel = nullptr;

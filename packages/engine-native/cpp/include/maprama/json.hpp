@@ -32,16 +32,20 @@ enum class Type : std::uint8_t { Null, Boolean, Number, String, Array, Object };
 struct Member;
 
 /// A JSON value. Default-constructed value is `null`.
+///
+/// The converting constructors are defined after `Member` (below): under C++20, libc++'s constexpr
+/// `std::vector<Member>` needs `Member` to be complete wherever a constructor body may have to destroy
+/// `members_`, and in-class bodies are compiled at the end of `Value`, before `Member` exists.
 class Value {
  public:
   Value() = default;
-  Value(std::nullptr_t) {}  // NOLINT(google-explicit-constructor)
-  Value(bool b) : type_(Type::Boolean), bool_(b) {}  // NOLINT
+  Value(std::nullptr_t);  // NOLINT(google-explicit-constructor)
+  Value(bool b);  // NOLINT
   template <class T, std::enable_if_t<std::is_arithmetic_v<T> && !std::is_same_v<T, bool>, int> = 0>
-  Value(T n) : type_(Type::Number), number_(static_cast<double>(n)) {}  // NOLINT
-  Value(const char* s) : type_(Type::String), string_(s) {}  // NOLINT
-  Value(std::string s) : type_(Type::String), string_(std::move(s)) {}  // NOLINT
-  Value(std::string_view s) : type_(Type::String), string_(s) {}  // NOLINT
+  Value(T n);  // NOLINT
+  Value(const char* s);  // NOLINT
+  Value(std::string s);  // NOLINT
+  Value(std::string_view s);  // NOLINT
 
   static Value array();
   static Value array(std::initializer_list<Value> items);
@@ -90,6 +94,14 @@ struct Member {
   std::string key;
   Value value;
 };
+
+inline Value::Value(std::nullptr_t) {}
+inline Value::Value(bool b) : type_(Type::Boolean), bool_(b) {}
+template <class T, std::enable_if_t<std::is_arithmetic_v<T> && !std::is_same_v<T, bool>, int>>
+inline Value::Value(T n) : type_(Type::Number), number_(static_cast<double>(n)) {}
+inline Value::Value(const char* s) : type_(Type::String), string_(s) {}
+inline Value::Value(std::string s) : type_(Type::String), string_(std::move(s)) {}
+inline Value::Value(std::string_view s) : type_(Type::String), string_(s) {}
 
 /// Default maximum container nesting accepted by `parse` (V8 has no fixed limit; see DESIGN.md §6.4).
 inline constexpr std::size_t kDefaultMaxDepth = 512;

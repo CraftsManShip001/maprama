@@ -2,18 +2,107 @@
   "name": "@maprama/engine-native",
   "version": "0.0.0",
   "private": true,
-  "description": "Maprama native render engine (v2): MapLibre Native patch queue + 2.5D maprama layer behind Fabric/JSI. Currently the design, the C++ core skeleton and its protocol conformance harness.",
+  "description": "Maprama native render engine (v2): C++ core + MapLibre Native behind a Fabric view and a TurboModule. Milestone M1: flat map, camera, gestures, camera:change, project/unproject.",
   "license": "Apache-2.0",
-  "type": "module",
+  "main": "./lib/module/index.js",
+  "types": "./lib/typescript/index.d.ts",
+  "source": "./src/index.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./lib/typescript/index.d.ts",
+      "default": "./lib/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": [
+    "./src/index.ts",
+    "./lib/module/index.js"
+  ],
+  "files": [
+    "src",
+    "lib",
+    "cpp/include",
+    "cpp/src",
+    "ios",
+    "android/build.gradle",
+    "android/CMakeLists.txt",
+    "android/src",
+    "MapramaEngineNative.podspec",
+    "react-native.config.js",
+    "DESIGN.md",
+    "!**/__tests__",
+    "!**/__mocks__"
+  ],
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
+    "build": "npm run clean && bob build",
+    "typecheck": "tsc --noEmit",
     "export-fixtures": "node scripts/export-fixtures.mjs",
     "check-design": "node scripts/check-design-coverage.mjs",
     "build:core": "bash scripts/build-core.sh",
     "test:core": "bash scripts/build-core.sh --tests && ./build/maprama_core_tests --fixtures cpp/tests/fixtures --emit build/emitted-events.jsonl && node scripts/verify-emitted-events.mjs build/emitted-events.jsonl",
     "test:patch-queue": "bash scripts/patch-queue/test.sh",
-    "test": "npm run export-fixtures && npm run check-design && npm run test:core && npm run test:patch-queue"
+    "test:js": "jest",
+    "test": "npm run export-fixtures && npm run check-design && npm run test:core && npm run test:patch-queue && npm run test:js"
+  },
+  "codegenConfig": {
+    "name": "MapramaEngineNativeSpec",
+    "type": "all",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "dev.maprama.enginenative"
+    },
+    "ios": {
+      "componentProvider": {
+        "MapramaNativeView": "MapramaNativeView"
+      },
+      "modulesProvider": {
+        "MapramaEngineModule": "MapramaEngineModule"
+      }
+    }
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "exclude": "**/{__tests__,__mocks__}/**",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "peerDependencies": {
+    "@maprama/react-native": "*",
+    "react": ">=18.3.0",
+    "react-native": ">=0.80.0"
   },
   "devDependencies": {
-    "@maprama/protocol": "*"
+    "@babel/core": "7.29.7",
+    "@jest/globals": "30.5.1",
+    "@maprama/protocol": "*",
+    "@maprama/react-native": "*",
+    "@react-native/babel-preset": "0.86.3",
+    "@react-native/jest-preset": "0.86.3",
+    "@testing-library/react-native": "14.0.1",
+    "@types/react": "19.2.18",
+    "babel-jest": "30.5.1",
+    "jest": "30.5.1",
+    "jest-environment-node": "30.5.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-builder-bob": "0.43.1",
+    "react-native-webview": "14.0.1",
+    "test-renderer": "1.2.0",
+    "typescript": "5.9.3"
   }
 }
