@@ -20,6 +20,8 @@ constexpr std::uint32_t kTexturedRoad = 0x55585E;
 constexpr std::uint32_t kTexturedPad = 0xC4C1BA;
 /// Alleys: asphalt blended towards the sidewalk color (narrow shared lanes).
 constexpr double kAlleyPadMix = 0.3;
+/// Share of the time-of-day irradiance ratio applied to flat colours (see `timeTint`).
+constexpr double kTimeTintStrength = 0.75;
 
 // engine-web `URBAN_SCHEMES[].tint` (`render/buildings.ts`), used with the urban facade set + details.
 constexpr std::array<std::uint32_t, 5> kUrbanSchemeTints{0xF3EEE5, 0xF6F7F8, 0xE6E2DC, 0xDFE5EA, 0xE0E8E1};
@@ -140,7 +142,12 @@ std::uint32_t hashId(std::string_view id) {
 RgbTint timeTint(const TimeOfDayPreset& time, const TimeOfDayPreset& reference) {
   const Rgb t = irradiance(time);
   const Rgb r = irradiance(reference);
-  const auto ratio = [](double a, double b) { return b > 0 ? std::clamp(a / b, 0.0, 1.0) : 1.0; };
+  // Flat colours carry no lighting, so the full irradiance ratio reads too dark / saturated (checked on
+  // device with the toy palette at dusk); 75 % of it keeps day exact and dusk / night clearly darker.
+  const auto ratio = [](double a, double b) {
+    const double k = b > 0 ? std::clamp(a / b, 0.0, 1.0) : 1.0;
+    return 1.0 - kTimeTintStrength * (1.0 - k);
+  };
   return RgbTint{ratio(t.r, r.r), ratio(t.g, r.g), ratio(t.b, r.b)};
 }
 
