@@ -23,8 +23,6 @@ constexpr std::array<double, 5> kRouteOpacity{1.0, 1.0, 1.0, 0.7, 0.85};
 /// engine-web `LocationPuck` colours.
 constexpr std::uint32_t kPuckAccuracyColor = 0x3F7BFF;
 constexpr std::uint32_t kPuckDotColor = 0x2F6BFF;
-/// engine-web character eye colour, used for the heading dot.
-constexpr std::uint32_t kHeadingColor = 0x1E1A24;
 constexpr const char* kWhite = "#FFFFFF";
 
 Value lngLatArray(const LngLat& ll) { return Value::array({ll.lng, ll.lat}); }
@@ -126,8 +124,7 @@ Value groundSizeExpression(double meters, double minPx, double lat, const char* 
 
 Value gameSources() {
   Value sources = Value::object();
-  for (const char* id : {game_style::kSourceFences, game_style::kSourceRoute, game_style::kSourcePuck, game_style::kSourceDrops,
-                         game_style::kSourceCharacters}) {
+  for (const char* id : {game_style::kSourceFences, game_style::kSourceRoute, game_style::kSourcePuck}) {
     sources.set(id, source());
   }
   return sources;
@@ -162,31 +159,11 @@ void insertGameLayers(Value& layers, double lat, double unitMeters) {
                                      {"circle-stroke-color", kWhite},
                                      {"circle-stroke-width", 2.5},
                                      {"circle-pitch-alignment", "map"}})));
-  const Value fade = Value::array({"-", 1, getProperty("pop")});
-  top.push_back(layer(gs::kLayerDrops, "circle", gs::kSourceDrops, Value(),
-                      Value::object({{"circle-radius", groundSizeExpression(0.5 * unitMeters, 5.0, lat, "size")},
-                                     {"circle-color", Value::array({"to-color", getProperty("color")})},
-                                     {"circle-opacity", fade},
-                                     {"circle-stroke-color", kWhite},
-                                     {"circle-stroke-width", 1.5},
-                                     {"circle-stroke-opacity", fade},
-                                     {"circle-pitch-alignment", "map"}})));
   top.push_back(layer(gs::kLayerPuck, "circle", gs::kSourcePuck, partFilter("part", "dot"),
                       Value::object({{"circle-radius", groundSizeExpression(0.8 * unitMeters, 9.0, lat)},
                                      {"circle-color", cssHex(kPuckDotColor)},
                                      {"circle-stroke-color", kWhite},
                                      {"circle-stroke-width", 3},
-                                     {"circle-pitch-alignment", "map"}})));
-  top.push_back(layer(gs::kLayerCharacters, "circle", gs::kSourceCharacters, partFilter("kind", "body"),
-                      Value::object({{"circle-radius", groundSizeExpression(0.55 * unitMeters, 6.0, lat, "scale")},
-                                     {"circle-color", Value::array({"to-color", getProperty("color")})},
-                                     {"circle-stroke-color", Value::array({"to-color", getProperty("ring")})},
-                                     {"circle-stroke-width",
-                                      Value::array({"case", Value::array({"==", getProperty("player"), true}), 2.5, 1.5})},
-                                     {"circle-pitch-alignment", "map"}})));
-  top.push_back(layer(gs::kLayerCharacterHeading, "circle", gs::kSourceCharacters, partFilter("kind", "heading"),
-                      Value::object({{"circle-radius", groundSizeExpression(0.2 * unitMeters, 2.2, lat, "scale")},
-                                     {"circle-color", cssHex(kHeadingColor)},
                                      {"circle-pitch-alignment", "map"}})));
 
   std::vector<Value>& items = layers.items();
@@ -244,39 +221,6 @@ std::string routeGeoJson(const std::vector<std::vector<PlannedLeg>>& routes, con
     if (!legs.empty() && !legs.back().pts.empty()) {
       features.push(feature(pointGeometry(projection.toLngLat(legs.back().pts.back())), Value::object({{"part", "pin"}})));
     }
-  }
-  return collection(std::move(features));
-}
-
-std::string dropsGeoJson(const std::vector<DropVisual>& drops) {
-  Value features = Value::array();
-  for (const DropVisual& d : drops) {
-    const double pop = std::clamp(d.pop, 0.0, 1.0);
-    features.push(feature(pointGeometry(d.position),
-                          Value::object({{"layer", d.layerId},
-                                         {"id", d.dropId},
-                                         {"color", cssHex(game_style::kRarityColors[static_cast<std::size_t>(d.rarity)])},
-                                         {"pop", pop},
-                                         {"size", 1.0 + pop * 0.6}})));
-  }
-  return collection(std::move(features));
-}
-
-std::string charactersGeoJson(const std::vector<CharacterVisual>& characters) {
-  Value features = Value::array();
-  for (const CharacterVisual& c : characters) {
-    const std::uint32_t ring = c.mode == TravelMode::Walk ? 0xFFFFFF : kRouteColors[static_cast<std::size_t>(c.mode)];
-    features.push(feature(pointGeometry(c.position), Value::object({{"kind", "body"},
-                                                                    {"id", c.id},
-                                                                    {"color", cssHex(c.color)},
-                                                                    {"ring", cssHex(ring)},
-                                                                    {"scale", c.scale},
-                                                                    {"player", c.isPlayer},
-                                                                    {"mode", std::string(enumName(c.mode))}})));
-  }
-  // Heading dots after every body, so a dot is never hidden under a neighbour's body.
-  for (const CharacterVisual& c : characters) {
-    features.push(feature(pointGeometry(c.heading), Value::object({{"kind", "heading"}, {"id", c.id}, {"scale", c.scale}})));
   }
   return collection(std::move(features));
 }

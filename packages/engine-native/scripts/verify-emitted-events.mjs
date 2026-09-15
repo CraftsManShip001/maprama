@@ -49,7 +49,7 @@ for (const [i, line] of lines.entries()) {
   }
 }
 
-// The core (M0 skeleton + M1 map session + M2a look / presses / overlays + M3a game session) must at least
+// The core (M0 skeleton + M1 map session + M2a look / presses / overlays + M3a game session + M3b models) must at least
 // exercise these event kinds.
 for (const required of [
   'ready',
@@ -88,6 +88,7 @@ for (const required of [
   'error:invalid_character',
   'error:location_unavailable',
   'error:internal',
+  'error:model_load_failed',
 ]) {
   if (!kinds.has(required)) failures.push(`no "${required}" event was emitted`);
 }

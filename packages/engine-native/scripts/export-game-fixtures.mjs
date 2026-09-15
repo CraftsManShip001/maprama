@@ -16,6 +16,10 @@
  *                      walker traces, locationTrip and drive decisions
  * - drops.json         DropCollector scenarios (setLayer diffs, collection events, per-layer state, history)
  * - geofences.json     GeofenceTracker scenarios (enter / exit, membership kept across setGeofences)
+ * - characters.json    M3b: resolveClips / chooseAnimation / walkCadence / clipTimeScale / headingFromYaw cases, and
+ *                      three.js (GLTFLoader + AnimationMixer) reference poses of the example robot (rigid node
+ *                      animation, GLB copy, bounds, clip sampling, engine-web's clip switching with cross-fades) and
+ *                      of a generated skinned glTF (LINEAR / STEP / CUBICSPLINE channels, skinned positions)
  *
  * Copied engine-web constants (private in features.ts): TELEPORT_UNITS = 40 and the `driveToFix` decision
  * (teleport beyond it, else `locationTrip` → `setTrip([{walk}], speed)`); everything else is engine-web code.
@@ -24,6 +28,14 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as P from '@maprama/protocol';
+
+// three.js' FileLoader reports progress with the DOM ProgressEvent (GLTFLoader resolves data: buffers through it).
+globalThis.ProgressEvent ??= class ProgressEvent extends Event {
+  constructor(type, init = {}) {
+    super(type);
+    Object.assign(this, init);
+  }
+};
 
 const outDir = process.argv[2] ?? fileURLToPath(new URL('../cpp/tests/fixtures/', import.meta.url));
 const src = (p) => new URL(`../../engine-web/src/${p}`, import.meta.url).href;
@@ -37,6 +49,9 @@ const WD = await import(src('world/data.ts'));
 const TW = await import(src('world/town.ts'));
 const GW = await import(src('world/grid.ts'));
 const M = await import(src('util/math.ts'));
+const C = await import(src('game/characters.ts'));
+const THREE = await import('three');
+const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
 
 /** features.ts `TELEPORT_UNITS` (module-private). */
 const TELEPORT_UNITS = 40;
@@ -772,6 +787,268 @@ const FENCE_SCENARIOS = [
 const geofences = { scenarios: FENCE_SCENARIOS.map(runFences) };
 
 // ---------------------------------------------------------------------------
+// characters.json (M3b)
+// ---------------------------------------------------------------------------
+
+const ANIMS = P.ANIMATION_NAMES;
+const clipsJson = (c) => Object.fromEntries(ANIMS.filter((n) => c[n] !== undefined).map((n) => [n, c[n]]));
+
+const CLIP_SETS = [
+  ['idle', 'walk'],
+  ['Idle', 'Walk', 'Run'],
+  ['Armature|Walk', 'Armature|Idle', 'mixamo.com'],
+  ['run_fast', 'IDLE_breath', 'wave-hello', 'ride.bike'],
+  ['Take 001'],
+  [],
+  ['walk', 'walking', 'Walk'],
+  ['idle', 'run'],
+  ['ride', 'idle'],
+  ['Wave', 'idle', 'walkcycle', 'Run Forward'],
+];
+const MAPPINGS = [undefined, { walk: 'Take 001' }, { idle: 'mixamo.com', run: 'missing' }, { walk: 'Walk', ride: 'ride.bike' }, { wave: 'Wave' }];
+const resolveCases = [];
+for (const names of CLIP_SETS) for (const mapping of MAPPINGS) resolveCases.push({ names, mapping: mapping ?? null, clips: clipsJson(C.resolveClips(names, mapping)) });
+
+const chooseCases = [];
+const AVAILABLE = [['idle', 'walk', 'run', 'ride', 'wave'], ['idle', 'walk'], ['walk'], ['run'], ['idle'], ['ride'], [], ['wave', 'run']];
+for (const mode of P.TRAVEL_MODES) {
+  for (const speed of [0, 0.0005, 0.001, 1, 3.2, 5.1, 5.13, 6, 12]) {
+    for (const scale of [1, 0.5, 2, 0]) {
+      for (const avail of AVAILABLE) {
+        const available = Object.fromEntries(avail.map((n) => [n, n]));
+        chooseCases.push({ mode, speed, scale, available: avail, result: C.chooseAnimation(mode, speed, available, scale) });
+      }
+    }
+  }
+}
+const cadenceCases = [];
+for (const speed of [0, 0.1, 1, 1.6, 3.2, 4, 5.12, 6.4, 7.04, 10, 40]) {
+  for (const scale of [1, 0.5, 1.5, 3, 0, -1]) {
+    const cadence = C.walkCadence(speed, scale);
+    cadenceCases.push({ speed, scale, cadence, walk: C.clipTimeScale('walk', cadence), run: C.clipTimeScale('run', cadence) });
+  }
+}
+const headingCases = [-7, -Math.PI, -1, 0, 0.5, Math.PI / 2, 2, Math.PI, 4, 10].map((yaw) => ({ yaw, heading: C.headingFromYaw(yaw) }));
+
+function parseGltf(input) {
+  return new Promise((resolve, reject) => new GLTFLoader().parse(input, '', resolve, reject));
+}
+const matrixOf = (o) => [...o.matrixWorld.elements];
+
+/** GLB container of a glTF JSON whose single buffer is a data: URI. */
+function toGlb(json) {
+  const gltf = JSON.parse(json);
+  const bin = Buffer.from(gltf.buffers[0].uri.split(',')[1], 'base64');
+  delete gltf.buffers[0].uri;
+  const pad = (b, fill) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4, fill)]);
+  const jsonChunk = pad(Buffer.from(JSON.stringify(gltf)), 0x20);
+  const binChunk = pad(bin, 0);
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(12 + 8 + jsonChunk.length + 8 + binChunk.length, 8);
+  const chunk = (type, data) => {
+    const h = Buffer.alloc(8);
+    h.writeUInt32LE(data.length, 0);
+    h.writeUInt32LE(type, 4);
+    return Buffer.concat([h, data]);
+  };
+  return Buffer.concat([header, chunk(0x4e4f534a, jsonChunk), chunk(0x004e4942, binChunk)]);
+}
+
+const sampleSrc = readFileSync(fileURLToPath(new URL('../../../example/src/data/sampleModel.ts', import.meta.url)), 'utf8');
+const robotUri = sampleSrc.match(/'(data:model\/gltf\+json;base64,[^']+)'/)[1];
+const robotJson = Buffer.from(robotUri.split(',')[1], 'base64').toString('utf8');
+const ROBOT_NODES = ['maprama_character', 'torso', 'head', 'leg_l', 'leg_r', 'visor', 'antenna', 'antenna_tip'];
+const robotRef = await (async () => {
+  const gltf = await parseGltf(robotJson);
+  const box = new THREE.Box3().setFromObject(gltf.scene);
+  const samples = [];
+  for (const clip of gltf.animations) {
+    for (const time of [0, 0.05, 0.1, 0.2, 0.399, 0.4, 0.61, 0.8, 1.0, 1.37, 2.0, 2.5]) {
+      const scene = gltf.scene.clone(true);
+      const mixer = new THREE.AnimationMixer(scene);
+      const action = mixer.clipAction(clip);
+      action.play();
+      mixer.update(time);
+      scene.updateMatrixWorld(true);
+      samples.push({ clip: clip.name, time, nodes: Object.fromEntries(ROBOT_NODES.map((n) => [n, matrixOf(scene.getObjectByName(n))])) });
+    }
+  }
+  // engine-web `Character.animate` (model branch) with the native cross-fade (0.15 s): idle, walk at cadence 1.3, idle.
+  const scene = gltf.scene.clone(true);
+  const mixer = new THREE.AnimationMixer(scene);
+  const clips = C.resolveClips(gltf.animations.map((c) => c.name), undefined);
+  const actions = {};
+  for (const n of ANIMS) {
+    const clip = clips[n] !== undefined ? gltf.animations.find((c) => c.name === clips[n]) : undefined;
+    if (clip) actions[n] = mixer.clipAction(clip);
+  }
+  const CROSSFADE = 0.15;
+  let current = null;
+  const steps = [];
+  for (let frame = 0; frame < 75; frame++) {
+    const dt = frame % 7 === 3 ? 0.05 : 1 / 30;
+    const speed = frame < 10 ? 0 : frame < 40 ? 4.16 : frame < 42 ? 0 : frame < 44 ? 5 : 0;
+    const want = C.chooseAnimation('walk', speed, clips, 1);
+    if (want !== current) {
+      const next = want ? actions[want] : undefined;
+      const prev = current ? actions[current] : undefined;
+      if (next) {
+        next.reset();
+        next.enabled = true;
+        next.play();
+        if (prev) prev.crossFadeTo(next, CROSSFADE, false);
+        else next.fadeIn(CROSSFADE);
+      } else if (prev) prev.fadeOut(CROSSFADE);
+      current = want;
+    }
+    const cur = current ? actions[current] : undefined;
+    if (cur && (current === 'walk' || current === 'run')) cur.timeScale = C.clipTimeScale(current, C.walkCadence(speed, 1));
+    mixer.update(dt);
+    const node = (n) => scene.getObjectByName(n);
+    steps.push({
+      dt,
+      speed,
+      current,
+      nodes: Object.fromEntries(['torso', 'head', 'leg_l', 'leg_r'].map((n) => [n, { t: node(n).position.toArray(), q: node(n).quaternion.toArray() }])),
+    });
+  }
+  return {
+    uri: robotUri,
+    glb: toGlb(robotJson).toString('base64'),
+    bounds: { min: box.min.toArray(), max: box.max.toArray() },
+    clips: gltf.animations.map((c) => ({ name: c.name, duration: c.duration, tracks: c.tracks.length })),
+    samples,
+    crossfade: { crossFade: CROSSFADE, steps },
+  };
+})();
+
+/** A 2-bone skinned bar with LINEAR rotation, STEP translation and CUBICSPLINE scale channels. */
+function skinnedGltf() {
+  const f32 = (a) => Buffer.from(new Float32Array(a).buffer);
+  const positions = [], joints = [], weights = [], indices = [];
+  const ring = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const levels = [[0, [1, 0]], [0.5, [0.75, 0.25]], [1, [0.5, 0.5]], [1.5, [0.25, 0.75]], [2, [0, 1]]];
+  for (const [y, w] of levels) for (const [x, z] of ring) { positions.push(x, y, z); joints.push(0, 1, 0, 0); weights.push(w[0], w[1], 0, 0); }
+  for (let l = 0; l < levels.length - 1; l++) {
+    for (let k = 0; k < 4; k++) {
+      const a = l * 4 + k, b = l * 4 + ((k + 1) % 4), c = a + 4, d = b + 4;
+      indices.push(a, b, d, a, d, c);
+    }
+  }
+  const quatZ = (deg) => [0, 0, Math.sin((deg * Math.PI) / 360), Math.cos((deg * Math.PI) / 360)];
+  const chunks = [
+    f32(positions),
+    Buffer.from(new Uint8Array(joints).buffer),
+    f32(weights),
+    Buffer.from(new Uint16Array(indices).buffer),
+    f32([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1]),
+    f32([0, 1]),
+    f32([...quatZ(0), ...quatZ(60)]),
+    f32([0, 0.5]),
+    f32([0, 0, 0, 0.2, 0, 0]),
+    f32([0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1.5, 1, 1, 0, 0, 0]),
+  ];
+  const views = [];
+  let offset = 0;
+  const parts = [];
+  for (const c of chunks) {
+    const pad = (4 - (offset % 4)) % 4;
+    if (pad) { parts.push(Buffer.alloc(pad)); offset += pad; }
+    views.push({ buffer: 0, byteOffset: offset, byteLength: c.length });
+    parts.push(c);
+    offset += c.length;
+  }
+  const bin = Buffer.concat(parts);
+  const acc = (view, type, componentType, count, extra = {}) => ({ bufferView: view, componentType, count, type, ...extra });
+  const gltf = {
+    asset: { version: '2.0', generator: 'maprama export-game-fixtures' },
+    scene: 0,
+    scenes: [{ nodes: [0, 2] }],
+    nodes: [{ name: 'root_bone', children: [1] }, { name: 'tip_bone', translation: [0, 1, 0] }, { name: 'bar', mesh: 0, skin: 0 }],
+    skins: [{ joints: [0, 1], inverseBindMatrices: 4 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, JOINTS_0: 1, WEIGHTS_0: 2 }, indices: 3, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.2, 0.5, 1, 1] } }],
+    accessors: [
+      acc(0, 'VEC3', 5126, 20, { min: [-0.1, 0, -0.1], max: [0.1, 2, 0.1] }),
+      acc(1, 'VEC4', 5121, 20),
+      acc(2, 'VEC4', 5126, 20),
+      acc(3, 'SCALAR', 5123, indices.length),
+      acc(4, 'MAT4', 5126, 2),
+      acc(5, 'SCALAR', 5126, 2, { min: [0], max: [1] }),
+      acc(6, 'VEC4', 5126, 2),
+      acc(7, 'SCALAR', 5126, 2, { min: [0], max: [0.5] }),
+      acc(8, 'VEC3', 5126, 2),
+      acc(9, 'VEC3', 5126, 6),
+    ],
+    bufferViews: views,
+    buffers: [{ byteLength: bin.length, uri: `data:application/octet-stream;base64,${bin.toString('base64')}` }],
+    animations: [{
+      name: 'bend',
+      samplers: [
+        { input: 5, output: 6, interpolation: 'LINEAR' },
+        { input: 7, output: 8, interpolation: 'STEP' },
+        { input: 5, output: 9, interpolation: 'CUBICSPLINE' },
+      ],
+      channels: [
+        { sampler: 0, target: { node: 1, path: 'rotation' } },
+        { sampler: 1, target: { node: 0, path: 'translation' } },
+        { sampler: 2, target: { node: 1, path: 'scale' } },
+      ],
+    }],
+  };
+  return JSON.stringify(gltf);
+}
+
+const skinnedJson = skinnedGltf();
+const skinnedRef = await (async () => {
+  const gltf = await parseGltf(skinnedJson);
+  const samples = [];
+  for (const time of [0, 0.25, 0.49, 0.5, 0.75, 1, 1.4]) {
+    const scene = gltf.scene.clone(true);
+    let mesh = null;
+    const bones = {};
+    scene.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    // SkeletonUtils-free: re-bind the cloned mesh to the cloned bones by name.
+    const names = mesh.skeleton.bones.map((b) => b.name);
+    scene.traverse((o) => { if (names.includes(o.name)) bones[o.name] = o; });
+    mesh.bind(new THREE.Skeleton(names.map((n) => bones[n]), mesh.skeleton.boneInverses), mesh.bindMatrix);
+    const mixer = new THREE.AnimationMixer(scene);
+    mixer.clipAction(gltf.animations[0]).play();
+    mixer.update(time);
+    scene.updateMatrixWorld(true);
+    mesh.skeleton.update();
+    const positions = [];
+    const v = new THREE.Vector3();
+    for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+      mesh.getVertexPosition(i, v);
+      positions.push(v.toArray());
+    }
+    samples.push({ time, bones: [...mesh.skeleton.boneMatrices], positions });
+  }
+  return { uri: `data:model/gltf+json;base64,${Buffer.from(skinnedJson).toString('base64')}`, samples };
+})();
+
+const dracoJson = JSON.stringify({
+  asset: { version: '2.0' },
+  extensionsUsed: ['KHR_draco_mesh_compression'],
+  extensionsRequired: ['KHR_draco_mesh_compression'],
+  meshes: [],
+});
+
+const characters = {
+  constants: { CHARACTER_HEIGHT: C.CHARACTER_HEIGHT, WALK_CADENCE_SPEED: C.WALK_CADENCE_SPEED, MIN_CADENCE: C.MIN_CADENCE },
+  resolveClips: resolveCases,
+  chooseAnimation: chooseCases,
+  cadence: cadenceCases,
+  heading: headingCases,
+  robot: robotRef,
+  skinned: skinnedRef,
+  draco: { uri: `data:model/gltf+json;base64,${Buffer.from(dracoJson).toString('base64')}` },
+};
+
+// ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
 
@@ -781,11 +1058,12 @@ const files = {
   'location.json': { worlds: worldSpecs, ...location },
   'drops.json': drops,
   'geofences.json': geofences,
+  'characters.json': characters,
 };
 for (const [file, data] of Object.entries(files)) {
   const text = `${JSON.stringify(data)}\n`;
   writeFileSync(`${outDir}${outDir.endsWith('/') ? '' : '/'}${file}`, text);
-  const count = data.plans?.length ?? data.traces?.length ?? data.scenarios?.length ?? data.smoother?.length ?? 0;
+  const count = data.plans?.length ?? data.traces?.length ?? data.scenarios?.length ?? data.smoother?.length ?? data.chooseAnimation?.length ?? 0;
   console.log(`export-fixtures: ${file} (${count} entries, ${(text.length / 1024).toFixed(0)} KiB)`);
 }
 void median;

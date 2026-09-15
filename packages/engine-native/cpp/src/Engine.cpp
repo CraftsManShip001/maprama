@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <thread>
 #include <utility>
 
 #include "maprama/Dispatcher.hpp"
@@ -18,13 +19,25 @@ double steadyClockMs() {
   return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
 }
 
+class CoreEngine;
+
+/// Worker results (M3b model parsing) come back through this box: it outlives neither the engine's destructor
+/// (which clears `engine` under the box mutex, waiting for a delivery in progress) nor lets a late worker touch a
+/// destroyed engine.
+struct AsyncMailbox {
+  std::mutex mutex;
+  CoreEngine* engine = nullptr;
+};
+
 /// M1 engine: synchronous dispatch under one mutex (DESIGN.md §3). Commands arrive on the JS thread,
 /// platform callbacks (camera, replies, frames) on the main thread; both take the same lock, and the map
-/// adapter never calls back synchronously, so there is no lock re-entry.
+/// adapter never calls back synchronously, so there is no lock re-entry. M3b model parsing runs on worker
+/// threads and delivers its results under the same lock (`AsyncMailbox`).
 class CoreEngine final : public Engine {
  public:
   CoreEngine(std::shared_ptr<MessageSink> sink, EngineConfig config)
-      : sink_(std::move(sink)),
+      : mailbox_(std::make_shared<AsyncMailbox>()),
+        sink_(std::move(sink)),
         world_(createWorldStore()),
         clock_(config.clockMs ? std::move(config.clockMs) : ClockMs(steadyClockMs)),
         session_(*sink_, *world_, clock_),
@@ -33,6 +46,34 @@ class CoreEngine final : public Engine {
     session_.bindEmitter(&dispatcher_);
     game_.bindEmitter(&dispatcher_);
     session_.setHooks(&game_);
+    mailbox_->engine = this;
+    std::function<void(std::function<void()>)> run = config.runAsync;
+    if (!run) run = [](std::function<void()> job) { std::thread(std::move(job)).detach(); };
+    std::weak_ptr<AsyncMailbox> weak = mailbox_;
+    game_.setModelLoading(
+        [run, weak](std::function<std::function<void()>()> job) {
+          run([weak, job = std::move(job)]() {
+            const std::function<void()> deliver = job();  // off the engine lock
+            const std::shared_ptr<AsyncMailbox> box = weak.lock();
+            if (!box) return;
+            std::lock_guard<std::mutex> lock(box->mutex);
+            if (box->engine != nullptr) box->engine->deliverAsync(deliver);
+          });
+        },
+        config.decodeImage);
+  }
+
+  ~CoreEngine() override {
+    std::lock_guard<std::mutex> lock(mailbox_->mutex);
+    mailbox_->engine = nullptr;
+  }
+
+  /// A worker result, with the engine lock held.
+  void deliverAsync(const std::function<void()>& deliver) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopped_) return;
+    deliver();
+    game_.afterAsync();
   }
 
   void start() override {
@@ -117,6 +158,11 @@ class CoreEngine final : public Engine {
     if (!stopped_) session_.onTextFetched(token, ok, bodyOrError);
   }
 
+  void onBinaryFetched(std::uint64_t token, bool ok, std::string bytesOrError) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) game_.onBinaryFetched(token, ok, std::move(bytesOrError));
+  }
+
   void onPointsProjected(std::uint64_t token, std::vector<ScreenPoint> points) override {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!stopped_) session_.onPointsProjected(token, points);
@@ -168,6 +214,7 @@ class CoreEngine final : public Engine {
     return s;
   }
 
+  std::shared_ptr<AsyncMailbox> mailbox_;
   std::shared_ptr<MessageSink> sink_;
   std::unique_ptr<WorldStore> world_;
   ClockMs clock_;

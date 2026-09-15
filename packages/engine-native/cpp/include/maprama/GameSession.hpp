@@ -1,6 +1,7 @@
 // Maprama native core — M3a game session: characters, location sources, travel + routing, drops and
 // geofences, wired from the pure engine-web ports (`TravelLogic`, `LocationFilter`, `DropLogic`,
-// `GeofenceLogic`, `RoadGraph`) and drawn with MapLibre style layers (`GameVisuals`).
+// `GeofenceLogic`, `RoadGraph`) and drawn with MapLibre style layers (`GameVisuals`: route, geofences, puck) and
+// the M3b model layer (`ModelLayer`: glTF / procedural characters, vehicles and drop items in the custom layer).
 //
 // The behavioural reference is engine-web's `Features` (`src/engine/features.ts`), `CharacterManager`
 // (`src/game/characters.ts`), `TravelManager` (`src/game/travel.ts`), `LocationService`
@@ -41,6 +42,8 @@
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MapSession.hpp"
 #include "maprama/MessageSink.hpp"
+#include "maprama/ModelLayer.hpp"
+#include "maprama/ModelLibrary.hpp"
 #include "maprama/SubscriptionRegistry.hpp"
 #include "maprama/TravelLogic.hpp"
 #include "maprama/json.hpp"
@@ -54,6 +57,8 @@ class WorldStore;
 inline constexpr std::string_view kUnknownCharacterCode = "unknown_character";
 inline constexpr std::string_view kInvalidCharacterCode = "invalid_character";
 inline constexpr std::string_view kLocationUnavailableCode = "location_unavailable";
+/// engine-web: a character / drop model could not be loaded (the procedural body / a coin is shown instead).
+inline constexpr std::string_view kModelLoadFailedCode = "model_load_failed";
 
 /// Frame interval while something moves, and the tick interval of the idle `simulated` walker.
 inline constexpr double kGameFrameMs = 16.0;
@@ -66,9 +71,12 @@ struct GameFrameStats {
   double maxTickMs = 0.0;
   std::uint64_t sourceUpdates = 0;
   std::uint64_t sourceBytes = 0;
+  /// M3b model frames sent and their draws.
+  std::uint64_t modelFrames = 0;
+  std::uint64_t modelDraws = 0;
 };
 
-class GameSession final : public MapSessionHooks {
+class GameSession final : public MapSessionHooks, private ModelLibrary::Listener {
  public:
   GameSession(MessageSink& sink, WorldStore& world, MapSession& map, ClockMs clock, std::function<double()> random,
               std::function<std::string()> collectId);
@@ -85,6 +93,12 @@ class GameSession final : public MapSessionHooks {
   void onDeviceLocationError(const std::string& message);
   /// A user pan stops following (engine-web `CameraController.panBy`).
   void onUserPan();
+  /// M3b model loading: the worker runner (parsing off the engine lock) and the platform image decoder.
+  void setModelLoading(ModelLibrary::AsyncRunner runner, ImageDecoder decoder);
+  /// Reply to `MapAdapter::fetchBinary`.
+  void onBinaryFetched(std::uint64_t token, bool ok, std::string bytesOrError);
+  /// An asynchronous result was delivered (a model loaded or failed): show it at the next frame.
+  void afterAsync();
 
   // ---- commands (already validated by `decodeCommand`) -------------------------------------------
   /// `init`: remembers `locationSource` (applied when the world loads, like engine-web).
@@ -137,11 +151,14 @@ class GameSession final : public MapSessionHooks {
   /// Uncollected drops of a layer (world units).
   std::vector<DropState> drops(const std::string& layerId) const { return collector_.drops(layerId); }
   std::size_t dropMarkers() const { return dropVisuals_.size(); }
+  /// The last M3b model frame sent to the adapter (nullptr before the first).
+  const std::shared_ptr<const ModelLayerFrame>& lastModelFrame() const { return lastModelFrame_; }
+  ModelLibrary::State modelState(const std::string& uri) const { return models_.state(uri); }
   const std::vector<WorldFence>& fences() const { return fences_.list(); }
 
  private:
   struct Character;
-  enum Dirty : unsigned { kFences = 1, kRoute = 2, kPuck = 4, kDrops = 8, kCharacters = 16, kAll = 31 };
+  enum Dirty : unsigned { kFences = 1, kRoute = 2, kPuck = 4, kModels = 8, kAll = 15 };
 
   Character* find(const std::string& id) const;
   Follower* followerOf(std::string_view id) const;
@@ -159,11 +176,21 @@ class GameSession final : public MapSessionHooks {
   void stepFollow(double dt);
   void emitPositions(double nowMs);
   void emitProgress(double nowMs);
-  void flushVisuals();
+  void flushVisuals(double nowMs);
+  void sendModelFrame(double nowMs);
+  /// engine-web `Character.setModel`: shows / loads `uri` (nullopt: the procedural body).
+  void setModel(Character& ch, const std::optional<std::string>& uri);
+  DropVisual makeDropVisual(const DropState& drop);
+  // ModelLibrary::Listener
+  void modelReady(const std::string& uri, const std::shared_ptr<const ModelAsset>& asset) override;
+  void modelFailed(const std::string& uri, const std::string& message) override;
+  void modelWarning(const std::string& uri, const std::string& message) override;
   void scheduleNext(double nowMs);
   void wake();
   void requestFrame(double nowMs, double delayMs);
   bool moving() const;
+  /// Body colour (spec colour or the default player / NPC colour), and with the time-of-day tint.
+  std::uint32_t baseColor(const Character& ch) const;
   std::uint32_t bodyColor(const Character& ch) const;
   void emit(json::Value event);
   void emitError(std::string_view code, std::string message);
@@ -203,9 +230,14 @@ class GameSession final : public MapSessionHooks {
   DropCollector collector_;
   /// `setDropLayer` commands by layer id, insertion-ordered (a JS Map).
   std::vector<std::pair<std::string, DropLayer>> dropLayers_;
-  /// Drop markers by `layerId \0 dropId` (collected ones stay while they pop).
+  /// Drop items by `layerId \0 dropId` (collected ones stay while they pop).
   std::map<std::string, DropVisual> dropVisuals_;
-  std::map<std::string, double> popStartMs_;
+
+  /// M3b: glTF models by URI, the last model frame and whether models were on screen.
+  ModelLibrary models_{*this};
+  std::shared_ptr<const ModelLayerFrame> lastModelFrame_;
+  std::uint64_t modelFrameVersion_ = 0;
+  bool modelsShown_ = false;
 
   std::vector<GeofenceSpec> geofenceSpecs_;
   GeofenceTracker fences_;
