@@ -223,7 +223,7 @@ std::vector<std::string> unrenderedThemeOptions(const ResolvedTheme& theme) {
   std::vector<std::string> out;
   if (theme.buildings.massing == Massing::Varied) out.emplace_back("buildings.massing \"varied\" (buildings stay boxes)");
   if (theme.cinematic) out.emplace_back("cinematic (color grading; its lighting is applied)");
-  if (theme.zoomOut != ZoomOutBehavior::None) out.emplace_back("zoomOut \"" + std::string(enumName(theme.zoomOut)) + "\"");
+  // `zoomOut` is rendered since M4 (ZoomOut.hpp: extrusion height, map-colour overlay, low detail, icon discs).
   return out;
 }
 

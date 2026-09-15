@@ -485,7 +485,14 @@ class MeshBuilder {
     out_.indices.push_back(a);
     out_.indices.push_back(b);
     out_.indices.push_back(c);
+    if (detail_) return;
+    out_.lowDetailIndices.push_back(a);
+    out_.lowDetailIndices.push_back(b);
+    out_.lowDetailIndices.push_back(c);
   }
+
+  /// M4: triangles emitted while `on` (facade details, roof furniture) are left out of the low-detail range.
+  void setDetail(bool on) { detail_ = on; }
 
   /// A planar convex face (fan), flat normal from Newell's method.
   void face(const std::vector<P3>& pts, const Surface& s) {
@@ -688,6 +695,7 @@ class MeshBuilder {
   double fx_ = 0, fz_ = 0, c_ = 1, s_ = 0, wallTop_ = 0;
   float gMin_ = 1.f, gTop_ = 1.f;
   std::uint8_t seed_ = 0;
+  bool detail_ = false;
 };
 
 /// engine-web `edgesOf` entry.
@@ -784,6 +792,7 @@ double flatRoof(Context& cx, const Mass& m, double top, js_math::Mulberry32& br,
     mesh.ringBand(ring, offsetRing(ring, -0.12), top, 0.2, cx.plain(cx.tint(kParapet)));
     const double rt = top + 0.06;
     const Surface hvac = cx.plain(cx.tint(kHvac));
+    mesh.setDetail(true);  // roof furniture: not in the zoom-out low-detail range
     if (kind == BuildingKind::Glass) {
       const double w = m.w * 0.42, d = m.d * 0.36, x = m.x + m.w * 0.1, z = m.z - m.d * 0.12;
       if (fitBox(w, d, x, z)) mesh.box(w, 0.55, d, x, rt + 0.275, z, 0, hvac);
@@ -794,6 +803,7 @@ double flatRoof(Context& cx, const Mass& m, double top, js_math::Mulberry32& br,
       const double x = m.x + (br() - 0.5) * (m.w - 1.2), z = m.z + (br() - 0.5) * (m.d - 1.2);
       if (fitBox(sx, sz, x, z)) mesh.box(sx, 0.3, sz, x, rt + 0.15, z, 0, hvac);
     }
+    mesh.setDetail(false);
     return rt;
   }
   if (set == FacadeSet::Modern || set == FacadeSet::Urban) {
@@ -801,6 +811,7 @@ double flatRoof(Context& cx, const Mass& m, double top, js_math::Mulberry32& br,
     mesh.ringBand(ring, offsetRing(ring, -0.07), top, 0.12, cx.plain(cx.tint(kModernParapet)));
     const double rt = top + 0.04;
     if (m.w < 1.3 || m.d < 1.3) return rt;
+    mesh.setDetail(true);  // roof furniture: not in the zoom-out low-detail range
     const double pick = br();
     if (pick < 0.4) {
       const double dw = m.w * 0.5, dd = m.d * 0.45, dx = m.x - m.w * 0.12, dz = m.z + m.d * 0.1;
@@ -828,6 +839,7 @@ double flatRoof(Context& cx, const Mass& m, double top, js_math::Mulberry32& br,
       const double w = m.w * 0.35, d = m.d * 0.3, x = m.x + m.w * 0.15, z = m.z - m.d * 0.15;
       if (fitBox(w, d, x, z)) mesh.box(w, 0.3, d, x, rt + 0.15, z, 0, cx.plain(cx.tint(kHvac)));
     }
+    mesh.setDetail(false);
     return rt;
   }
   // toy / none: the light overhanging cap slab.
@@ -895,7 +907,7 @@ bool BuildingLayerData::sameContent(const BuildingLayerData& o) const {
     return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(a[0])) == 0);
   };
   return originX == o.originX && originY == o.originY && unitsPerMercator == o.unitsPerMercator && sameBytes(vertices, o.vertices) &&
-         sameBytes(indices, o.indices) && sameBytes(lineVertices, o.lineVertices) && sameBytes(lineIndices, o.lineIndices) &&
+         sameBytes(indices, o.indices) && sameBytes(lowDetailIndices, o.lowDetailIndices) &&sameBytes(lineVertices, o.lineVertices) && sameBytes(lineIndices, o.lineIndices) &&
          std::memcmp(&light, &o.light, sizeof light) == 0 && windowLights == o.windowLights && lineWidth == o.lineWidth;
 }
 
@@ -1022,8 +1034,9 @@ BuildingLayerData buildBuildingLayer(const WorldData& world, const Projection& p
       mesh.walls(offsetRing(ring, 0.02), 0, band, ss, false, uo * 2.0);
     }
 
-    // Facade details: slab edges, fins, balconies, cornice, storefront canopy.
+    // Facade details: slab edges, fins, balconies, cornice, storefront canopy (not in the low-detail range).
     if (detailOn) {
+      mesh.setDetail(true);
       std::uint32_t trimColor = set == FacadeSet::Urban ? kUrbanTrims[rb.index % kUrbanTrims.size()] : set == FacadeSet::Real ? kTrimReal : kTrimDefault;
       const Surface trim = cx.plain(cx.tint(trimColor));
       const double top0 = H;
@@ -1069,6 +1082,7 @@ BuildingLayerData buildBuildingLayer(const WorldData& world, const Projection& p
                    front->mz + front->nz * 0.19, front->yaw, trim);
         }
       }
+      mesh.setDetail(false);
     }
 
     // Roof.

@@ -125,6 +125,9 @@ struct BuildingLayerData {
 
   std::vector<BuildingMeshVertex> vertices;
   std::vector<std::uint32_t> indices;
+  /// M4 zoom-out: `indices` without the facade details and roof furniture (same vertices), drawn instead of
+  /// `indices` while `BuildingLayerZoom::lowDetail` (engine-web hides small clutter from the same zoom-out factor).
+  std::vector<std::uint32_t> lowDetailIndices;
   std::vector<BuildingLineVertex> lineVertices;
   std::vector<std::uint32_t> lineIndices;
 

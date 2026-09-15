@@ -232,7 +232,7 @@ Value buildWorldSources(const WorldData& world, const Projection& projection, co
   return sources;
 }
 
-Value buildWorldLayers(const WorldData& world, const MapLook& look, const BuildingPaint& paint) {
+Value buildWorldLayers(const WorldData& world, const MapLook& look, const BuildingPaint& paint, const ZoomOutPaint& zoom) {
   const double lat = world.origin.lat;
   const double unit = world.unitMeters;
   Value layers = Value::array();
@@ -256,6 +256,29 @@ Value buildWorldLayers(const WorldData& world, const MapLook& look, const Buildi
     p.set("line-dasharray", Value::array({3, 3}));
     p.set("line-opacity", look.laneMarkings ? 1 : 0);
     layers.push(std::move(centre));
+  }
+
+  // M4 `mapColors` (engine-web `ZoomOutController.buildOverlay`): flat map colours over the ground (the world pad),
+  // parks, water and the roads (`ROAD_W · 1.1`, arterial casing + 0.7), faded in to 92 % with the zoom-out factor.
+  {
+    using namespace world_style;
+    const auto overlayFill = [&](const char* id, const char* src, std::uint32_t rgb) {
+      Value l = fillLayer(id, src, rgb);
+      l.find("paint")->set("fill-opacity", zoom.mapOpacity);
+      return l;
+    };
+    const auto overlayRoad = [&](const char* id, RoadClass cls, std::uint32_t rgb, double meters) {
+      Value l = roadLayer(id, cls, rgb, meters, lat);
+      l.find("paint")->set("line-opacity", zoom.mapOpacity);
+      return l;
+    };
+    layers.push(overlayFill(kLayerMapGround, kSourceArea, kMapGround));
+    layers.push(overlayFill(kLayerMapParks, kSourceParks, kMapPark));
+    layers.push(overlayFill(kLayerMapWater, kSourceWater, kMapWater));
+    layers.push(overlayRoad(kLayerMapCasing, RoadClass::Arterial, kMapCasing, arterial + 0.7 * unit));
+    layers.push(overlayRoad(kLayerMapAlley, RoadClass::Alley, kMapAlley, alley));
+    layers.push(overlayRoad(kLayerMapLocal, RoadClass::Local, kMapLocal, local));
+    layers.push(overlayRoad(kLayerMapArterial, RoadClass::Arterial, kMapArterial, arterial));
   }
 
   Value poiColor = Value::array({"match", Value::array({"get", "cat"})});
@@ -300,12 +323,40 @@ Value buildWorldLayers(const WorldData& world, const MapLook& look, const Buildi
       {"source", world_style::kSourceBuildings},
       {"paint", Value::object({
                     {"fill-extrusion-color", buildingColor(look, paint)},
-                    {"fill-extrusion-height", Value::array({"*", Value::array({"get", "height"}), look.heightScale})},
+                    {"fill-extrusion-height", Value::array({"*", Value::array({"get", "height"}), look.heightScale * zoom.heightScale})},
                     {"fill-extrusion-base", 0},
                     {"fill-extrusion-vertical-gradient", true},
                 })},
   }));
   return layers;
+}
+
+std::vector<PaintPropertyChange> zoomOutPaintChanges(Value& layers, const MapLook& look, const ZoomOutPaint& zoom) {
+  using namespace world_style;
+  std::vector<PaintPropertyChange> out;
+  if (!layers.isArray()) return out;
+  const auto patch = [&](Value& layer, const char* property, Value value) {
+    Value* paint = layer.find("paint");
+    if (paint == nullptr) return;
+    std::string next = json::stringify(value);
+    const Value* old = paint->find(property);
+    if (old != nullptr && json::stringify(*old) == next) return;
+    paint->set(property, std::move(value));
+    out.push_back(PaintPropertyChange{layer.find("id")->asString(), property, std::move(next)});
+  };
+  for (Value& layer : layers.items()) {
+    const Value* idValue = layer.find("id");
+    if (idValue == nullptr || !idValue->isString()) continue;
+    const std::string id = idValue->asString();
+    if (id == kLayerBuildings) {
+      patch(layer, "fill-extrusion-height", Value::array({"*", Value::array({"get", "height"}), look.heightScale * zoom.heightScale}));
+    } else if (id == kLayerMapGround || id == kLayerMapParks || id == kLayerMapWater) {
+      patch(layer, "fill-opacity", Value(zoom.mapOpacity));
+    } else if (id == kLayerMapCasing || id == kLayerMapAlley || id == kLayerMapLocal || id == kLayerMapArterial) {
+      patch(layer, "line-opacity", Value(zoom.mapOpacity));
+    }
+  }
+  return out;
 }
 
 Value lightValue(const MapLight& light) {

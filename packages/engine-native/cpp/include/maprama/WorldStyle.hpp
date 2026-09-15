@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "maprama/MapAdapter.hpp"
 #include "maprama/MapLook.hpp"
 #include "maprama/Projection.hpp"
 #include "maprama/WorldStore.hpp"
@@ -34,6 +35,18 @@ inline constexpr const char* kSourceStations = "maprama-stations";
 /// The 3D building layer queried for `building:press`.
 inline constexpr const char* kLayerBuildings = "buildings";
 inline constexpr const char* kLayerCapturedRing = "buildings-captured";
+/// M4 `mapColors` overlay (engine-web `ZoomOutController.buildOverlay`, `MAP_COLORS`): above the base ground and
+/// roads, below the POI / station discs; `fill-opacity` / `line-opacity` follow the zoom-out factor.
+inline constexpr const char* kLayerMapGround = "map-ground";
+inline constexpr const char* kLayerMapParks = "map-parks";
+inline constexpr const char* kLayerMapWater = "map-water";
+inline constexpr const char* kLayerMapCasing = "map-roads-arterial-casing";
+inline constexpr const char* kLayerMapAlley = "map-roads-alley";
+inline constexpr const char* kLayerMapLocal = "map-roads-local";
+inline constexpr const char* kLayerMapArterial = "map-roads-arterial";
+/// engine-web `MAP_COLORS`.
+inline constexpr std::uint32_t kMapArterial = 0xF7C45C, kMapCasing = 0xD99A32, kMapLocal = 0xFFFFFF, kMapAlley = 0xF3F0EA,
+                               kMapGround = 0xEEEAE2, kMapPark = 0xC4E2B2, kMapWater = 0x9CCBEB;
 /// engine-web minimum building height (world units) and degenerate-footprint threshold (world units²).
 inline constexpr double kMinBuildingHeightUnits = 0.2;
 inline constexpr double kMinFootprintArea = 0.01;
@@ -57,10 +70,20 @@ struct BuildingPaint {
   std::vector<std::string> captured;
 };
 
+/// M4 zoom-out paint (`ZoomOutLook`): the building height multiplier (engine-web `scaleY`) and the opacity of the
+/// flat map-colour overlay.
+struct ZoomOutPaint {
+  double heightScale = 1.0;
+  double mapOpacity = 0.0;
+};
+
 /// The `sources` object (inline GeoJSON). Building features carry `id`, `height` (meters), `ci`, `si`.
 json::Value buildWorldSources(const WorldData& world, const Projection& projection, const std::vector<RenderedBuilding>& buildings);
-/// The `layers` array for a look and building paint.
-json::Value buildWorldLayers(const WorldData& world, const MapLook& look, const BuildingPaint& paint);
+/// The `layers` array for a look, building paint and zoom-out state.
+json::Value buildWorldLayers(const WorldData& world, const MapLook& look, const BuildingPaint& paint, const ZoomOutPaint& zoom = {});
+/// Patches the zoom-out paint properties (extrusion height, overlay opacities) of `layers` in place and returns the
+/// ones that changed, in layer order.
+std::vector<PaintPropertyChange> zoomOutPaintChanges(json::Value& layers, const MapLook& look, const ZoomOutPaint& zoom);
 /// The style root `light` object.
 json::Value lightValue(const MapLight& light);
 /// `{version: 8, name, sources, layers, light}`.

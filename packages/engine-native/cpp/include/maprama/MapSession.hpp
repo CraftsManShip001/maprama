@@ -33,6 +33,7 @@
 #include "maprama/SubscriptionRegistry.hpp"
 #include "maprama/ThemeResolver.hpp"
 #include "maprama/WorldStyle.hpp"
+#include "maprama/ZoomOut.hpp"
 #include "maprama/json.hpp"
 #include "maprama/types.hpp"
 
@@ -56,6 +57,8 @@ inline constexpr double kOverlayEpsilonPx = 0.25;
 /// engine-web zoom buttons: ±1.45x camera distance over 250 ms.
 inline constexpr double kZoomButtonStep = 1.45;
 inline constexpr double kZoomButtonMs = 250.0;
+/// M4: frame interval while the zoom-out factor eases (engine-web steps it every rendered frame).
+inline constexpr double kZoomOutFrameMs = 16.0;
 
 /// What another session (the M3a `GameSession`) adds to the map session: extra style sources / layers,
 /// re-sending its source data after every complete style, the world-load hook and `setCamera.follow`.
@@ -76,6 +79,10 @@ class MapSessionHooks {
   /// `setCamera.follow`: a character id, or nullopt (null, or `center` without `follow`) to stop following.
   /// Returns false for an unknown character (the command then fails with `unknown_character`).
   virtual bool setFollow(const std::optional<std::string>& characterId) = 0;
+  /// M4: the zoom-out level of detail changed (characters and drops as icon discs, `ZoomOutController::sprites`).
+  virtual void zoomOutChanged() {}
+  /// The camera moved (gestures, animations, `setCamera`, follow): models may have come into view.
+  virtual void cameraMoved() {}
 };
 
 class MapSession {
@@ -137,6 +144,8 @@ class MapSession {
   const MapLook& look() const { return look_; }
   /// The custom building layer (M2c) of the current world / theme / building styles; nullptr before a world.
   const BuildingLayerData* buildingLayer() const { return buildingLayer_.get(); }
+  /// M4 zoom-out game view: the eased factor, the applied look and the icon-disc switch.
+  const ZoomOutController& zoomOut() const { return zoomOut_; }
   MapCameraPose poseFor(const CameraState& state) const;
   MapCameraLimits limits() const;
   std::size_t pendingRequests() const { return pendingRequests_.size(); }
@@ -189,6 +198,12 @@ class MapSession {
   void cameraChanged();
   void pump();
   void pumpOverlay(double now, double* nextDelay);
+  /// M4: eases the zoom-out factor (engine-web `ZoomOutController.update`) and applies its look.
+  void pumpZoomOut(double now, double* nextDelay);
+  void applyZoomOut();
+  ZoomOutPaint zoomOutPaint() const;
+  void pushBuildingLayerZoom(bool force);
+  double unitMeters() const;
   void requestFrame(double now, double delayMs);
   void respondOk(const std::string& requestId, json::Value result);
   void respondError(const std::string& requestId, std::string_view code, std::string message);
@@ -227,6 +242,13 @@ class MapSession {
   mutable bool styleDirty_ = false;
   std::shared_ptr<const BuildingLayerData> buildingLayer_;
   std::uint64_t buildingLayerVersion_ = 0;
+
+  // Zoom-out game view (M4).
+  ZoomOutController zoomOut_;
+  /// Time of the last zoom-out step (none while the factor rests).
+  std::optional<double> zoomOutLastMs_;
+  BuildingLayerZoom zoomSent_;
+  bool zoomSentValid_ = false;
 
   // Map UI.
   MapUiSpec ui_;

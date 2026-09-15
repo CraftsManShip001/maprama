@@ -101,6 +101,19 @@ struct MapUiState {
   bool operator!=(const MapUiState& o) const { return !(*this == o); }
 };
 
+/// M4 zoom-out state of the custom layer (`ZoomOut.hpp`), sent when it changes (at most once per frame while the
+/// zoom-out factor eases).
+struct BuildingLayerZoom {
+  /// Building height multiplier (engine-web `scaleY`, below 1 only for `mapColors`): scales z of the building meshes
+  /// and outlines like the extrusion's `fill-extrusion-height`.
+  float heightScale = 1.f;
+  /// Draw `BuildingLayerData::lowDetailIndices` instead of `indices` (no facade details / roof furniture).
+  bool lowDetail = false;
+
+  bool operator==(const BuildingLayerZoom& o) const { return heightScale == o.heightScale && lowDetail == o.lowDetail; }
+  bool operator!=(const BuildingLayerZoom& o) const { return !(*this == o); }
+};
+
 class MapAdapter {
  public:
   virtual ~MapAdapter() = default;
@@ -187,6 +200,12 @@ class MapAdapter {
     (void)token;
     (void)url;
   }
+
+  // ---- M4 zoom-out game view (default: no-op) ------------------------------------------------------
+
+  /// The custom layer's zoom-out state (height scale, low-detail range); applies to every later frame and survives
+  /// style reloads and `setBuildingLayer`.
+  virtual void setBuildingLayerZoom(const BuildingLayerZoom& zoom) { (void)zoom; }
 };
 
 }  // namespace maprama

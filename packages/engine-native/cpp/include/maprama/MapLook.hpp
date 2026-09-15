@@ -87,7 +87,7 @@ std::uint32_t buildingThemeColor(const MapLook& look, std::uint32_t ci, std::siz
 std::uint32_t buildingOverrideColor(const MapLook& look, std::uint32_t ci, std::size_t index, const BuildingOverride& o);
 
 /// Theme options M2a accepts but does not render yet (warn-logged once each by the session): keys such as
-/// `buildings.facade`, `buildings.outline`, `buildings.details`, `buildings.massing`, `cinematic`, `zoomOut`.
+/// `buildings.massing` ("varied") and `cinematic` (grading). `zoomOut` is rendered since M4 (ZoomOut.hpp).
 std::vector<std::string> unrenderedThemeOptions(const ResolvedTheme& theme);
 
 // ---- colors ------------------------------------------------------------------------------------------

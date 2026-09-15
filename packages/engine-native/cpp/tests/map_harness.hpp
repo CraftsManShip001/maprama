@@ -82,6 +82,7 @@ class FakeAdapter final : public MapAdapter {
   void stopLocationUpdates() override { ++locationStops; }
   void setModelLayer(std::shared_ptr<const ModelLayerFrame> frame) override { modelFrames.push_back(std::move(frame)); }
   void fetchBinary(std::uint64_t token, const std::string& url) override { binaryFetches.emplace_back(token, url); }
+  void setBuildingLayerZoom(const BuildingLayerZoom& zoom) override { zooms.push_back(zoom); }
 
   /// The characters (or drops) of the last model frame as a GeoJSON-like FeatureCollection (`properties` and a point
   /// `geometry`), so the M3a assertions read the M3b model layer the way they read the former marker sources.
@@ -153,6 +154,7 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::pair<std::string, std::string>> sourceData;
   std::vector<std::shared_ptr<const ModelLayerFrame>> modelFrames;
   std::vector<std::pair<std::uint64_t, std::string>> binaryFetches;
+  std::vector<BuildingLayerZoom> zooms;
   int locationStarts = 0;
   int locationStops = 0;
 };

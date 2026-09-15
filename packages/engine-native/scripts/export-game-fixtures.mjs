@@ -1049,10 +1049,101 @@ const characters = {
 };
 
 // ---------------------------------------------------------------------------
+// Zoom-out game view (M4): engine-web's `zoomOutTarget` and `ZoomOutController.update`
+// ---------------------------------------------------------------------------
+
+const ZO = await import(src('render/zoom-out.ts'));
+const ZOOM_BEHAVIORS = P.ZOOM_OUT_BEHAVIORS;
+const zoomTargets = [];
+for (const behavior of ZOOM_BEHAVIORS) {
+  for (const distance of [-5, 0, 14, 40, 54.9, 55, 55.0001, 60, 70, 82.5, 90, 100, 109.9, 110, 120, 150, 1e9]) {
+    zoomTargets.push({ behavior, distance, t: ZO.zoomOutTarget(behavior, distance) });
+  }
+}
+
+/** Drives a real `ZoomOutController` with recording targets; a step is `[dt, distance, behavior]`. */
+function runZoomOut(name, steps, reduceMotion = false) {
+  const c = new ZO.ZoomOutController();
+  const fogParams = { near: 60, far: 220 };
+  const fog = { near: 0, far: 0 };
+  const shadow = { left: 0, right: 0, top: 0, bottom: 0, far: 0, updateProjectionMatrix() {} };
+  const clutter = { visible: true };
+  let haze = null;
+  const targets = { fog, shadowCamera: shadow, clutter, setHazeFade: (t, map) => { haze = { t, map }; } };
+  const out = [];
+  for (const [dt, distance, behavior] of steps) {
+    haze = null;
+    c.update(dt, distance, { zoomOut: behavior, fog: fogParams }, targets, reduceMotion);
+    out.push({
+      t: c.t,
+      scaleY: c.scaleY,
+      applied: haze !== null,
+      hazeT: haze?.t ?? null,
+      hazeMap: haze?.map ?? null,
+      fogNear: fog.near,
+      fogFar: fog.far,
+      shadowExtent: shadow.right,
+      shadowFar: shadow.far,
+      clutter: clutter.visible,
+    });
+  }
+  return { name, reduceMotion, fog: fogParams, steps, out };
+}
+
+const zoomRamp = (behavior, from, to, seconds, dt = 1 / 60) => {
+  const n = Math.round(seconds / dt);
+  return Array.from({ length: n }, (_, i) => [dt, from + ((to - from) * (i + 1)) / n, behavior]);
+};
+const zoomHold = (behavior, distance, seconds, dt = 1 / 60) => Array.from({ length: Math.round(seconds / dt) }, () => [dt, distance, behavior]);
+const zoomRandom = (seed) => {
+  const r = mulberry(seed);
+  const steps = [];
+  let d = 40;
+  for (let i = 0; i < 400; i++) {
+    d = Math.min(150, Math.max(14, d + (r() - 0.45) * 12));
+    const behavior = r() < 0.03 ? ZOOM_BEHAVIORS[Math.floor(r() * 3)] : (steps.at(-1)?.[2] ?? 'keepGameView');
+    steps.push([r() < 0.1 ? r() * 0.2 : r() * 0.034, d, behavior]);
+  }
+  return steps;
+};
+function mulberry(seed) {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const zoomOut = {
+  constants: { near: 55, far: 110 },
+  targets: zoomTargets,
+  traces: [
+    ...ZOOM_BEHAVIORS.map((b) =>
+      runZoomOut(`${b}: out, hold, back`, [...zoomRamp(b, 40, 150, 1.5), ...zoomHold(b, 150, 1), ...zoomRamp(b, 150, 30, 1), ...zoomHold(b, 30, 1)]),
+    ),
+    runZoomOut('keepGameView: jump far at 30 fps', [...zoomHold('keepGameView', 40, 0.2, 1 / 30), ...zoomHold('keepGameView', 140, 2, 1 / 30)]),
+    runZoomOut('behaviour switches while far', [
+      ...zoomHold('keepGameView', 145, 1),
+      ...zoomHold('mapColors', 145, 1),
+      ...zoomHold('none', 145, 0.5),
+      ...zoomHold('mapColors', 145, 0.5),
+    ]),
+    runZoomOut('large dt steps', [...zoomHold('mapColors', 150, 0.5, 0.2), ...zoomHold('mapColors', 20, 0.5, 0.25)]),
+    runZoomOut('reduce motion', [...zoomHold('mapColors', 90, 0.1), ...zoomHold('mapColors', 150, 0.1), ...zoomHold('keepGameView', 60, 0.1)], true),
+    runZoomOut('random walk 7', zoomRandom(7)),
+    runZoomOut('random walk 42', zoomRandom(42)),
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
 
 const files = {
+  'zoom-out.json': zoomOut,
   'travel-plan.json': { worlds: worldSpecs, plans, routes, snaps, helpers, times: planTimes },
   'travel-trace.json': { worlds: worldSpecs, traces },
   'location.json': { worlds: worldSpecs, ...location },

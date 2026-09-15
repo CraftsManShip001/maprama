@@ -162,6 +162,8 @@ void MapSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   animatingUntilMs_ = -kInf;
   if (!adapter_) return;
   sendStyle();
+  zoomSentValid_ = false;
+  pushBuildingLayerZoom(true);
   uiSentValid_ = false;
   pushUi();
   pushLimits();
@@ -494,11 +496,13 @@ void MapSession::setCamera(const Value& spec, std::string_view command) {
 void MapSession::setTheme(const Value& themeSpec) {
   setThemeState(themeSpec);
   applyLook();
+  pump();  // M4: the zoom-out behaviour may have changed
 }
 
 void MapSession::setThemeState(const Value& themeSpec) {
   theme_ = themes_.resolve(themeSpec);
   look_ = mapLookFor(theme_);
+  zoomOut_.invalidate();  // engine-web re-applies the zoom-out look after a theme change
   for (const std::string& option : unrenderedThemeOptions(theme_)) {
     warnOnce("theme:" + option, "engine-native: theme option " + option + " is accepted but not rendered yet");
   }
@@ -632,7 +636,7 @@ BuildingPaint MapSession::buildingPaint() const {
 }
 
 Value MapSession::worldLayers() const {
-  Value layers = buildWorldLayers(*world_.world(), look_, buildingPaint());
+  Value layers = buildWorldLayers(*world_.world(), look_, buildingPaint(), zoomOutPaint());
   if (hooks_ != nullptr) hooks_->extendLayers(layers, look_);
   return layers;
 }
@@ -761,6 +765,7 @@ void MapSession::cameraChanged() {
   overlayWanted_ = !anchors_.empty();
   pushUi();
   pump();
+  if (hooks_ != nullptr) hooks_->cameraMoved();
 }
 
 void MapSession::pump() {
@@ -781,7 +786,61 @@ void MapSession::pump() {
     nextDelay = std::min(nextDelay, delay);
   }
   pumpOverlay(now, &nextDelay);
+  pumpZoomOut(now, &nextDelay);
   if (std::isfinite(nextDelay)) requestFrame(now, nextDelay);
+}
+
+double MapSession::unitMeters() const {
+  const WorldData* w = world_.world();
+  return w != nullptr ? w->unitMeters : kDefaultUnitMeters;
+}
+
+void MapSession::pumpZoomOut(double now, double* nextDelay) {
+  if (!worldReady_) return;
+  const double units = state_.distance / unitMeters();
+  const ZoomOutBehavior behavior = theme_.zoomOut;
+  if (zoomOut_.settling(units, behavior)) {
+    // engine-web steps the factor every rendered frame with that frame's dt (at most 50 ms); the session steps it in
+    // its own 16 ms frames while it eases, starting from rest with one 16 ms step.
+    const double dt = zoomOutLastMs_ ? std::clamp((now - *zoomOutLastMs_) / 1000.0, 0.0, 0.05) : kZoomOutFrameMs / 1000.0;
+    zoomOutLastMs_ = now;
+    if (zoomOut_.update(dt, units, behavior)) applyZoomOut();
+  }
+  if (zoomOut_.settling(units, behavior)) {
+    *nextDelay = std::min(*nextDelay, kZoomOutFrameMs);
+  } else {
+    zoomOutLastMs_.reset();
+  }
+  if (zoomOut_.updateSprites(units, behavior) && hooks_ != nullptr) hooks_->zoomOutChanged();
+}
+
+ZoomOutPaint MapSession::zoomOutPaint() const {
+  ZoomOutPaint p;
+  p.heightScale = zoomOut_.look().heightScale;
+  p.mapOpacity = zoomOut_.look().mapOpacity;
+  return p;
+}
+
+void MapSession::applyZoomOut() {
+  if (!worldReady_) return;
+  // Only the zoom-out paint properties change: patch them in the current layers instead of rebuilding the style.
+  const std::vector<PaintPropertyChange> changes = zoomOutPaintChanges(layers_, look_, zoomOutPaint());
+  if (!changes.empty()) {
+    styleDirty_ = true;
+    if (adapter_) adapter_->setPaintProperties(changes);
+  }
+  pushBuildingLayerZoom(false);
+}
+
+void MapSession::pushBuildingLayerZoom(bool force) {
+  if (!adapter_) return;
+  BuildingLayerZoom z;
+  z.heightScale = static_cast<float>(zoomOut_.look().heightScale);
+  z.lowDetail = zoomOut_.look().lowDetail();
+  if (!force && zoomSentValid_ && z == zoomSent_) return;
+  zoomSent_ = z;
+  zoomSentValid_ = true;
+  adapter_->setBuildingLayerZoom(z);
 }
 
 void MapSession::pumpOverlay(double now, double* nextDelay) {
