@@ -158,6 +158,8 @@ function NativeEngineWorld({ source, onSourceChange }: { source: SourceChoice; o
               key={item.id}
               testID={`native-preset-${item.id}`}
               title={item.title}
+              // Presets that jump to a Seongsu centre only make sense on the Seongsu data world.
+              disabled={!real && 'center' in item.camera}
               onPress={() => {
                 mapRef.current?.setCamera(item.camera);
                 pushLog(`setCamera: ${item.title}`);
@@ -168,7 +170,7 @@ function NativeEngineWorld({ source, onSourceChange }: { source: SourceChoice; o
       </Section>
       <Section title="project / unproject">
         <ButtonRow>
-          <Button testID="native-project" title="Round trip the station" onPress={roundTrip} />
+          <Button testID="native-project" title="Round trip the station" disabled={!real} onPress={roundTrip} />
         </ButtonRow>
         <Readout testID="native-project-result">{projection}</Readout>
       </Section>
