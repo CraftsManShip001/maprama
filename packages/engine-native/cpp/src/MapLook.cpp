@@ -22,6 +22,8 @@ constexpr std::uint32_t kTexturedPad = 0xC4C1BA;
 constexpr double kAlleyPadMix = 0.3;
 /// Share of the time-of-day irradiance ratio applied to flat colours (see `timeTint`).
 constexpr double kTimeTintStrength = 0.75;
+/// Share of the sun colour in the style light colour (see `lightFor`).
+constexpr double kLightSunMix = 0.4;
 
 // engine-web `URBAN_SCHEMES[].tint` (`render/buildings.ts`), used with the urban facade set + details.
 constexpr std::array<std::uint32_t, 5> kUrbanSchemeTints{0xF3EEE5, 0xF6F7F8, 0xE6E2DC, 0xDFE5EA, 0xE0E8E1};
@@ -159,7 +161,9 @@ MapLight lightFor(const ResolvedTheme& theme) {
   if (azimuth < 0) azimuth += 360.0;
   light.azimuthal = std::round(azimuth * 100.0) / 100.0;
   light.polar = std::round(std::atan2(std::hypot(d[0], d[2]), d[1]) * kRadToDeg * 100.0) / 100.0;
-  light.color = theme.time.sun;
+  // The light colour multiplies every extrusion face on top of the time tint; the full sun colour turned
+  // dusk buildings deep red on device, so only part of it is used.
+  light.color = mixColor(0xFFFFFF, theme.time.sun, kLightSunMix);
   light.intensity = std::round(std::clamp(0.2 + 0.16 * theme.time.sunI * theme.preset.sunMul, 0.2, 0.6) * 1000.0) / 1000.0;
   return light;
 }

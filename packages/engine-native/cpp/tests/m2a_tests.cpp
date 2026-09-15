@@ -124,7 +124,8 @@ MAPRAMA_TEST(map_look_colors_light_and_scale_bar) {
   ctx.check(day.palette[0] == 0xFFFFFF && day.palette[1] == 0xF3EADF && !day.schemeTints, "realistic palette");
   ctx.near(day.light.azimuthal, std::atan2(30.0, -24.0) * 180 / M_PI, 0.01, "sun azimuth from TIMES.day.dir (clockwise from north)");
   ctx.near(day.light.polar, std::atan2(std::hypot(30.0, 24.0), 30.0) * 180 / M_PI, 0.01, "sun polar angle from TIMES.day.dir");
-  ctx.check(day.light.color == 0xFFE4BC && day.light.intensity == 0.6, "sun color / intensity");
+  ctx.check(day.light.color == maprama::mixColor(0xFFFFFF, 0xFFE4BC, 0.4) && day.light.intensity == 0.6,
+            "light color = 40 % sun color, intensity");
 
   // toy: untextured colors, low sun multiplier.
   const maprama::MapLook toy = lookOf(Value::object({{"base", "toy"}}));
@@ -205,7 +206,8 @@ MAPRAMA_TEST(m2a_extruded_buildings_and_theme_patches) {
                 R"(["match",["get","ci"],0,"#FFFFFF",1,"#F3EADF",2,"#E4EBF1",3,"#EDE1D8",4,"#E1E7DE",5,"#F6F2EA","#FFFFFF"])",
             "building colors = realistic palette by ci");
   const Value* light = s.find("light");
-  ctx.check(light != nullptr && light->find("anchor")->asString() == "map" && light->find("color")->asString() == "#FFE4BC" &&
+  ctx.check(light != nullptr && light->find("anchor")->asString() == "map" &&
+                light->find("color")->asString() == cssHex(maprama::mixColor(0xFFFFFF, 0xFFE4BC, 0.4)) &&
                 light->find("intensity")->asNumber() == 0.6 && light->find("position")->items().size() == 3,
             "style light = day sun");
   ctx.check(paintOf(s, "roads-arterial-centerline", "line-opacity") == "1", "realistic lane markings on");
@@ -228,7 +230,8 @@ MAPRAMA_TEST(m2a_extruded_buildings_and_theme_patches) {
               "building palette = toy palette, night tint");
     ctx.check(paintValue(h, "roads-arterial-centerline", "line-opacity").empty(), "unchanged properties are not re-sent");
   }
-  ctx.check(!h.adapter->lights.empty() && h.adapter->lights.back().color == 0x9DB2FF, "light = night sun");
+  ctx.check(!h.adapter->lights.empty() && h.adapter->lights.back().color == maprama::mixColor(0xFFFFFF, 0x9DB2FF, 0.4),
+            "light = night sun (softened)");
   const std::size_t paints = h.adapter->paints.size();
   const std::size_t lights = h.adapter->lights.size();
   h.send(setTheme(Value::object({{"base", "toy"}, {"timeOfDay", "night"}})));
