@@ -126,11 +126,16 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
       // Handled by the M1 session: no warning, and no event without a camera:change subscription.
       ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");
     } else if (type == "init" || type == "setTheme" || type == "setUi" || type == "setBuildingStyle" ||
-               type == "setOverlayAnchors") {
-      // Handled by the M2a session: no event (building "b1" exists; overlays need a map view, none here) and no
-      // "not implemented" warning. Accepted-but-unrendered options (facade / outline / massing looks, labels,
-      // location source, roof / decorations / replaceModel overrides, follow) are warn-logged once each.
-      ctx.check(newEvents == 0, "[" + name + "] handled without events (got " + std::to_string(newEvents) + ")");
+               type == "setOverlayAnchors" || type == "setLabels" || type == "setLabelContent") {
+      // Handled by the M2a / M2b session: no event but init's `labelsIndex` (building "b1" exists; overlays and
+      // label views need a map view, none here) and no "not implemented" warning. Accepted-but-unrendered
+      // options (facade / outline / massing looks, location source, roof / decorations / replaceModel
+      // overrides, follow, 3D label styles) are warn-logged once each.
+      const std::size_t expectedEvents = type == "init" ? 1 : 0;
+      bool eventsOk = newEvents == expectedEvents;
+      if (eventsOk && expectedEvents == 1) eventsOk = sink->eventMsg(eventsBefore).find("type")->asString() == "labelsIndex";
+      ctx.check(eventsOk, "[" + name + "] handled with " + std::to_string(expectedEvents) + " event(s) (got " +
+                              std::to_string(newEvents) + ")");
       bool notImplemented = false;
       for (std::size_t i = logsBefore; i < sink->logs.size(); ++i) {
         notImplemented = notImplemented || sink->logs[i].second.find("is not implemented; ignored") != std::string::npos;

@@ -68,6 +68,10 @@ class FakeAdapter final : public MapAdapter {
   void queryBuilding(std::uint64_t token, double x, double y) override { queries.emplace_back(token, x, y); }
   void fetchText(std::uint64_t token, const std::string& url) override { fetches.emplace_back(token, url); }
   void scheduleFrame(double delayMs) override { frames.push_back(delayMs); }
+  void measureLabels(std::uint64_t token, const std::vector<LabelCardContent>& items) override {
+    measures.emplace_back(token, items);
+  }
+  void setLabelFrame(const LabelFrame& frame) override { labelFrames.push_back(frame); }
 
   /// The paint change for `layer` / `property` in the last `setPaintProperties` batch, if any.
   const PaintPropertyChange* lastPaint(const std::string& layer, const std::string& property) const {
@@ -90,6 +94,8 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::tuple<std::uint64_t, double, double>> queries;
   std::vector<std::pair<std::uint64_t, std::string>> fetches;
   std::vector<double> frames;
+  std::vector<std::pair<std::uint64_t, std::vector<LabelCardContent>>> measures;
+  std::vector<LabelFrame> labelFrames;
 };
 
 struct Harness {

@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "maprama/CameraController.hpp"
+#include "maprama/LabelSystem.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MapLook.hpp"
 #include "maprama/MessageSink.hpp"
@@ -73,6 +74,8 @@ class MapSession {
   void onUnprojected(std::uint64_t token, const std::optional<LngLat>& coordinate);
   void onBuildingQueried(std::uint64_t token, const std::optional<std::string>& buildingId, const std::optional<LngLat>& ground);
   void onTextFetched(std::uint64_t token, bool ok, const std::string& bodyOrError);
+  /// Reply to `MapAdapter::measureLabels`.
+  void onLabelsMeasured(std::uint64_t token, const std::vector<LabelSize>& sizes);
   /// Flushes throttled subscriptions / overlay positions that became due (`MapAdapter::scheduleFrame`).
   void frame();
   /// Platform tap (dp): hit-tests the 3D buildings, then emits `building:press` or `map:press`.
@@ -88,6 +91,10 @@ class MapSession {
   /// `style` is a `BuildingStyle` object or `null` (clears the override).
   void setBuildingStyle(const std::string& buildingId, const json::Value& style);
   void setOverlayAnchors(const json::Value& anchors);
+  /// `LabelsSpec` object (replaces the spec, engine-web semantics).
+  void setLabels(const json::Value& labelsSpec);
+  /// `Record<string, LabelContent>` (replaces all host content).
+  void setLabelContent(const json::Value& entries);
   void subscribeCamera(double throttleMs);
   void unsubscribeCamera();
   /// `project` / `unproject`; answered asynchronously through the adapter.
@@ -106,6 +113,9 @@ class MapSession {
   MapCameraPose poseFor(const CameraState& state) const;
   MapCameraLimits limits() const;
   std::size_t pendingRequests() const { return pendingRequests_.size(); }
+  const LabelSystem& labels() const { return labels_; }
+  /// The label frame last sent to the adapter.
+  const LabelFrame& labelFrame() const { return labelFrame_; }
 
  private:
   struct PendingRequest {
@@ -122,6 +132,11 @@ class MapSession {
   void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg);
   void setThemeState(const json::Value& themeSpec);
   void setUiState(const json::Value& uiSpec);
+  void setLabelsState(const json::Value& labelsSpec);
+  /// Asks the platform for the sizes of label cards that are not measured yet.
+  void requestLabelSizes();
+  /// Recomputes the label placement when something changed and sends it when it differs.
+  void pumpLabels();
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.
   void applyLook();
   BuildingPaint buildingPaint() const;
@@ -182,6 +197,13 @@ class MapSession {
   bool overlayWanted_ = false;
   bool overlayDirty_ = true;
   double lastOverlayRequestMs_;
+
+  // Labels (M2b).
+  LabelSystem labels_;
+  std::map<std::uint64_t, std::vector<LabelCardContent>> pendingMeasures_;
+  LabelFrame labelFrame_;
+  bool labelFrameSent_ = false;
+  bool labelsDirty_ = true;
 
   SubscriptionRegistry subscriptions_;
   std::map<std::uint64_t, PendingRequest> pendingRequests_;
