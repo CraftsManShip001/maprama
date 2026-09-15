@@ -96,6 +96,6 @@ tags:
 - extendedWaitUntil:
     visible:
       id: "mp-tick"
-      text: "server tick: [3-9].*"
+      text: "server tick: ([3-9]|[1-9][0-9]+).*"
     timeout: 15000
 - takeScreenshot: screenshots/08-multiplayer
