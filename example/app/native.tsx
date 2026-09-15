@@ -135,7 +135,8 @@ function NativeEngineWorld({ source, onSourceChange }: { source: SourceChoice; o
   const styleSample = (nextRoof: RoofShape, nextFacade: FacadeOption) => {
     setRoof(nextRoof);
     setFacade(nextFacade);
-    if (!SAMPLE_BUILDING) return;
+    // The sample is a Seongsu building: procedural worlds do not have it (unknown_building).
+    if (!SAMPLE_BUILDING || !real) return;
     mapRef.current?.setBuildingStyle(SAMPLE_BUILDING.id, sampleStyle(captured, nextRoof, nextFacade));
     pushLog(`setBuildingStyle ${SAMPLE_BUILDING.id}: roof ${nextRoof}, facade ${nextFacade}`);
   };
@@ -238,7 +239,7 @@ function NativeEngineWorld({ source, onSourceChange }: { source: SourceChoice; o
           <Button
             testID="native-closeup"
             title="Close-up"
-            disabled={!SAMPLE_BUILDING}
+            disabled={!SAMPLE_BUILDING || !real}
             onPress={() => {
               if (!SAMPLE_BUILDING) return;
               // The sample is a 46 m tower: look down on its roof (gable / dome, captured flag) from above.
