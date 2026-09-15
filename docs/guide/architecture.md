@@ -94,7 +94,7 @@ transport.postCommand({ type: 'init', world: { kind: 'procedural', layout: 'town
 
 ## v2: 네이티브 C++ 엔진
 
-### 현재 상태: M1 (평면 지도 + 카메라)
+### 현재 상태: M2a (3D 건물 + 테마)
 
 `@maprama/engine-native`를 import하면 `native` 엔진 호스트가 등록되고 `<MapramaView engine="native">`가 네이티브 엔진으로 동작합니다. 네이티브 코드가 들어간 개발 빌드(New Architecture)가 필요하며 Expo Go에서는 동작하지 않습니다.
 
@@ -104,22 +104,25 @@ import '@maprama/engine-native';
 <MapramaView engine="native" world={{ kind: 'data', world }} camera={{ center, distance: 400, pitch: 45 }} />
 ```
 
-| 항목 | M1 상태 |
+| 항목 | M2a 상태 |
 | --- | --- |
-| 렌더러 | 공식 prebuilt MapLibre Native SDK (iOS CocoaPods `MapLibre` 6.30, Android `org.maplibre.gl:android-sdk` 13.6.1). 포크와 패치 큐는 M2(커스텀 건물 레이어)부터 |
-| 월드 | `data`·`url` WorldData를 평면 지도로 렌더 (배경, 수면·공원 면, 등급별 도로 선, 건물 footprint 면, POI·역 원). `procedural`은 `unsupported` 치명 오류 |
+| 렌더러 | 공식 prebuilt MapLibre Native SDK (iOS CocoaPods `MapLibre` 6.30, Android `org.maplibre.gl:android-sdk` 13.6.1)의 스타일 레이어. 지붕·외벽·외곽선은 M2c에서 SDK의 커스텀 렌더 레이어로 추가하고, 포크는 그 길이 막힐 때만 쓰는 대안 |
+| 월드 | `data`·`url` WorldData 렌더: 배경, 수면·공원 면, 등급별 도로 선, POI·역 원, 높이를 반영한 3D 건물(`fill-extrusion`). `procedural`은 `unsupported` 치명 오류 (M2b) |
+| 테마 | 프리셋과 옵션을 웹 엔진과 같은 규칙으로 해석 (C++ `ThemeResolver`, 프로토콜 데이터에서 생성하고 적합성 테스트). 시간대는 스타일 조명 + 색 틴트. `setTheme`은 페인트 속성과 조명만 바꿔 바로 적용. 시네마틱 그레이딩·외곽선은 M2c |
+| 건물 스타일 | `setBuildingStyle`의 `color`와 `state: 'captured'` 강조, `null`로 초기화. 없는 건물은 `unknown_building` 오류. 지붕·외벽·장식·매스·모델 교체는 M2c |
 | 카메라 | `setCamera` (병합, `distance`가 `zoom`보다 우선, `animate`), 팬·핀치 줌·회전·피치(0–60°) 제스처. 거리 한계는 웹 엔진과 같은 14–150 월드 단위 |
-| 이벤트 | `ready`, `camera:change` (구독 + `throttleMs`), `project`/`unproject` 응답 |
-| 그 밖 | 나머지 명령은 경고 로그만 남기고 무시. `snapToRoad`/`route`는 `unsupported` 응답, `setCamera.follow`는 경고 (캐릭터는 M3) |
+| 이벤트 | `ready`, `camera:change` (구독 + `throttleMs`), `project`/`unproject` 응답, `map:press`·`building:press` (렌더된 피처 조회), `overlay:positions` (화면이 바뀌는 동안 16 ms 프레임당 최대 한 번) |
+| 지도 UI | `setUi`: 축척 막대, 줌 버튼 + 나침반, 출처 표시. 위치 퍽은 M3 |
+| 그 밖 | 라벨(`setLabels`, `setLabelContent`, `labelsIndex`)은 M2b. 캐릭터·이동·드롭·지오펜스 명령은 경고 로그만 남기고 무시 (M3). `snapToRoad`/`route`는 `unsupported` 응답, `setCamera.follow`는 경고 |
 
-같은 `CameraState`에서 두 엔진이 같은 지면 범위를 보이도록 `distance`는 웹 엔진의 40° 시야각을 기준으로 MapLibre 줌에 대응시킵니다 (프로토콜 `zoom` z = MapLibre 줌 z − 1). 공식 SDK는 C++ `mbgl` 헤더가 아니라 Obj-C/Java API를 제공하므로, C++ 코어는 플랫폼이 구현하는 작은 `MapAdapter` 인터페이스(스타일 JSON, 카메라, project/unproject, URL 로드)로 지도를 움직입니다. M2에서 패치된 `mbgl` 기반 어댑터가 이를 대체합니다. 예제 앱의 "9. Native engine (M1)" 화면에서 확인할 수 있습니다.
+같은 `CameraState`에서 두 엔진이 같은 지면 범위를 보이도록 `distance`는 웹 엔진의 40° 시야각을 기준으로 MapLibre 줌에 대응시킵니다 (프로토콜 `zoom` z = MapLibre 줌 z − 1). 공식 SDK는 C++ `mbgl` 헤더가 아니라 Obj-C/Java API를 제공하므로, C++ 코어는 플랫폼이 구현하는 작은 `MapAdapter` 인터페이스(스타일 JSON, 페인트 속성·조명 패치, 카메라, project/unproject, 렌더된 피처 조회, URL 로드)로 지도를 움직입니다. 예제 앱의 "9. Native engine (M2a)" 화면에서 확인할 수 있습니다.
 
 ### 결정
 
 | 주제 | 결정 |
 | --- | --- |
 | RN | New Architecture 전용: Fabric 뷰 + JSI TurboModule. 브리지 폴백 없음 |
-| 렌더러 | M1은 공식 prebuilt MapLibre Native SDK. M2부터 **MapLibre Native**(BSD-2-Clause)를 포크해 내장하며, 긴 수명의 갈라진 포크가 아니라 upstream 위에 rebase하는 **패치 큐**로 유지 |
+| 렌더러 | 공식 prebuilt **MapLibre Native**(BSD-2-Clause) SDK. 면·선·3D 건물은 스타일 레이어(M1–M2b), 지붕·외벽·외곽선은 SDK의 커스텀 렌더 레이어(M2c: iOS `MLNCustomStyleLayer`·Metal, Android C++ `CustomLayerHost`). 포크 + upstream 위에 rebase하는 **패치 큐**는 커스텀 레이어로 안 될 때만 쓰는 대안 |
 | 코드 공유 | 프로토콜·시뮬레이션·디오라마 레이어는 C++ 공통 코어 하나. iOS(Obj-C++)와 Android(Kotlin/JNI) 래퍼는 얇게 |
 | C++ 표준 | C++17 (RN의 C++20 툴체인 안에서 컴파일) |
 | JSON | JavaScript 의미를 그대로 재현하는 자체 파서. `decodeCommand`와 바이트 단위로 같은 오류를 내기 위함 |
@@ -129,16 +132,17 @@ import '@maprama/engine-native';
 ```
 TS API (@maprama/react-native, engine="native")             JS 스레드
 Fabric + JSI: MapramaNativeView · MapramaEngineModule
-플랫폼 래퍼: iOS MTKView·CADisplayLink / Android TextureView·Choreographer
-C++ 코어: Dispatcher · WorldStore · Projection · ThemeResolver · LabelSystem
-          CameraController · CharacterSystem · TravelPlanner · DropSystem · GeofenceSystem
-MapLibre Native (패치) + MapramaLayer: 돌출·외벽·지붕, 인스턴싱 드롭, 스키닝 glTF, 홀로 라벨
-GPU: Metal (iOS) · Vulkan (Android) · GL ES 3 폴백
+플랫폼 래퍼: iOS MLNMapView / Android MapView (MapAdapter 구현) + 라벨 네이티브 뷰 풀
+C++ 코어: Dispatcher · MapSession · WorldStore · WorldStyle · Projection · ThemeResolver
+          LabelSystem · CharacterSystem · TravelPlanner · DropSystem · GeofenceSystem
+MapLibre Native 공식 SDK: 스타일 레이어(면·선·fill-extrusion)
+          + 커스텀 레이어 MapramaLayer: 외벽·지붕·외곽선, 인스턴싱 드롭, 스키닝 glTF
+GPU: Metal (iOS) · GL ES 3 / Vulkan (Android)
 ```
 
 ### 디오라마 레이어
 
-MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 패치(약 4개)로, 그리기는 커스텀 드로어블 API를 통해 코어의 `MapramaLayer`에 위임합니다. 스타일 순서와 줌 범위에 참여하고 fill-extrusion·심볼과 깊이를 공유할 수 있어서, 커스텀 레이어 API만 쓰는 방식보다 이 방식을 골랐습니다.
+M2c에서 공식 SDK의 커스텀 렌더 레이어(iOS `MLNCustomStyleLayer`는 Metal, Android는 C++ `CustomLayerHost`)가 코어의 `MapramaLayer`를 그립니다. 커스텀 레이어도 스타일 레이어 순서 안에 들어가므로 도로·fill-extrusion과 겹치는 순서를 맞출 수 있습니다. 처음 설계는 MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 패치(약 4개)였지만, 고정한 SDK 버전의 커스텀 레이어가 Metal·Vulkan까지 지원하는 것을 헤더로 확인하고 포크 없이 가는 쪽으로 바꿨습니다. 깊이 공유나 픽킹이 커스텀 레이어로 모자라면 그때 패치 큐로 돌아갑니다.
 
 ### 타일
 
@@ -163,16 +167,16 @@ MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 
 | --- | --- | --- | --- |
 | 봉투 코덱 + 검증 | `decodeCommand` / `encodeEvent` | v1 | **M0** (적합성 테스트) |
 | 투영 | `createProjection` | v1 | **M0** |
-| WorldData `data` 로드 | `init.world` | v1 | M0 저장, M1 렌더 |
-| WorldData `url` / `procedural` | `init.world` | v1 | M1 |
-| 카메라 + 제스처 | `setCamera`, `camera:change`, `project`/`unproject` | v1 | M1 |
-| 구독 | `subscribe` / `unsubscribe` | v1 | M1 |
-| 건물: 돌출, 외벽, 지붕, 매스 | `setTheme`, `setBuildingStyle` | v1 | M2 |
-| 테마 + 시간대 + 시네마틱 | `setTheme` | v1 | M2 |
-| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2 |
-| 지도 UI | `setUi` | v1 | M2 |
-| 탭 | `map:press`, `building:press` | v1 | M2 |
-| 오버레이 앵커 | `setOverlayAnchors`, `overlay:positions` | v1 | M2 |
+| WorldData `data` 로드 | `init.world` | v1 | **M0** 저장, **M1** 렌더 |
+| WorldData `url` / `procedural` | `init.world` | v1 | `url` **M1**, `procedural` M2b |
+| 카메라 + 제스처 | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow`는 M3) |
+| 구독 | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`, 나머지 토픽 M3 |
+| 건물: 돌출, 외벽, 지붕, 매스 | `setTheme`, `setBuildingStyle` | v1 | **M2a** 돌출·테마 색·색/점령 덮어쓰기, M2c 외벽·지붕·매스·모델 교체 |
+| 테마 + 시간대 + 시네마틱 | `setTheme` | v1 | **M2a** 해석·색·조명·시간대 틴트, M2c 시네마틱 그레이딩·외곽선 |
+| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
+| 지도 UI | `setUi` | v1 | **M2a** (위치 퍽 M3) |
+| 탭 | `map:press`, `building:press` | v1 | **M2a** |
+| 오버레이 앵커 | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
 | 캐릭터 + 위치 소스 | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | M3 |
 | 이동 + 경로 | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | M3 |
 | 드롭 | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | M3 |
@@ -183,7 +187,11 @@ MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 
 ### 마일스톤
 
 - **M0 기반** (완료): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
-- **M1 지도가 화면에** (현재): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷·`procedural` 월드는 뒤로 미룸
-- **M2 디오라마 룩**: 돌출·외벽·지붕·매스, 스타일 테이블 + 탭 판정, `ThemeResolver`, 라벨 시스템(GPU 쿼드 + 접근성 풀), `labelsIndex`, 지도 UI, 탭, 오버레이 앵커
+- **M1 지도가 화면에** (완료): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷·`procedural` 월드는 뒤로 미룸
+- **M2 디오라마 룩**: 공식 SDK 위에서 세 단계로 나눠 진행
+  - **M2a** (완료, 현재): `ThemeResolver`, `fill-extrusion` 3D 건물, 시간대 조명과 틴트, `setTheme` 페인트 패치, `setBuildingStyle`(색, 점령), 렌더된 피처 조회로 탭 판정, 지도 UI, 오버레이 앵커
+  - **M2b**: 코어가 움직이는 네이티브 뷰 풀 라벨(`labelsIndex`, `setLabels`, `setLabelContent`)과 `procedural` 월드(engine-web 생성기 C++ 포팅)
+  - **M2c**: 커스텀 렌더 레이어로 지붕·외벽·외곽선·매스·모델 교체, ID 버퍼 픽킹, 시네마틱 그레이딩
+  - **대안**: 커스텀 레이어로 안 될 때만 포크 + 패치 큐(`maprama` 레이어 타입, CI 산출물)와 `mbgl` 기반 `MapAdapter`
 - **M3 게임 시스템**: cgltf 스키닝, `CharacterSystem`과 위치 소스, `TravelPlanner`(A*, 지하철 확장), 드롭, 지오펜스, 나머지 이벤트
 - **M4 동등성과 성능**: 줌아웃 게임 뷰, [성능 예산](./performance#v2-네이티브-엔진-예산) 기기 측정, RN 예제 앱으로 웹·네이티브 나란히 매트릭스 전부 통과, `engine="native"` 베타
