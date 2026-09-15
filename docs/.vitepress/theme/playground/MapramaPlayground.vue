@@ -271,10 +271,14 @@ function sendLabelContent(): void {
   send({ type: 'setLabelContent', entries });
 }
 
+// Travel defaults to real-world speed (walk 4.8 km/h); the playground fast-forwards 20× so a tap
+// reaches its destination in seconds.
+const PLAYGROUND_TIME_SCALE = 20;
+
 function startTravel(to?: LngLat): void {
   const target = to ?? dropCoords[3] ?? start;
   if (!target || !state.travelModes.length) return;
-  send({ type: 'travel', requestId: `pg-${++travelSeq}`, characterId: 'me', to: target, modes: [...state.travelModes] });
+  send({ type: 'travel', requestId: `pg-${++travelSeq}`, characterId: 'me', to: target, modes: [...state.travelModes], timeScale: PLAYGROUND_TIME_SCALE });
 }
 
 function cancelTravel(): void {

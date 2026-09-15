@@ -1,14 +1,16 @@
-import type { TravelMode, WorldData } from '@maprama/protocol';
+import { TRAVEL_MODES, type TravelMode, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { loadWorldData } from '../world/data.js';
 import {
   Follower,
+  KMH,
   normalizeModes,
   pathLength,
   PLANE_MAX_ALTITUDE,
   planeAltitude,
   planLegs,
-  SPEED,
+  playbackSpeeds,
+  remainingEtaSeconds,
   splitByLength,
   type FollowerBody,
   type Leg,
@@ -130,7 +132,7 @@ describe('Follower', () => {
     const legs = planLegs(world, { x: -40, z: 3 }, { x: 2, z: 40 }, ['walk', 'car', 'walk']);
     let arrived = 0;
     f.onArrive = () => { arrived++; };
-    f.setTrip(legs);
+    f.setTrip(legs, null, playbackSpeeds(8, 20));
     const total = legs.reduce((a, l) => a + pathLength(l.pts), 0);
     expect(f.remainingByLeg().reduce((a, r) => a + r.d, 0)).toBeCloseTo(total, 5);
     let prev = Infinity;
@@ -160,8 +162,65 @@ describe('Follower', () => {
     let guard = 0;
     while (body.x < 0 && guard++ < 1000) f.step(0.01);
     expect(body.x).toBeGreaterThanOrEqual(0);
-    expect(body.x).toBeLessThan(SPEED.plane * 0.01 + 1e-9);
+    expect(body.x).toBeLessThan(playbackSpeeds().plane * 0.01 + 1e-9);
     expect(body.y).toBeGreaterThan(0.09 + PLANE_MAX_ALTITUDE - 0.1);
     expect(Math.abs(body.planePitch)).toBeLessThan(0.02);
+  });
+});
+
+describe('travel speed and ETA (timeScale)', () => {
+  it('plays back at real-world speed for timeScale 1 and twenty times faster for 20', () => {
+    const real = playbackSpeeds(8, 1);
+    expect(real.walk).toBeCloseTo(4.8 / 3.6 / 8, 12);
+    expect(real.plane).toBeCloseTo(180 / 3.6 / 8, 12);
+    for (const m of TRAVEL_MODES) expect(real[m] * 8 * 3.6).toBeCloseTo(KMH[m], 9);
+    const fast = playbackSpeeds(8, 20);
+    for (const m of TRAVEL_MODES) expect(fast[m]).toBeCloseTo(real[m] * 20, 12);
+    // the world's scale: 2 m per unit → four times as many units per second
+    expect(playbackSpeeds(2, 1).walk).toBeCloseTo(real.walk * 4, 12);
+    expect(playbackSpeeds()).toEqual(real);
+  });
+
+  it('moves the body at the trip speed', () => {
+    for (const timeScale of [1, 20]) {
+      const body = new Body();
+      body.x = -60;
+      const f = new Follower(body);
+      const speeds = playbackSpeeds(8, timeScale);
+      f.setTrip([{ mode: 'walk', pts: [{ x: -60, z: 0 }, { x: 60, z: 0 }] }], null, speeds);
+      f.step(0.5);
+      expect(body.speed).toBeCloseTo(speeds.walk, 9);
+      expect(body.x).toBeCloseTo(-60 + speeds.walk * 0.5, 9);
+    }
+    // the example's far preset: 347 m of walking ≈ 4.3 min in real time, ≈ 13 s at ×20
+    expect(347 / (playbackSpeeds(8, 1).walk * 8)).toBeCloseTo(260.25, 1);
+    expect(347 / (playbackSpeeds(8, 20).walk * 8)).toBeCloseTo(13.0, 1);
+  });
+
+  it('scales the remaining ETA by timeScale (real-world ETA / timeScale)', () => {
+    const rem = [{ mode: 'walk' as const, d: 10 }, { mode: 'car' as const, d: 100 }];
+    const real = 80 / (4.8 / 3.6) + 800 / (30 / 3.6); // 60 s + 96 s
+    expect(remainingEtaSeconds(rem, 8)).toBeCloseTo(real, 9);
+    expect(remainingEtaSeconds(rem, 8, 1)).toBeCloseTo(156, 9);
+    expect(remainingEtaSeconds(rem, 8, 20)).toBeCloseTo(156 / 20, 9);
+    expect(remainingEtaSeconds([], 8, 20)).toBe(0);
+  });
+
+  it('the ETA matches the actual playback time at timeScale 1 and 20', () => {
+    for (const timeScale of [1, 20]) {
+      const body = new Body();
+      body.x = -40;
+      body.z = 3;
+      const f = new Follower(body, 0.09);
+      f.setTrip(planLegs(world, { x: -40, z: 3 }, { x: 2, z: 40 }, ['walk']), null, playbackSpeeds(8, timeScale));
+      const eta = remainingEtaSeconds(f.remainingByLeg(), 8, timeScale);
+      let t = 0;
+      while (f.active && t < 10_000) {
+        f.step(0.1);
+        t += 0.1;
+      }
+      expect(f.active).toBe(false);
+      expect(Math.abs(t - eta)).toBeLessThan(0.11);
+    }
   });
 });

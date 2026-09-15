@@ -62,6 +62,52 @@ describe('travel', () => {
     expect(result).toEqual({ requestId: travel!.requestId, characterId: 'me', legs });
   });
 
+  it('omits timeScale by default (real-world speed) and when it is 1', async () => {
+    const { ref } = await readyMap();
+    await act(async () => {
+      void ref.current!.travel('me', DEST).catch(() => {});
+      void ref.current!.travel('me', DEST, 'walk', { timeScale: 1 }).catch(() => {});
+    });
+    const sent = commandsOf('travel');
+    expect(sent).toHaveLength(2);
+    for (const cmd of sent) expect('timeScale' in cmd).toBe(false);
+  });
+
+  it('sends the map default travelTimeScale and lets a call override it', async () => {
+    const { ref } = await readyMap({ travelTimeScale: 20 });
+    await act(async () => {
+      void ref.current!.travel('me', DEST, 'walk').catch(() => {});
+      void ref.current!.travel('me', DEST, 'walk', { timeScale: 5 }).catch(() => {});
+      void ref.current!.travel('me', DEST, 'walk', { timeScale: 1 }).catch(() => {});
+    });
+    const sent = commandsOf('travel');
+    expect(sent.map((c) => c.timeScale)).toEqual([20, 5, undefined]);
+    expect(sent[0]).toEqual({ type: 'travel', requestId: expect.any(String), characterId: 'me', to: DEST, modes: ['walk'], timeScale: 20 });
+    expect('timeScale' in sent[2]!).toBe(false);
+  });
+
+  it('rejects an invalid timeScale with invalid_argument before sending anything', async () => {
+    const { ref } = await readyMap();
+    for (const timeScale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '2' as unknown as number]) {
+      await expect(ref.current!.travel('me', DEST, 'walk', { timeScale })).rejects.toMatchObject({
+        name: 'MapramaError',
+        code: 'invalid_argument',
+        message: expect.stringContaining('options.timeScale'),
+      });
+    }
+    expect(commandsOf('travel')).toEqual([]);
+  });
+
+  it('rejects when the map default travelTimeScale is invalid unless the call overrides it', async () => {
+    const { ref } = await readyMap({ travelTimeScale: 0 });
+    await expect(ref.current!.travel('me', DEST)).rejects.toMatchObject({ code: 'invalid_argument', message: expect.stringContaining('travelTimeScale') });
+    expect(commandsOf('travel')).toEqual([]);
+    await act(async () => {
+      void ref.current!.travel('me', DEST, 'walk', { timeScale: 2 }).catch(() => {});
+    });
+    expect(commandsOf('travel').map((c) => c.timeScale)).toEqual([2]);
+  });
+
   it('rejects on travel:cancel', async () => {
     const { ref } = await readyMap();
     let promise!: Promise<unknown>;

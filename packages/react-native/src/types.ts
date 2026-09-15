@@ -164,6 +164,15 @@ export interface MapramaViewProps {
    * for the engine to become ready) and again from delivery.
    */
   travelStartTimeoutMs?: number;
+  /**
+   * Default travel playback speed factor for `ref.travel` (finite, > 0).
+   * `1` (the default) moves characters at real-world speed per mode (walk 4.8,
+   * bike 15, car 30, subway 60, plane 180 km/h); `20` plays trips twenty times
+   * faster. `TravelOptions.timeScale` overrides it per call. The latest value
+   * is read at each `travel` call; an invalid value rejects the call with
+   * `invalid_argument`.
+   */
+  travelTimeScale?: number;
   /** The engine loaded and received `init` (fires again after an engine reload). */
   onReady?: (event: MapramaReadyEvent) => void;
   /** The ground was pressed. */
@@ -202,6 +211,14 @@ export interface TravelOptions {
   timeoutMs?: number;
   /** Overrides the map's `travelStartTimeoutMs` for this call. */
   startTimeoutMs?: number;
+  /**
+   * Playback speed factor for this travel (finite, > 0); overrides the map's
+   * `travelTimeScale` (default 1 = real-world speed, 20 = twenty times
+   * faster). `travel:progress.etaSeconds` is wall-clock time at this scale and
+   * `character:position.speedMps` the on-map speed (real speed × scale);
+   * `route` ETAs stay real-world. Invalid values reject with `invalid_argument`.
+   */
+  timeScale?: number;
 }
 
 /** Options for request/response calls. */
@@ -228,10 +245,13 @@ export interface SubscriptionEventMap {
 /** Imperative map API, available through `ref` on `MapramaView` and `useMapramaView()`. */
 export interface MapramaViewRef {
   /**
-   * Moves a character along an ordered mode chain, e.g. `['walk', 'car', 'walk']`.
+   * Moves a character along an ordered mode chain, e.g. `['walk', 'car', 'walk']`,
+   * at real-world speed × `timeScale` (`options.timeScale`, else the map's
+   * `travelTimeScale`, else 1; `timeScale` is sent only when it is not 1).
    * Resolves on `travel:arrive`; rejects with `MapramaError` code
-   * `travel_cancelled`, `timeout`, `engine_reloaded`, `unmounted`, or a fatal
-   * host code such as `host_load_failed`.
+   * `travel_cancelled`, `timeout`, `engine_reloaded`, `unmounted`,
+   * `invalid_argument` (bad `timeScale`, nothing sent), or a fatal host code
+   * such as `host_load_failed`.
    *
    * Timeouts: the start timeout (`startTimeoutMs`, default the map's
    * `travelStartTimeoutMs`) is armed at the call, so a travel made before the

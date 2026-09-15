@@ -103,7 +103,11 @@ const commands: CommandFixtures = {
     { type: 'pushLocation', fix: { lng: here.lng, lat: here.lat, accuracyMeters: 5, headingDeg: 90, speedMps: 1.4, timestamp: 1757900000000 } },
     { type: 'pushLocation', fix: { lng: 0, lat: 0, timestamp: 0 } },
   ],
-  travel: [{ type: 'travel', requestId: 't1', characterId: 'me', to: there, modes: ['walk', 'car', 'walk'] }],
+  travel: [
+    { type: 'travel', requestId: 't1', characterId: 'me', to: there, modes: ['walk', 'car', 'walk'] },
+    { type: 'travel', requestId: 't2', characterId: 'me', to: there, modes: ['walk'], timeScale: 20 },
+    { type: 'travel', requestId: 't3', characterId: 'me', to: there, modes: ['plane'], timeScale: 0.25 },
+  ],
   cancelTravel: [{ type: 'cancelTravel', characterId: 'me' }],
   setDropLayer: [
     {
@@ -284,6 +288,10 @@ describe('rejects malformed messages without throwing', () => {
       [{ ...travel, to: { lng: 'x', lat: 1 } }, '$.msg.to.lng'],
       [{ ...travel, to: { lng: 1, lat: 95 } }, '$.msg.to.lat'],
       [{ ...travel, requestId: '' }, '$.msg.requestId'],
+      [{ ...travel, timeScale: 0 }, '$.msg.timeScale'],
+      [{ ...travel, timeScale: -2 }, '$.msg.timeScale'],
+      [{ ...travel, timeScale: '20' }, '$.msg.timeScale'],
+      [{ ...travel, timeScale: null }, '$.msg.timeScale'],
       [{ type: 'pushLocation', fix: { lng: 1, lat: 2 } }, '$.msg.fix.timestamp'],
       [{ type: 'pushLocation', fix: { lng: 1, lat: 'n', timestamp: 1 } }, '$.msg.fix.lat'],
       [{ type: 'setBuildingStyle', buildingId: 'b1' }, '$.msg.style'],
@@ -344,6 +352,17 @@ describe('rejects malformed messages without throwing', () => {
     const msg = { type: 'setDropLayer', layerId: 'l', collectRadiusMeters: 1, drops: [{ id: 'd', type: 'coin', coordinate: here, payload: deep }] };
     expectReject(decodeCommand(env(msg)), '$.msg.drops[0].payload');
     expect(validateEngineCommand({ ...travel, to: { lng: Number.NaN, lat: 0 } }).ok).toBe(false);
+  });
+
+  it('accepts a positive finite travel timeScale and rejects 0, negative, non-finite and string values', () => {
+    expect(validateEngineCommand({ ...travel, timeScale: 1 })).toEqual({ ok: true });
+    expect(validateEngineCommand({ ...travel, timeScale: 20 })).toEqual({ ok: true });
+    expect(validateEngineCommand({ ...travel, timeScale: 1e-3 })).toEqual({ ok: true });
+    for (const timeScale of [0, -0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2', true]) {
+      const r = validateEngineCommand({ ...travel, timeScale });
+      expect(r.ok).toBe(false);
+      expect((r as { error: string }).error.startsWith('$.timeScale')).toBe(true);
+    }
   });
 
   it('allows unknown extra fields (forward compatibility)', () => {

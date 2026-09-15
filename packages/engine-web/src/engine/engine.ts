@@ -214,7 +214,7 @@ export class Engine implements EngineHandle {
     d.register('removeCharacters', (cmd) => f().removeCharacters(cmd.ids));
     d.register('setLocationSource', (cmd) => { const feat = f(); this.locationSource = cmd.source; feat.setLocationSource(cmd.source); });
     d.register('pushLocation', (cmd) => f().pushLocation(cmd.fix));
-    d.register('travel', (cmd) => f().startTravel(cmd.requestId, cmd.characterId, cmd.to, cmd.modes));
+    d.register('travel', (cmd) => f().startTravel(cmd.requestId, cmd.characterId, cmd.to, cmd.modes, cmd.timeScale ?? 1));
     d.register('cancelTravel', (cmd) => f().cancelTravel(cmd.characterId));
     d.register('setDropLayer', (cmd) => f().setDropLayer(cmd));
     d.register('removeDropLayer', (cmd) => f().removeDropLayer(cmd.layerId));

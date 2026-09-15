@@ -131,6 +131,7 @@ export const MapramaView = forwardRef<MapramaViewRef, MapramaViewProps>(function
         requestTimeoutMs: propsRef.current.requestTimeoutMs,
         travelStartTimeoutMs: propsRef.current.travelStartTimeoutMs,
       }),
+      getTravelTimeScale: () => propsRef.current.travelTimeScale,
       refreshLabelContent: refreshLabels,
     });
     batcher = new CommandBatcher({

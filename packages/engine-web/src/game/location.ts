@@ -14,7 +14,14 @@ import type { LocationFix, LocationSourceKind, LngLat, WorldPoint } from '@mapra
 import { clamp } from '../util/math.js';
 import { route, snap, type RoadGraph } from '../world/graph.js';
 import type { WorldModel } from '../world/model.js';
-import { pathLength, roadPath, SPEED } from './follower.js';
+import { pathLength, roadPath } from './follower.js';
+
+/**
+ * Ground-truth pace of the `simulated` demo loop in world units per second:
+ * the prototype's fast-forward demo walking pace (3.2 units/s × 0.95), kept
+ * independent of travel speed and `timeScale`.
+ */
+export const SIMULATED_WALK_SPEED = 3.2 * 0.95;
 
 // ---------------------------------------------------------------------------
 // Smoothing
@@ -176,7 +183,7 @@ export class SimulatedWalker {
   truth: WorldPoint;
   private timer = 0;
 
-  constructor(readonly loop: WorldPoint[], private readonly rng: () => number = Math.random, private readonly speed = SPEED.walk * 0.95) {
+  constructor(readonly loop: WorldPoint[], private readonly rng: () => number = Math.random, private readonly speed = SIMULATED_WALK_SPEED) {
     this.truth = { ...loop[0]! };
   }
 

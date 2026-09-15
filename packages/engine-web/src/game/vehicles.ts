@@ -234,5 +234,9 @@ export function stepVehicles(set: VehicleSet, mode: TravelMode, speed: number, d
   }
   if (set.plane.group.visible && set.plane.prop) set.plane.prop.rotation.z += dt * 35;
   set.plane.group.rotation.x = planePitch;
-  if (mode === 'car' && set.car.body) set.car.body.position.y = Math.sin(t * 18) * 0.012 * Math.min(1, speed / 4);
+  // Engine bob: full once the car moves at about real-world city speed on screen (≈1 unit/s at 8 m per unit).
+  if (mode === 'car' && set.car.body) set.car.body.position.y = Math.sin(t * 18) * 0.012 * Math.min(1, speed / CAR_BOB_FULL_SPEED);
 }
+
+/** On-screen speed (world units / s of the character root) at which the car body bobs fully. */
+const CAR_BOB_FULL_SPEED = 1;

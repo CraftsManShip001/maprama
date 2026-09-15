@@ -22,6 +22,7 @@ import {
   object,
   oneOf,
   nullable,
+  positiveNumber,
   range,
   record,
   run,
@@ -136,6 +137,9 @@ export interface PushLocationCommand {
 /**
  * Starts travel for a character along an ordered list of modes. The engine
  * answers with `travel:start`, then `travel:arrive` or `travel:cancel`.
+ *
+ * The character moves at real-world speed per mode (walk 4.8, bike 15, car 30,
+ * subway 60, plane 180 km/h) multiplied by `timeScale`.
  */
 export interface TravelCommand {
   type: 'travel';
@@ -145,6 +149,13 @@ export interface TravelCommand {
   to: LngLat;
   /** Ordered modes, at least one. */
   modes: TravelMode[];
+  /**
+   * Playback speed factor (finite, > 0). `1` (the default when absent) is
+   * real-world speed; `20` plays the trip twenty times faster. Distances are
+   * unchanged; `travel:progress.etaSeconds` and `character:position.speedMps`
+   * follow the scaled playback.
+   */
+  timeScale?: number;
 }
 
 /** Cancels the character's current travel. */
@@ -255,6 +266,10 @@ export interface RouteLeg {
 export interface RouteResult {
   legs: RouteLeg[];
   meters: number;
+  /**
+   * Real-world travel time in seconds at the per-mode speeds (independent of
+   * any travel `timeScale`, unlike `travel:progress.etaSeconds`).
+   */
   etaSeconds: number;
 }
 
@@ -410,6 +425,11 @@ export interface TravelProgressEvent {
   requestId: string;
   characterId: string;
   remainingMeters: number;
+  /**
+   * Wall-clock seconds until arrival at the travel's `timeScale` (real-world
+   * travel time divided by `timeScale`). The `route` request's `etaSeconds`
+   * is the unscaled real-world time.
+   */
   etaSeconds: number;
   /** Mode of the current leg. */
   mode: TravelMode;
@@ -450,6 +470,11 @@ export interface CharacterPositionEvent {
   coordinate: LngLat;
   /** Degrees clockwise from north. */
   headingDeg: number;
+  /**
+   * On-map ground speed in meters per wall-clock second (what a GPS would
+   * report for the animated character): real-world speed × `timeScale` while
+   * travelling.
+   */
   speedMps: number;
 }
 
@@ -577,12 +602,15 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
   removeCharacters: object({ ids: array(id) }),
   setLocationSource: object({ source: oneOf(LOCATION_SOURCE_KINDS) }),
   pushLocation: object({ fix: checkLocationFix }),
-  travel: object({
-    requestId: id,
-    characterId: id,
-    to: checkLngLat,
-    modes: array(oneOf(TRAVEL_MODES), { min: 1 }),
-  }),
+  travel: object(
+    {
+      requestId: id,
+      characterId: id,
+      to: checkLngLat,
+      modes: array(oneOf(TRAVEL_MODES), { min: 1 }),
+    },
+    { timeScale: positiveNumber },
+  ),
   cancelTravel: object({ characterId: id }),
   setDropLayer: object(
     { layerId: id, drops: array(checkDropSpec), collectRadiusMeters: nonNegativeNumber },
