@@ -12,13 +12,44 @@
  * - world.json           validateWorldData(JSON.parse(input)) for a sample world and its mutations
  * - projection.json      createProjection samples (toWorld/toLngLat/...) and RangeError messages
  * - json-format.json     JS number/string/key-order formatting (JSON.stringify, String(number))
+ * - procedural.json      engine-web's procedural generators (buildTownWorld / buildGridWorld) for several
+ *                        seeds, plus raw mulberry32 sequences; the C++ port must match them (DESIGN.md §6.8)
  *
- * Run `npm run build -w @maprama/protocol` first.
+ * Run `npm run build -w @maprama/protocol` and `npm run build -w @maprama/engine-web` first (the root
+ * `npm run build` does both).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as P from '@maprama/protocol';
+
+/** Imports a built engine-web module (dist) with a helpful message when it has not been built. */
+async function importEngineWeb(specifier) {
+  try {
+    return await import(specifier);
+  } catch (e) {
+    throw new Error(
+      `export-fixtures: cannot import ${specifier} (run \`npm run build -w @maprama/engine-web\` first): ${e.message}`,
+    );
+  }
+}
+const W = await importEngineWeb('@maprama/engine-web');
+
+/**
+ * Verbatim copy of engine-web's internal `mulberry32` (`packages/engine-web/src/util/math.ts`; the dist is a
+ * single bundle that does not export it). Only used for the raw-sequence fixture; the generated worlds
+ * below come from engine-web's real generators and exercise its own PRNG.
+ */
+function mulberry32(seed) {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const outDir = fileURLToPath(new URL('../cpp/tests/fixtures/', import.meta.url));
 mkdirSync(outDir, { recursive: true });
@@ -633,6 +664,47 @@ const jsonFormat = {
 };
 
 // ---------------------------------------------------------------------------
+// Procedural worlds (engine-web generators from the built dist)
+// ---------------------------------------------------------------------------
+
+const PRNG_SEEDS = [0, 1, 11, 17, 77, 99, 991, 2024, 2031, -5, 2147485024, -2147483649, 1e10, 12.75];
+const prng = PRNG_SEEDS.map((seed) => {
+  const r = mulberry32(seed);
+  return { seed, values: Array.from({ length: 16 }, () => r()) };
+});
+
+/** `[layout, seed]`; the large seeds make `2024 + seed` / `11 + seed` wrap in mulberry32's `| 0`. */
+const PROCEDURAL_CASES = [
+  ['town', 0],
+  ['town', 7],
+  ['town', 42],
+  ['town', -5],
+  ['town', 2147483000],
+  ['grid', 0],
+  ['grid', 7],
+  ['grid', 42],
+  ['grid', 2147483640],
+];
+
+const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+function generatedWorld(layout, seed) {
+  const build = layout === 'town' ? W.buildTownWorld : W.buildGridWorld;
+  const world = build(seed);
+  const times = [];
+  for (let i = 0; i < 5; i++) {
+    const t0 = performance.now();
+    build(seed);
+    times.push(performance.now() - t0);
+  }
+  const { graph, ...rest } = world;
+  // `graph.adj` is derived from the edges; `graph.roads` are the generated polylines.
+  return { layout, seed, webMs: median(times), world: { ...rest, roads: graph.roads, nodes: graph.nodes, edges: graph.edges } };
+}
+
+const procedural = { prng, worlds: PROCEDURAL_CASES.map(([layout, seed]) => generatedWorld(layout, seed)) };
+
+// ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
 
@@ -680,6 +752,7 @@ const files = {
   'world.json': { cases: worldCases },
   'projection.json': { samples: projectionSamples, errors: projectionErrors, haversine },
   'json-format.json': jsonFormat,
+  'procedural.json': procedural,
 };
 
 let total = 0;
