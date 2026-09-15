@@ -68,6 +68,17 @@ tags:
     timeout: 20000
 - tapOn:
     id: "pick-building"
+# On small screens (iPhone 17e) the selection readout lands below the fold of the control panel.
+- repeat:
+    times: 3
+    while:
+      notVisible:
+        id: "building-selected"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
 - assertVisible:
     id: "building-selected"
     text: "selected: w.*"
