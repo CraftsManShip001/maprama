@@ -1,0 +1,86 @@
+// @maprama/engine-native (M1): Kotlin Fabric view manager + TurboModule, the shared C++ core compiled with
+// CMake into libmaprama_engine.so (JNI only, no React Native C++ dependency), and the official prebuilt
+// MapLibre Native Android SDK (DESIGN.md §1, §9). New Architecture only.
+apply plugin: "com.android.library"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+def reactNativeArchitectures() {
+  def value = project.getProperties().get("reactNativeArchitectures")
+  return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
+
+android {
+  namespace "dev.maprama.enginenative"
+  compileSdkVersion safeExtGet("compileSdkVersion", 36)
+  if (rootProject.hasProperty("ndkPath")) {
+    ndkPath rootProject.ext.ndkPath
+  }
+  if (rootProject.hasProperty("ndkVersion")) {
+    ndkVersion rootProject.ext.ndkVersion
+  }
+
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
+    consumerProguardFiles "proguard-rules.pro"
+    ndk {
+      abiFilters(*reactNativeArchitectures())
+    }
+    externalNativeBuild {
+      cmake {
+        // The engine library exchanges only JNI types with the rest of the app, so a static STL is safe
+        // and avoids a second libc++_shared.so in the APK.
+        arguments "-DANDROID_STL=c++_static", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+      }
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path "CMakeLists.txt"
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  sourceSets {
+    main {
+      java.srcDirs += ["${project.buildDir}/generated/source/codegen/java"]
+    }
+  }
+
+  lint {
+    abortOnError false
+  }
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  // Official prebuilt SDK (MapView / MapLibreMap). The patched-fork AAR replaces it at M2 (DESIGN.md §10).
+  implementation "org.maplibre.gl:android-sdk:13.6.1"
+}
+
+react {
+  jsRootDir = file("../src/specs")
+  libraryName = "MapramaEngineNativeSpec"
+  codegenJavaPackageName = "dev.maprama.enginenative"
+}

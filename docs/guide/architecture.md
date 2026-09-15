@@ -94,12 +94,32 @@ transport.postCommand({ type: 'init', world: { kind: 'procedural', layout: 'town
 
 ## v2: 네이티브 C++ 엔진
 
+### 현재 상태: M1 (평면 지도 + 카메라)
+
+`@maprama/engine-native`를 import하면 `native` 엔진 호스트가 등록되고 `<MapramaView engine="native">`가 네이티브 엔진으로 동작합니다. 네이티브 코드가 들어간 개발 빌드(New Architecture)가 필요하며 Expo Go에서는 동작하지 않습니다.
+
+```tsx
+import '@maprama/engine-native';
+
+<MapramaView engine="native" world={{ kind: 'data', world }} camera={{ center, distance: 400, pitch: 45 }} />
+```
+
+| 항목 | M1 상태 |
+| --- | --- |
+| 렌더러 | 공식 prebuilt MapLibre Native SDK (iOS CocoaPods `MapLibre` 6.30, Android `org.maplibre.gl:android-sdk` 13.6.1). 포크와 패치 큐는 M2(커스텀 건물 레이어)부터 |
+| 월드 | `data`·`url` WorldData를 평면 지도로 렌더 (배경, 수면·공원 면, 등급별 도로 선, 건물 footprint 면, POI·역 원). `procedural`은 `unsupported` 치명 오류 |
+| 카메라 | `setCamera` (병합, `distance`가 `zoom`보다 우선, `animate`), 팬·핀치 줌·회전·피치(0–60°) 제스처. 거리 한계는 웹 엔진과 같은 14–150 월드 단위 |
+| 이벤트 | `ready`, `camera:change` (구독 + `throttleMs`), `project`/`unproject` 응답 |
+| 그 밖 | 나머지 명령은 경고 로그만 남기고 무시. `snapToRoad`/`route`는 `unsupported` 응답, `setCamera.follow`는 경고 (캐릭터는 M3) |
+
+같은 `CameraState`에서 두 엔진이 같은 지면 범위를 보이도록 `distance`는 웹 엔진의 40° 시야각을 기준으로 MapLibre 줌에 대응시킵니다 (프로토콜 `zoom` z = MapLibre 줌 z − 1). 공식 SDK는 C++ `mbgl` 헤더가 아니라 Obj-C/Java API를 제공하므로, C++ 코어는 플랫폼이 구현하는 작은 `MapAdapter` 인터페이스(스타일 JSON, 카메라, project/unproject, URL 로드)로 지도를 움직입니다. M2에서 패치된 `mbgl` 기반 어댑터가 이를 대체합니다. 예제 앱의 "9. Native engine (M1)" 화면에서 확인할 수 있습니다.
+
 ### 결정
 
 | 주제 | 결정 |
 | --- | --- |
 | RN | New Architecture 전용: Fabric 뷰 + JSI TurboModule. 브리지 폴백 없음 |
-| 렌더러 | **MapLibre Native**(BSD-2-Clause)를 포크해 내장. 긴 수명의 갈라진 포크가 아니라 upstream 위에 rebase하는 **패치 큐**로 유지 |
+| 렌더러 | M1은 공식 prebuilt MapLibre Native SDK. M2부터 **MapLibre Native**(BSD-2-Clause)를 포크해 내장하며, 긴 수명의 갈라진 포크가 아니라 upstream 위에 rebase하는 **패치 큐**로 유지 |
 | 코드 공유 | 프로토콜·시뮬레이션·디오라마 레이어는 C++ 공통 코어 하나. iOS(Obj-C++)와 Android(Kotlin/JNI) 래퍼는 얇게 |
 | C++ 표준 | C++17 (RN의 C++20 툴체인 안에서 컴파일) |
 | JSON | JavaScript 의미를 그대로 재현하는 자체 파서. `decodeCommand`와 바이트 단위로 같은 오류를 내기 위함 |
@@ -162,8 +182,8 @@ MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 
 
 ### 마일스톤
 
-- **M0 기반** (현재): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
-- **M1 지도가 화면에**: upstream 고정, 첫 패치(`maprama` 레이어 타입, 필요 시 PMTiles), XCFramework/AAR CI 산출물, 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, 명령 큐·프레임 스냅샷·이벤트 배치, `init`(data/url/procedural)으로 평면 지도, 카메라·제스처, `project`/`unproject`, 구독
+- **M0 기반** (완료): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
+- **M1 지도가 화면에** (현재): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷·`procedural` 월드는 뒤로 미룸
 - **M2 디오라마 룩**: 돌출·외벽·지붕·매스, 스타일 테이블 + 탭 판정, `ThemeResolver`, 라벨 시스템(GPU 쿼드 + 접근성 풀), `labelsIndex`, 지도 UI, 탭, 오버레이 앵커
 - **M3 게임 시스템**: cgltf 스키닝, `CharacterSystem`과 위치 소스, `TravelPlanner`(A*, 지하철 확장), 드롭, 지오펜스, 나머지 이벤트
 - **M4 동등성과 성능**: 줌아웃 게임 뷰, [성능 예산](./performance#v2-네이티브-엔진-예산) 기기 측정, RN 예제 앱으로 웹·네이티브 나란히 매트릭스 전부 통과, `engine="native"` 베타
