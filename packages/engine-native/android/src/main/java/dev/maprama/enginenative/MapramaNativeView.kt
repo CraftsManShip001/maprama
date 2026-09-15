@@ -195,6 +195,10 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     m.setMaxPitchPreference(60.0)
     m.addOnCameraMoveListener { reportCamera() }
     m.addOnCameraIdleListener { reportCamera() }
+    // M4 (DESIGN.md §8): MapLibre's own cost per frame and the process memory, logged every 240 rendered frames.
+    mapView.addOnDidFinishRenderingFrameListener(
+      MapView.OnDidFinishRenderingFrameListener { _, encodingMs, renderingMs -> recordMapFrame(encodingMs, renderingMs) },
+    )
     // A user pan stops `setCamera.follow` (engine-web cancels following on pans, not on zoom / rotate).
     m.addOnMoveListener(
       object : MapLibreMap.OnMoveListener {
@@ -462,6 +466,38 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }
   }
 
+  private val mapFrameLock = Any()
+  private val mapEncodeMs = ArrayList<Double>()
+  private val mapRenderMs = ArrayList<Double>()
+
+  /** M4: MapLibre's frame encoding / rendering time (the SDK's own measurement) and the process memory. */
+  private fun recordMapFrame(encodingMs: Double, renderingMs: Double) {
+    val encode: List<Double>
+    val render: List<Double>
+    synchronized(mapFrameLock) {
+      mapEncodeMs.add(encodingMs)
+      mapRenderMs.add(renderingMs)
+      if (mapEncodeMs.size < MAP_STATS_FRAMES) return
+      encode = ArrayList(mapEncodeMs)
+      render = ArrayList(mapRenderMs)
+      mapEncodeMs.clear()
+      mapRenderMs.clear()
+    }
+    fun avg(v: List<Double>) = v.sum() / v.size
+    fun p95(v: List<Double>) = v.sorted()[minOf(v.size - 1, (v.size * 0.95).toInt())]
+    val memory = android.os.Debug.MemoryInfo()
+    android.os.Debug.getMemoryInfo(memory)
+    fun mb(key: String) = (memory.getMemoryStat(key)?.toDoubleOrNull() ?: 0.0) / 1024.0
+    Log.i(
+      TAG,
+      "maprama-map-frame-stats frames=${encode.size} map_encode_avg=${"%.3f".format(avg(encode))} " +
+        "map_encode_p95=${"%.3f".format(p95(encode))} map_render_avg=${"%.3f".format(avg(render))} " +
+        "map_render_p95=${"%.3f".format(p95(render))} pss_mb=${"%.1f".format(mb("summary.total-pss"))} " +
+        "native_heap_mb=${"%.1f".format(mb("summary.native-heap"))} graphics_mb=${"%.1f".format(mb("summary.graphics"))} " +
+        "java_heap_mb=${"%.1f".format(mb("summary.java-heap"))}",
+    )
+  }
+
   private fun recordSourceUpdate(ms: Double) {
     val now = SystemClock.elapsedRealtime()
     if (sourceStatsStart == 0L) sourceStatsStart = now
@@ -635,6 +671,8 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
 
   companion object {
     private const val TAG = "MapramaEngine"
+    /** MapLibre frame statistics are logged every this many rendered frames (like the custom layer's). */
+    private const val MAP_STATS_FRAMES = 240
     private const val BUILDINGS_LAYER = "buildings"
     /** The M2c custom building layer (same id as on iOS). */
     private const val BUILDING_LAYER = "maprama-buildings-3d"

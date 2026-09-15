@@ -2,6 +2,7 @@
 
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
+#import <mach/mach.h>
 #import <os/log.h>
 
 #include <algorithm>
@@ -20,13 +21,22 @@ os_log_t layerLog() {
   return log;
 }
 
-/// Uniforms shared by both pipelines (std140-compatible layout, 112 bytes).
+/// Uniforms shared by both pipelines (std140-compatible layout, 128 bytes).
 struct LayerUniforms {
   float mvp[16];
   float lightPos[4];    // xyz, w = intensity
   float lightColor[4];  // rgb, w = window lights
   float viewport[4];    // width px, height px, line half-width px, 0
+  float zoom[4];        // x = M4 building height scale, yzw = 0
 };
+
+/// Physical memory footprint of the process (DESIGN.md §8), in MB.
+double processFootprintMB() {
+  task_vm_info_data_t info{};
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) return 0;
+  return static_cast<double>(info.phys_footprint) / 1048576.0;
+}
 
 // Same math as the GLSL ES shaders of the Android layer (maprama_building_layer.cpp): MapLibre's extrusion
 // lighting (`fill_extrusion.vertex.glsl`) per fragment, engine-web's facade window layouts, lit windows at
@@ -40,6 +50,7 @@ struct Uniforms {
   float4 lightPos;
   float4 lightColor;
   float4 viewport;
+  float4 zoom;  // x = building height scale (M4 `mapColors`)
 };
 
 struct MeshIn {
@@ -67,7 +78,7 @@ struct MeshOut {
 
 vertex MeshOut mesh_vertex(MeshIn in [[stage_in]], constant Uniforms& u [[buffer(1)]]) {
   MeshOut out;
-  out.position = u.mvp * float4(in.position, 1.0);
+  out.position = u.mvp * float4(in.position.xy, in.position.z * u.zoom.x, 1.0);
   out.color = in.color.rgb;
   out.normal = in.normal.xyz;
   out.facade = in.facade;
@@ -143,8 +154,8 @@ struct LineOut {
 };
 
 vertex LineOut line_vertex(LineIn in [[stage_in]], constant Uniforms& u [[buffer(1)]]) {
-  float4 a = u.mvp * float4(in.position, 1.0);
-  const float4 b = u.mvp * float4(in.other, 1.0);
+  float4 a = u.mvp * float4(in.position.xy, in.position.z * u.zoom.x, 1.0);
+  const float4 b = u.mvp * float4(in.other.xy, in.other.z * u.zoom.x, 1.0);
   const float2 half_size = u.viewport.xy * 0.5;
   const float2 sa = a.xy / a.w * half_size;
   const float2 sb = b.xy / b.w * half_size;
@@ -274,6 +285,7 @@ constexpr int kStatsFrames = 240;
   std::shared_ptr<const maprama::BuildingLayerData> _pending;
   std::shared_ptr<const maprama::BuildingLayerData> _drawn;
   std::shared_ptr<const maprama::ModelLayerFrame> _modelFrame;
+  maprama::BuildingLayerZoom _zoom;
 
   // M3b model pass.
   id<MTLRenderPipelineState> _modelPipeline;
@@ -304,9 +316,12 @@ constexpr int kStatsFrames = 240;
 
   id<MTLBuffer> _vertices;
   id<MTLBuffer> _indices;
+  /// M4: the low-detail index range (no facade details / roof furniture).
+  id<MTLBuffer> _lowIndices;
   id<MTLBuffer> _lineVertices;
   id<MTLBuffer> _lineIndices;
   NSUInteger _indexCount;
+  NSUInteger _lowIndexCount;
   NSUInteger _lineIndexCount;
   std::uint64_t _uploadedVersion;
 
@@ -342,6 +357,14 @@ constexpr int kStatsFrames = 240;
   [self setNeedsDisplay];
 }
 
+- (void)setZoom:(maprama::BuildingLayerZoom)zoom {
+  {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _zoom = zoom;
+  }
+  [self setNeedsDisplay];
+}
+
 - (void)didMoveToMapView:(MLNMapView *)mapView {
   os_log_info(layerLog(), "building layer attached");
 }
@@ -353,6 +376,7 @@ constexpr int kStatsFrames = 240;
   _lineDepth = nil;
   _vertices = nil;
   _indices = nil;
+  _lowIndices = nil;
   _lineVertices = nil;
   _lineIndices = nil;
   _uploadedVersion = 0;
@@ -665,9 +689,11 @@ constexpr int kStatsFrames = 240;
   };
   _vertices = buffer(data->vertices.data(), data->vertices.size() * sizeof(maprama::BuildingMeshVertex));
   _indices = buffer(data->indices.data(), data->indices.size() * sizeof(std::uint32_t));
+  _lowIndices = buffer(data->lowDetailIndices.data(), data->lowDetailIndices.size() * sizeof(std::uint32_t));
   _lineVertices = buffer(data->lineVertices.data(), data->lineVertices.size() * sizeof(maprama::BuildingLineVertex));
   _lineIndices = buffer(data->lineIndices.data(), data->lineIndices.size() * sizeof(std::uint32_t));
   _indexCount = data->indices.size();
+  _lowIndexCount = data->lowDetailIndices.size();
   _lineIndexCount = data->lineIndices.size();
   _uploadedVersion = data->version;
   os_log_info(layerLog(), "uploaded v%llu: %lu vertices, %lu triangles, %lu outline vertices", data->version,
@@ -683,11 +709,13 @@ constexpr int kStatsFrames = 240;
 
   std::shared_ptr<const maprama::BuildingLayerData> data;
   std::shared_ptr<const maprama::ModelLayerFrame> models;
+  maprama::BuildingLayerZoom zoom;
   {
     std::lock_guard<std::mutex> lock(_mutex);
     if (_pending) _drawn = _pending;
     data = _drawn;
     models = _modelFrame;
+    zoom = _zoom;
   }
   const bool haveBuildings = data && !data->indices.empty();
   const bool haveModels = models && !models->draws.empty();
@@ -722,6 +750,7 @@ constexpr int kStatsFrames = 240;
   u.viewport[0] = static_cast<float>(widthPx);
   u.viewport[1] = static_cast<float>(heightPx);
   u.viewport[2] = static_cast<float>(data->lineWidth * scale * 0.5);
+  u.zoom[0] = zoom.heightScale;
 
   [encoder pushDebugGroup:@"maprama-buildings-3d"];
   [encoder setCullMode:MTLCullModeNone];
@@ -733,10 +762,12 @@ constexpr int kStatsFrames = 240;
   [encoder setVertexBuffer:_vertices offset:0 atIndex:0];
   [encoder setVertexBytes:&u length:sizeof u atIndex:1];
   [encoder setFragmentBytes:&u length:sizeof u atIndex:1];
+  // M4 zoom-out: beyond engine-web's clutter threshold the low-detail range (roofs, facades, outlines) is drawn.
+  const BOOL low = zoom.lowDetail && _lowIndices != nil && _lowIndexCount > 0;
   [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                      indexCount:_indexCount
+                      indexCount:low ? _lowIndexCount : _indexCount
                        indexType:MTLIndexTypeUInt32
-                     indexBuffer:_indices
+                     indexBuffer:low ? _lowIndices : _indices
                indexBufferOffset:0];
   if (_lineIndexCount > 0 && _lineVertices != nil && data->lineWidth > 0) {
     [encoder setRenderPipelineState:_linePipeline];
@@ -803,11 +834,19 @@ constexpr int kStatsFrames = 240;
   stats(_encodeMs, &encodeAvg, &encodeP95);
   stats(gpu, &gpuAvg, &gpuP95);
   stats(_modelEncodeMs, &modelAvg, &modelP95);
+  maprama::BuildingLayerZoom zoom;
+  {
+    std::lock_guard<std::mutex> lock(_mutex);
+    zoom = _zoom;
+  }
+  const double metalMB = _device != nil ? static_cast<double>(_device.currentAllocatedSize) / 1048576.0 : 0.0;
   os_log(layerLog(),
          "maprama-frame-stats frames=%d interval_avg=%.2fms interval_p95=%.2fms frame_gpu_avg=%.2fms frame_gpu_p95=%.2fms "
-         "layer_encode_avg=%.3fms layer_encode_p95=%.3fms models=%lu model_draws=%lu model_encode_avg=%.3fms model_encode_p95=%.3fms",
+         "layer_encode_avg=%.3fms layer_encode_p95=%.3fms models=%lu model_draws=%lu model_encode_avg=%.3fms model_encode_p95=%.3fms "
+         "metal_mb=%.1f footprint_mb=%.1f low_detail=%d height_scale=%.2f",
          static_cast<int>(_encodeMs.size()), intervalAvg, intervalP95, gpuAvg, gpuP95, encodeAvg, encodeP95, (unsigned long)_lastModels,
-         (unsigned long)_lastModelDraws, modelAvg, modelP95);
+         (unsigned long)_lastModelDraws, modelAvg, modelP95, metalMB, processFootprintMB(), zoom.lowDetail ? 1 : 0,
+         static_cast<double>(zoom.heightScale));
   _encodeMs.clear();
   _intervals.clear();
   _modelEncodeMs.clear();

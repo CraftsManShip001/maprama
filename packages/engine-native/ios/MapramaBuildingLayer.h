@@ -26,6 +26,9 @@ extern NSString *const MapramaBuildingLayerIdentifier;
 /// per `ModelMesh::id` and kept while frames use them.
 - (void)setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame;
 
+/// M4: the zoom-out state (building height scale, low-detail index range); applies to every later frame.
+- (void)setZoom:(maprama::BuildingLayerZoom)zoom;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -42,6 +42,15 @@ class BuildingLayerState {
     std::lock_guard<std::mutex> lock(mutex_);
     return models_;
   }
+  /// M4: the zoom-out state (height scale, low-detail range).
+  void setZoom(const BuildingLayerZoom& zoom) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    zoom_ = zoom;
+  }
+  BuildingLayerZoom zoom() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return zoom_;
+  }
   /// Style layers drawn above the custom layer (the GL depth-range probe needs it).
   void setLayersAbove(int n) { layersAbove_.store(n); }
   int layersAbove() const { return layersAbove_.load(); }
@@ -50,6 +59,7 @@ class BuildingLayerState {
   mutable std::mutex mutex_;
   std::shared_ptr<const BuildingLayerData> data_;
   std::shared_ptr<const ModelLayerFrame> models_;
+  BuildingLayerZoom zoom_;
   std::atomic<int> layersAbove_{1};
 };
 
@@ -69,6 +79,8 @@ class BuildingLayerHost final : public mln::style::CustomLayerHost {
     GLuint vao = 0, vbo = 0, ibo = 0;
     std::vector<GLuint> textures;
     std::uint64_t lastUsed = 0;
+    /// Buffer + texture bytes (diagnostics).
+    std::size_t bytes = 0;
   };
 
   bool ensurePrograms();
@@ -85,9 +97,14 @@ class BuildingLayerHost final : public mln::style::CustomLayerHost {
   bool programFailed_ = false;
   GLint meshMvp_ = -1, meshLightPos_ = -1, meshLightColor_ = -1;
   GLint lineMvp_ = -1, lineViewport_ = -1;
+  GLint meshHeightScale_ = -1, lineHeightScale_ = -1;
   GLuint meshVao_ = 0, meshVbo_ = 0, meshIbo_ = 0;
   GLuint lineVao_ = 0, lineVbo_ = 0, lineIbo_ = 0;
   GLsizei meshIndexCount_ = 0, lineIndexCount_ = 0;
+  /// M4: the low-detail indices follow the full ones in `meshIbo_`.
+  GLsizei lowIndexCount_ = 0;
+  /// GL buffer / texture bytes of the building meshes and of the model meshes + per-frame buffers (diagnostics).
+  std::size_t meshBytes_ = 0, modelBytes_ = 0, streamBytes_ = 0;
   std::uint64_t uploadedVersion_ = 0;
   // M3b model pass.
   GLuint modelProgram_ = 0;

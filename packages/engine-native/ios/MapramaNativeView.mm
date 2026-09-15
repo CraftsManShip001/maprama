@@ -4,6 +4,7 @@
 #import <ImageIO/ImageIO.h>
 #import <MapLibre/MapLibre.h>
 #import <QuartzCore/QuartzCore.h>
+#import <mach/mach.h>
 #import <os/log.h>
 
 #import <React/RCTFabricComponentsPlugins.h>
@@ -42,6 +43,7 @@ static NSString *const kBuildingsLayer = @"buildings";
 - (void)maprama_setLight:(const maprama::MapLight &)light;
 - (void)maprama_setUi:(const maprama::MapUiState &)ui;
 - (void)maprama_setBuildingLayer:(std::shared_ptr<const maprama::BuildingLayerData>)data;
+- (void)maprama_setBuildingLayerZoom:(maprama::BuildingLayerZoom)zoom;
 - (void)maprama_setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame;
 @end
 
@@ -221,6 +223,13 @@ class AppleMapAdapter final : public maprama::MapAdapter {
   void setBuildingLayer(std::shared_ptr<const maprama::BuildingLayerData> data) override {
     onView(^(MapramaNativeView *view) {
       [view maprama_setBuildingLayer:data];
+    });
+  }
+
+  void setBuildingLayerZoom(const maprama::BuildingLayerZoom &zoom) override {
+    const maprama::BuildingLayerZoom z = zoom;
+    onView(^(MapramaNativeView *view) {
+      [view maprama_setBuildingLayerZoom:z];
     });
   }
 
@@ -485,6 +494,10 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   MapramaBuildingLayer *_buildingLayer;
   // M3b: the latest model frame, drawn by the same custom layer (kept across style reloads).
   std::shared_ptr<const maprama::ModelLayerFrame> _modelFrame;
+  maprama::BuildingLayerZoom _buildingZoom;
+  /// M4 (DESIGN.md §8): MapLibre's own frame cost, logged every 240 rendered frames.
+  std::vector<double> _mapEncodeMs;
+  std::vector<double> _mapRenderMs;
   /// Game source data (M3a) waiting for the style: only the latest data per source is kept.
   NSMutableDictionary<NSString *, NSString *> *_pendingSourceData;
   // Main-thread cost of the game source updates (logged every 5 s).
@@ -792,6 +805,11 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   [self installBuildingLayer];
 }
 
+- (void)maprama_setBuildingLayerZoom:(maprama::BuildingLayerZoom)zoom {
+  _buildingZoom = zoom;
+  if (_buildingLayer != nil) [_buildingLayer setZoom:zoom];
+}
+
 - (void)maprama_setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame {
   _modelFrame = std::move(frame);
   if (_buildingLayer != nil) [_buildingLayer setModelFrame:_modelFrame];
@@ -810,6 +828,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   _buildingLayer = [[MapramaBuildingLayer alloc] initWithIdentifier:MapramaBuildingLayerIdentifier];
   [_buildingLayer setData:_buildingData];
   [_buildingLayer setModelFrame:_modelFrame];
+  [_buildingLayer setZoom:_buildingZoom];
   [style insertLayer:_buildingLayer belowLayer:buildings];
 }
 
@@ -927,6 +946,37 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 
 - (void)mapView:(MLNMapView *)mapView regionDidChangeAnimated:(BOOL)animated {
   [self reportCamera:mapView];
+}
+
+- (void)mapViewDidFinishRenderingFrame:(MLNMapView *)mapView
+                         fullyRendered:(BOOL)fullyRendered
+                     frameEncodingTime:(double)frameEncodingTime
+                    frameRenderingTime:(double)frameRenderingTime {
+  // M4 (DESIGN.md §8): the base map's own cost per frame plus the process footprint, every 240 frames.
+  _mapEncodeMs.push_back(frameEncodingTime);
+  _mapRenderMs.push_back(frameRenderingTime);
+  if (_mapEncodeMs.size() < 240) return;
+  const auto stats = [](std::vector<double> v, double *avg, double *p95) {
+    double sum = 0;
+    for (double x : v) sum += x;
+    *avg = v.empty() ? 0 : sum / v.size();
+    std::sort(v.begin(), v.end());
+    *p95 = v.empty() ? 0 : v[std::min(v.size() - 1, static_cast<size_t>(v.size() * 0.95))];
+  };
+  double encodeAvg, encodeP95, renderAvg, renderP95;
+  stats(_mapEncodeMs, &encodeAvg, &encodeP95);
+  stats(_mapRenderMs, &renderAvg, &renderP95);
+  task_vm_info_data_t info{};
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  const double footprintMB = task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS
+                                 ? static_cast<double>(info.phys_footprint) / 1048576.0
+                                 : 0.0;
+  os_log(engineLog(),
+         "maprama-map-frame-stats frames=%d map_encode_avg=%.3fms map_encode_p95=%.3fms map_render_avg=%.3fms "
+         "map_render_p95=%.3fms footprint_mb=%.1f",
+         static_cast<int>(_mapEncodeMs.size()), encodeAvg, encodeP95, renderAvg, renderP95, footprintMB);
+  _mapEncodeMs.clear();
+  _mapRenderMs.clear();
 }
 
 - (void)mapView:(MLNMapView *)mapView didFinishLoadingStyle:(MLNStyle *)style {

@@ -363,6 +363,12 @@ class JniMapAdapter final : public maprama::MapAdapter {
 
   const std::shared_ptr<maprama::android::BuildingLayerState>& buildingState() const { return buildingState_; }
 
+  void setBuildingLayerZoom(const maprama::BuildingLayerZoom& zoom) override {
+    // Read by the render thread with every frame; Kotlin coalesces the redraw (same path as the model frames).
+    buildingState_->setZoom(zoom);
+    withEnv("modelLayerChanged", [&](JNIEnv* env) { env->CallVoidMethod(host_, modelLayerChanged_); });
+  }
+
   void setModelLayer(std::shared_ptr<const maprama::ModelLayerFrame> frame) override {
     // The render thread reads the frame through the shared state; Kotlin coalesces the redraws.
     buildingState_->setModelFrame(std::move(frame));

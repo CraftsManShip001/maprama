@@ -34,6 +34,7 @@ layout (location = 5) in vec2 a_cell;
 layout (location = 6) in vec4 a_window;
 layout (location = 7) in vec4 a_glass;
 uniform mat4 u_mvp;
+uniform float u_heightScale;
 out vec3 v_color;
 out vec3 v_normal;
 out vec2 v_facade;
@@ -43,7 +44,7 @@ flat out vec4 v_window;
 flat out vec4 v_glass;
 flat out int v_pattern;
 void main() {
-  gl_Position = u_mvp * vec4(a_position, 1.0);
+  gl_Position = u_mvp * vec4(a_position.xy, a_position.z * u_heightScale, 1.0);
   v_color = a_color.rgb;
   v_normal = a_normal.xyz;
   v_facade = a_facade;
@@ -132,10 +133,11 @@ layout (location = 2) in float a_side;
 layout (location = 3) in vec4 a_color;
 uniform mat4 u_mvp;
 uniform vec4 u_viewport;
+uniform float u_heightScale;
 out vec4 v_color;
 void main() {
-  vec4 a = u_mvp * vec4(a_position, 1.0);
-  vec4 b = u_mvp * vec4(a_other, 1.0);
+  vec4 a = u_mvp * vec4(a_position.xy, a_position.z * u_heightScale, 1.0);
+  vec4 b = u_mvp * vec4(a_other.xy, a_other.z * u_heightScale, 1.0);
   vec2 halfSize = u_viewport.xy * 0.5;
   vec2 sa = a.xy / a.w * halfSize;
   vec2 sb = b.xy / b.w * halfSize;
@@ -313,6 +315,8 @@ bool BuildingLayerHost::ensurePrograms() {
   meshLightColor_ = glGetUniformLocation(meshProgram_, "u_lightcolor");
   lineMvp_ = glGetUniformLocation(lineProgram_, "u_mvp");
   lineViewport_ = glGetUniformLocation(lineProgram_, "u_viewport");
+  meshHeightScale_ = glGetUniformLocation(meshProgram_, "u_heightScale");
+  lineHeightScale_ = glGetUniformLocation(lineProgram_, "u_heightScale");
   __android_log_print(ANDROID_LOG_INFO, kTag, "programs ready (%s)", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
   return true;
 }
@@ -390,6 +394,9 @@ BuildingLayerHost::GpuModelMesh* BuildingLayerHost::gpuMesh(const ModelMesh& mes
       gpu.textures.push_back(texture);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
+    gpu.bytes = mesh.vertices.size() * sizeof(ModelVertex) + mesh.indices.size() * sizeof(std::uint32_t);
+    for (const ModelTexture& t : mesh.textures) gpu.bytes += static_cast<std::size_t>(t.width) * static_cast<std::size_t>(t.height) * 4;
+    modelBytes_ += gpu.bytes;
     __android_log_print(ANDROID_LOG_INFO, kTag, "model mesh %llu uploaded: %zu vertices, %zu triangles, %zu textures (%s)",
                         static_cast<unsigned long long>(mesh.id), mesh.vertices.size(), mesh.indices.size() / 3, mesh.textures.size(),
                         mesh.name.c_str());
@@ -416,6 +423,7 @@ void BuildingLayerHost::renderModels(const ModelLayerFrame& frame, const mln::st
   glBindBuffer(GL_ARRAY_BUFFER, instanceVbo_);
   glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(frame.instances.size() * sizeof(ModelInstance)), frame.instances.data(),
                GL_STREAM_DRAW);
+  streamBytes_ = frame.instances.size() * sizeof(ModelInstance) + kMaxJoints * 16 * sizeof(float);
   glDisable(GL_POLYGON_OFFSET_FILL);
   glDisable(GL_CULL_FACE);
   std::size_t draws = 0;
@@ -469,6 +477,7 @@ void BuildingLayerHost::renderModels(const ModelLayerFrame& frame, const mln::st
   glBindTexture(GL_TEXTURE_2D, 0);
   for (auto it = meshes_.begin(); it != meshes_.end();) {
     if (modelFrames_ - it->second.lastUsed > kMeshKeepFrames) {
+      modelBytes_ -= std::min(modelBytes_, it->second.bytes);
       glDeleteVertexArrays(1, &it->second.vao);
       const GLuint buffers[] = {it->second.vbo, it->second.ibo};
       glDeleteBuffers(2, buffers);
@@ -518,8 +527,14 @@ void BuildingLayerHost::upload(const BuildingLayerData& data) {
   glBindBuffer(GL_ARRAY_BUFFER, meshVbo_);
   glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.vertices.size() * sizeof(BuildingMeshVertex)), data.vertices.data(),
                GL_STATIC_DRAW);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.indices.size() * sizeof(std::uint32_t)), data.indices.data(),
-               GL_STATIC_DRAW);
+  // M4: the low-detail indices follow the full ones in the same element buffer.
+  const std::size_t fullBytes = data.indices.size() * sizeof(std::uint32_t);
+  const std::size_t lowBytes = data.lowDetailIndices.size() * sizeof(std::uint32_t);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(fullBytes + lowBytes), nullptr, GL_STATIC_DRAW);
+  if (fullBytes > 0) glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(fullBytes), data.indices.data());
+  if (lowBytes > 0) {
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>(fullBytes), static_cast<GLsizeiptr>(lowBytes), data.lowDetailIndices.data());
+  }
   glBindVertexArray(lineVao_);
   glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
   glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.lineVertices.size() * sizeof(BuildingLineVertex)),
@@ -530,6 +545,9 @@ void BuildingLayerHost::upload(const BuildingLayerData& data) {
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   meshIndexCount_ = static_cast<GLsizei>(data.indices.size());
   lineIndexCount_ = static_cast<GLsizei>(data.lineIndices.size());
+  lowIndexCount_ = static_cast<GLsizei>(data.lowDetailIndices.size());
+  meshBytes_ = data.vertices.size() * sizeof(BuildingMeshVertex) + fullBytes + lowBytes +
+               data.lineVertices.size() * sizeof(BuildingLineVertex) + data.lineIndices.size() * sizeof(std::uint32_t);
   uploadedVersion_ = data.version;
   __android_log_print(ANDROID_LOG_INFO, kTag, "uploaded v%llu: %zu vertices, %zu triangles, %zu outline vertices",
                       static_cast<unsigned long long>(data.version), data.vertices.size(), data.indices.size() / 3,
@@ -584,21 +602,30 @@ void BuildingLayerHost::render(const mln::style::CustomLayerRenderParameters& pa
     return;
   }
   const std::array<float, 16> mvp = buildingLayerMatrix(parameters.nearClippedProjectionMatrix, parameters.zoom, *data);
+  // M4 zoom-out: building height scale (`mapColors`) and the low-detail index range (after the full one).
+  const BuildingLayerZoom zoom = state_->zoom();
   glEnable(GL_POLYGON_OFFSET_FILL);
   glPolygonOffset(-1.f, -2.f);
 
   glUseProgram(meshProgram_);
   glUniformMatrix4fv(meshMvp_, 1, GL_FALSE, mvp.data());
+  glUniform1f(meshHeightScale_, zoom.heightScale);
   glUniform4f(meshLightPos_, data->light.position[0], data->light.position[1], data->light.position[2], data->light.intensity);
   glUniform4f(meshLightColor_, data->light.color[0], data->light.color[1], data->light.color[2], data->windowLights);
   glBindVertexArray(meshVao_);
-  glDrawElements(GL_TRIANGLES, meshIndexCount_, GL_UNSIGNED_INT, nullptr);
+  if (zoom.lowDetail) {
+    glDrawElements(GL_TRIANGLES, lowIndexCount_, GL_UNSIGNED_INT,
+                   reinterpret_cast<const void*>(static_cast<std::size_t>(meshIndexCount_) * sizeof(std::uint32_t)));
+  } else {
+    glDrawElements(GL_TRIANGLES, meshIndexCount_, GL_UNSIGNED_INT, nullptr);
+  }
 
   if (lineIndexCount_ > 0 && data->lineWidth > 0) {
     glDepthMask(GL_FALSE);
     glPolygonOffset(-2.f, -8.f);
     glUseProgram(lineProgram_);
     glUniformMatrix4fv(lineMvp_, 1, GL_FALSE, mvp.data());
+    glUniform1f(lineHeightScale_, zoom.heightScale);
     glUniform4f(lineViewport_, static_cast<GLfloat>(viewport[2]), static_cast<GLfloat>(viewport[3]),
                 static_cast<GLfloat>(data->lineWidth * pixelRatio * 0.5), 0.f);
     glBindVertexArray(lineVao_);
@@ -631,12 +658,15 @@ void BuildingLayerHost::recordFrame(double startMs) {
   stats(busy, &intervalAvg, &intervalP95);
   stats(renderMs_, &renderAvg, &renderP95);
   stats(modelRenderMs_, &modelAvg, &modelP95);
+  const BuildingLayerZoom zoom = state_->zoom();
   __android_log_print(ANDROID_LOG_INFO, kTag,
                       "maprama-frame-stats frames=%d interval_avg=%.2fms interval_p95=%.2fms layer_render_avg=%.3fms "
                       "layer_render_p95=%.3fms extrusion_depth_far=%.6f layers_above=%d probe_misses=%d models=%zu model_draws=%zu "
-                      "model_render_avg=%.3fms model_render_p95=%.3fms",
+                      "model_render_avg=%.3fms model_render_p95=%.3fms gl_mesh_mb=%.2f gl_model_mb=%.2f gl_stream_mb=%.2f "
+                      "low_detail=%d height_scale=%.2f",
                       static_cast<int>(renderMs_.size()), intervalAvg, intervalP95, renderAvg, renderP95, lastFar_,
-                      state_->layersAbove(), probeMisses_, lastModels_, lastModelDraws_, modelAvg, modelP95);
+                      state_->layersAbove(), probeMisses_, lastModels_, lastModelDraws_, modelAvg, modelP95, meshBytes_ / 1048576.0,
+                      modelBytes_ / 1048576.0, streamBytes_ / 1048576.0, zoom.lowDetail ? 1 : 0, zoom.heightScale);
   probeMisses_ = 0;
   renderMs_.clear();
   intervals_.clear();
@@ -649,6 +679,8 @@ void BuildingLayerHost::contextLost() {
   meshVao_ = meshVbo_ = meshIbo_ = 0;
   lineVao_ = lineVbo_ = lineIbo_ = 0;
   uploadedVersion_ = 0;
+  lowIndexCount_ = 0;
+  meshBytes_ = modelBytes_ = streamBytes_ = 0;
   programFailed_ = false;
   modelProgram_ = 0;
   modelProgramFailed_ = false;
