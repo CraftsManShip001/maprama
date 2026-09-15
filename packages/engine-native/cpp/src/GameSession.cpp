@@ -870,9 +870,15 @@ void GameSession::sendModelFrame(double nowMs) {
   if (w == nullptr || !adapter_ || !proj_) return;
   const Projection& projection = *proj_;
   ModelFrameBuilder builder(projection, w->origin, projection.unitMeters());
+  // M4: beyond the zoom-out band (keepGameView / mapColors) characters and drops are icon discs.
+  const bool sprites = map_.zoomOut().sprites();
   for (const auto& ch : chars_) {
     const FollowerBody& body = ch->follower.body;
-    ch->visual.draw(builder, body, ch->yaw, ch->scale(), baseColor(*ch), ch->isPlayer());
+    if (sprites) {
+      drawCharacterIcon(builder, body, baseColor(*ch), ch->isPlayer(), ch->scale());
+    } else {
+      ch->visual.draw(builder, body, ch->yaw, ch->scale(), baseColor(*ch), ch->isPlayer());
+    }
     ModelVisual v;
     v.kind = ModelVisual::Kind::Character;
     v.id = ch->id();
@@ -889,7 +895,11 @@ void GameSession::sendModelFrame(double nowMs) {
   }
   for (const auto& entry : dropVisuals_) {
     const DropVisual& d = entry.second;
-    drawDrop(builder, d, projection.toWorld(d.position), groundY_, nowMs);
+    if (sprites) {
+      drawDropIcon(builder, d, projection.toWorld(d.position), groundY_, nowMs);
+    } else {
+      drawDrop(builder, d, projection.toWorld(d.position), groundY_, nowMs);
+    }
     ModelVisual v;
     v.kind = ModelVisual::Kind::Drop;
     v.id = d.dropId;
@@ -903,6 +913,7 @@ void GameSession::sendModelFrame(double nowMs) {
     builder.visual(std::move(v));
   }
   std::shared_ptr<ModelLayerFrame> frame = builder.finish(buildingLayerLight(map_.look().light), map_.look().tint, ++modelFrameVersion_);
+  frame->sprites = sprites;
   modelsShown_ = !frame->visuals.empty();
   ++stats_.modelFrames;
   ++statsWindow_.modelFrames;
@@ -913,8 +924,15 @@ void GameSession::sendModelFrame(double nowMs) {
 }
 
 bool GameSession::moving() const {
-  // M3b: models animate every frame (idle clips and breathing, drop bob / spin / pop), like engine-web's render loop.
-  if (followMoving_ || !chars_.empty() || !dropVisuals_.empty()) return true;
+  if (followMoving_) return true;
+  // M3b: models in view animate every frame (idle clips and breathing, drop bob / spin, beams), like engine-web's
+  // render loop. M4: models out of view and icon discs (zoom-out beyond D2) have no visible idle motion.
+  if (!map_.zoomOut().sprites() && modelsInView()) return true;
+  const double now = clock_();
+  for (const auto& entry : dropVisuals_) {
+    const DropVisual& d = entry.second;
+    if (d.popMs || now - d.addedMs < kDropAppearSeconds * 1000.0) return true;  // appearing / popping
+  }
   for (const auto& ch : chars_) {
     const Follower& f = ch->follower;
     if (f.active() || f.wait > 0 || f.body.speed > 0 || std::fabs(f.body.y - f.groundY) > 0.001 ||
@@ -923,6 +941,83 @@ bool GameSession::moving() const {
     }
   }
   return false;
+}
+
+namespace {
+
+/// A conservative view test with engine-web's orbit camera (40° vertical field of view, widened by 25 %): the native
+/// camera frames the same ground as engine-web for the same `CameraState` (CameraMath.hpp). World units, y up.
+struct ViewTest {
+  double ex = 0, ey = 0, ez = 0;  // eye
+  double fx = 0, fy = -1, fz = 0;  // forward
+  double rx = 1, rz = 0;           // right (horizontal)
+  double ux = 0, uy = 0, uz = -1;  // up
+  double tanV = 0, tanH = 0;
+
+  ViewTest(const Projection& proj, const CameraState& cam, const Viewport& vp) {
+    const WorldPoint t = proj.toWorld(cam.center);
+    const double d = std::max(1e-6, cam.distance / proj.unitMeters());
+    const double p = cam.pitch * kPi / 180.0, b = cam.bearing * kPi / 180.0;
+    // Look direction on the ground (bearing clockwise from north, north = −z); the eye sits behind and above.
+    const double hx = std::sin(b), hz = -std::cos(b);
+    ex = t.x - hx * d * std::sin(p);
+    ey = d * std::cos(p);
+    ez = t.z - hz * d * std::sin(p);
+    fx = (t.x - ex) / d;
+    fy = -ey / d;
+    fz = (t.z - ez) / d;
+    rx = std::cos(b);
+    rz = std::sin(b);
+    ux = -rz * fy;
+    uy = rz * fx - rx * fz;
+    uz = rx * fy;
+    tanV = std::tan(20.0 * 1.25 * kPi / 180.0);
+    tanH = tanV * (vp.height > 0 ? vp.width / vp.height : 1.0);
+  }
+
+  bool contains(double x, double y, double z, double margin) const {
+    const double vx = x - ex, vy = y - ey, vz = z - ez;
+    const double depth = vx * fx + vy * fy + vz * fz;
+    if (depth <= -margin) return false;
+    const double sx = vx * rx + vz * rz;
+    const double sy = vx * ux + vy * uy + vz * uz;
+    const double k = std::max(0.0, depth);
+    return std::fabs(sx) <= k * tanH + margin && std::fabs(sy) <= k * tanV + margin;
+  }
+};
+
+/// Models are a few world units tall (vehicles, beams): count them as in view within this margin.
+constexpr double kViewMarginUnits = 4.0;
+
+}  // namespace
+
+bool GameSession::modelsInView() const {
+  if (chars_.empty() && dropVisuals_.empty()) return false;
+  const Viewport& vp = map_.viewport();
+  if (!proj_ || vp.width <= 0 || vp.height <= 0) return true;  // no laid-out view yet: assume visible
+  const ViewTest view(*proj_, map_.cameraState(), vp);
+  for (const auto& ch : chars_) {
+    const FollowerBody& b = ch->follower.body;
+    if (view.contains(b.x, b.y - groundY_, b.z, kViewMarginUnits)) return true;
+  }
+  for (const auto& entry : dropVisuals_) {
+    const WorldPoint at = proj_->toWorld(entry.second.position);
+    if (view.contains(at.x, 1.0, at.z, kViewMarginUnits)) return true;
+  }
+  return false;
+}
+
+void GameSession::zoomOutChanged() {
+  // Models <-> icon discs: one new model frame (the next ticks follow the usual schedule).
+  dirty_ |= kModels;
+  wake();
+}
+
+void GameSession::cameraMoved() {
+  // Idle models that are not animating (out of view) may have come into view. Icon discs do not depend on the camera.
+  if (!worldReady_ || frameScheduled() || map_.zoomOut().sprites()) return;
+  if (chars_.empty() && dropVisuals_.empty()) return;
+  wake();
 }
 
 void GameSession::scheduleNext(double nowMs) {

@@ -99,6 +99,8 @@ std::shared_ptr<const ModelMesh> dropMesh(DropType type, Rarity rarity, bool gem
 /// 2.2 units) in white: the instance colour carries the rarity colour and opacity.
 std::shared_ptr<const ModelMesh> dropBeamMesh();
 std::shared_ptr<const ModelMesh> dropRingMesh();
+/// M4 zoom-out icon disc (radius 1 in x / z, y up, unlit): a white fill with a dark rim, coloured by the instance.
+std::shared_ptr<const ModelMesh> iconDiscMesh();
 
 /// Geometry helpers (exposed for tests): vertex / triangle counts of the built meshes are deterministic.
 struct MeshStats {

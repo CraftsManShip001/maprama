@@ -128,6 +128,8 @@ class GameSession final : public MapSessionHooks, private ModelLibrary::Listener
   void styleSent() override;
   void worldLoaded(const json::Value& initMsg, const ProceduralWorld* procedural) override;
   bool setFollow(const std::optional<std::string>& characterId) override;
+  void zoomOutChanged() override;
+  void cameraMoved() override;
 
   // ---- state (tests, diagnostics) ----------------------------------------------------------------
   struct CharacterSnapshot {
@@ -189,6 +191,8 @@ class GameSession final : public MapSessionHooks, private ModelLibrary::Listener
   void wake();
   void requestFrame(double nowMs, double delayMs);
   bool moving() const;
+  /// Whether a character or drop is inside (a widened copy of) the camera's view (idle animation needs frames).
+  bool modelsInView() const;
   /// Body colour (spec colour or the default player / NPC colour), and with the time-of-day tint.
   std::uint32_t baseColor(const Character& ch) const;
   std::uint32_t bodyColor(const Character& ch) const;

@@ -95,6 +95,8 @@ struct ModelLayerFrame {
   std::vector<ModelVisual> visuals;
   std::size_t characters = 0;
   std::size_t drops = 0;
+  /// M4 zoom-out beyond D2: characters and drops are drawn as icon discs (one instanced draw).
+  bool sprites = false;
 };
 
 /// Model-view-projection of the model layer (same math as `buildingLayerMatrix`).
@@ -189,6 +191,15 @@ double dropPopProgress(const DropVisual& drop, double nowMs);
 Mat4 dropItemTransform(const ModelFrameBuilder& builder, const DropVisual& drop, const WorldPoint& at, double groundY, double nowMs);
 /// Appends a drop's item, beam and ring (music drops and non-common rarities; the note sprites are not drawn).
 void drawDrop(ModelFrameBuilder& builder, const DropVisual& drop, const WorldPoint& at, double groundY, double nowMs);
+
+/// M4 zoom-out beyond D2 (`ZoomOutController::sprites`): icon disc radii in world units (≈ 8–11 dp at D2–150 units).
+inline constexpr double kCharacterIconRadius = 1.1;
+inline constexpr double kPlayerIconRadius = 1.35;
+inline constexpr double kDropIconRadius = 0.6;
+/// A character as a flat icon disc on the ground (body colour, dark rim), instanced with every other icon.
+void drawCharacterIcon(ModelFrameBuilder& builder, const FollowerBody& body, std::uint32_t color, bool isPlayer, double scale);
+/// A drop as a small icon disc in its rarity colour (shrinks away during the collect pop).
+void drawDropIcon(ModelFrameBuilder& builder, const DropVisual& drop, const WorldPoint& at, double groundY, double nowMs);
 
 /// `AnimationClips` mapping from `CharacterSpec.animations` (a JSON object of clip names).
 AnimationClips animationMapping(const json::Value* animations);

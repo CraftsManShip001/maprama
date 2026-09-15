@@ -266,6 +266,22 @@ void drawDrop(ModelFrameBuilder& builder, const DropVisual& drop, const WorldPoi
   }
 }
 
+void drawCharacterIcon(ModelFrameBuilder& builder, const FollowerBody& body, std::uint32_t color, bool isPlayer, double scale) {
+  const double r = (isPlayer ? kPlayerIconRadius : kCharacterIconRadius) * std::clamp(scale, 0.5, 2.0);
+  const Mat4 m = mm::multiply(builder.placement(body.x, body.y + 0.06, body.z), mm::scaling(r, 1, r));
+  builder.instance(iconDiscMesh(), m, rgba(color, 1.0));
+}
+
+void drawDropIcon(ModelFrameBuilder& builder, const DropVisual& drop, const WorldPoint& at, double groundY, double nowMs) {
+  const double k = dropPopProgress(drop, nowMs);
+  if (k >= 1) return;
+  const double age = std::max(0.0, (nowMs - drop.addedMs) / 1000.0);
+  const double appear = std::clamp(age / kDropAppearSeconds, 0.0, 1.0);
+  const double r = kDropIconRadius * (1 - k) * (appear >= 1 ? 1.0 : std::max(0.001, easeOutBack(appear)));
+  const Mat4 m = mm::multiply(builder.placement(at.x, groundY + 0.05, at.z), mm::scaling(r, 1, r));
+  builder.instance(iconDiscMesh(), m, rgba(kRarityColors[static_cast<std::size_t>(drop.rarity)], 1.0));
+}
+
 AnimationClips animationMapping(const json::Value* animations) {
   AnimationClips out;
   if (animations == nullptr || !animations->isObject()) return out;

@@ -938,6 +938,35 @@ std::shared_ptr<const ModelMesh> dropRingMesh() {
   });
 }
 
+std::shared_ptr<const ModelMesh> iconDiscMesh() {
+  return cached("icon:disc", [] {
+    MeshBuilder b;
+    Geo g;
+    const Vec3d up{0, 1, 0};
+    const int segments = 24;
+    std::vector<std::uint32_t> colors;
+    const std::uint32_t center = g.vertex({0, 0, 0}, up);
+    colors.push_back(0xFFFFFF);
+    // Fill ring (white), then the rim between r 0.76 and 1 (dark: 30 % of the instance colour).
+    for (const auto& [r, c] : std::array<std::pair<double, std::uint32_t>, 3>{{{0.76, 0xFFFFFF}, {0.76, 0x4D4D4D}, {1.0, 0x4D4D4D}}}) {
+      for (int i = 0; i <= segments; ++i) {
+        const double t = static_cast<double>(i) / segments * 2 * kPi;
+        g.vertex({r * std::sin(t), 0, r * std::cos(t)}, up);
+        colors.push_back(c);
+      }
+    }
+    const std::uint32_t fill = center + 1, rimIn = fill + segments + 1, rimOut = rimIn + segments + 1;
+    for (int i = 0; i < segments; ++i) {
+      const auto k = static_cast<std::uint32_t>(i);
+      g.tri(center, fill + k, fill + k + 1);
+      g.tri(rimIn + k, rimOut + k, rimOut + k + 1);
+      g.tri(rimIn + k, rimOut + k + 1, rimIn + k + 1);
+    }
+    b.add(g, 0xFFFFFF, 0, 1, true, &colors);
+    return b.finish("icon:disc", 1);
+  });
+}
+
 MeshStats meshStats(const ModelMesh& mesh) { return MeshStats{mesh.vertices.size(), mesh.indices.size() / 3}; }
 
 }  // namespace maprama
