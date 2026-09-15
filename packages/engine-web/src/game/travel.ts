@@ -19,9 +19,9 @@ import type { ThrottledTopic } from '../bridge/subscriptions.js';
 import { ACCENT, type MaterialFactory } from '../theme/materials.js';
 import type { WorldModel } from '../world/model.js';
 import type { Character } from './characters.js';
-import { etaSeconds, KMH, pathLength, planLegs, type Leg } from './follower.js';
+import { etaSeconds, KMH, pathLength, planLegs, playbackSpeeds, remainingEtaSeconds, type Leg } from './follower.js';
 
-/** Plans a route result for the `route` request. */
+/** Plans a route result for the `route` request (real-world ETA, independent of any travel `timeScale`). */
 export function routeResult(world: WorldModel, proj: Projection, from: LngLat, to: LngLat, modes: readonly TravelMode[]): RouteResult {
   const legs = planLegs(world, proj.toWorld(from), proj.toWorld(to), modes);
   const out: RouteLeg[] = legs.map((l) => ({ mode: l.mode, meters: proj.unitsToMeters(pathLength(l.pts)), path: l.pts.map((p) => proj.toLngLat(p)) }));
@@ -130,6 +130,8 @@ interface Trip {
   character: Character;
   legs: Leg[];
   overlay: RouteOverlay | null;
+  /** Playback speed factor (1 = real-world speed). */
+  timeScale: number;
 }
 
 export interface TravelDeps {
@@ -152,15 +154,18 @@ export class TravelManager {
     return this.trips.has(characterId);
   }
 
-  /** Starts a trip; a running trip of the character is cancelled first. */
-  start(requestId: string, ch: Character, to: LngLat, modes: readonly TravelMode[]): Leg[] {
+  /**
+   * Starts a trip; a running trip of the character is cancelled first. The
+   * character moves at real-world speed × `timeScale` (see `playbackSpeeds`).
+   */
+  start(requestId: string, ch: Character, to: LngLat, modes: readonly TravelMode[], timeScale = 1): Leg[] {
     const world = this.deps.world();
     if (!world) throw new Error('no world loaded');
     const proj = this.deps.projection();
     this.cancel(ch.id);
     const legs = planLegs(world, { x: ch.x, z: ch.z }, proj.toWorld(to), modes);
     const overlay = ch.spec.isPlayer ? new RouteOverlay() : null;
-    const trip: Trip = { requestId, character: ch, legs, overlay };
+    const trip: Trip = { requestId, character: ch, legs, overlay, timeScale };
     this.trips.set(ch.id, trip);
     this.deps.emit({ type: 'travel:start', requestId, characterId: ch.id, legs: legs.map((l) => ({ mode: l.mode, meters: proj.unitsToMeters(pathLength(l.pts)) })) });
     if (!legs.length) {
@@ -172,7 +177,7 @@ export class TravelManager {
       this.deps.overlayParent.add(overlay.group);
     }
     ch.follower.onArrive = () => { if (this.trips.get(ch.id) === trip) this.finish(trip); };
-    ch.follower.setTrip(legs.map((l) => ({ ...l, pts: l.pts.map((p) => ({ ...p })) })));
+    ch.follower.setTrip(legs.map((l) => ({ ...l, pts: l.pts.map((p) => ({ ...p })) })), null, playbackSpeeds(world.unitMeters, timeScale));
     return legs;
   }
 
@@ -192,7 +197,7 @@ export class TravelManager {
     for (const id of [...this.trips.keys()]) this.cancel(id);
   }
 
-  /** Emits throttled `travel:progress` events. */
+  /** Emits throttled `travel:progress` events (`etaSeconds` in wall-clock seconds at the trip's `timeScale`). */
   progress(topic: ThrottledTopic, now: number): void {
     if (!topic.active) return;
     const proj = this.deps.projection();
@@ -201,7 +206,7 @@ export class TravelManager {
       if (!topic.wants(ch.id) || !topic.due(ch.id, now)) continue;
       const rem = ch.follower.remainingByLeg();
       const remainingMeters = proj.unitsToMeters(rem.reduce((a, r) => a + r.d, 0));
-      const eta = rem.reduce((a, r) => a + etaSeconds(proj.unitsToMeters(r.d), r.mode, KMH), 0);
+      const eta = remainingEtaSeconds(rem, proj.unitMeters, trip.timeScale);
       const mode = ch.follower.mode ?? trip.legs[trip.legs.length - 1]?.mode ?? 'walk';
       this.deps.emit({ type: 'travel:progress', requestId: trip.requestId, characterId: ch.id, remainingMeters, etaSeconds: eta, mode });
     }

@@ -192,11 +192,11 @@ export class Features {
     this.chars.remove(ids);
   }
 
-  startTravel(requestId: string, characterId: string, to: LngLat, modes: TravelMode[]): void {
+  startTravel(requestId: string, characterId: string, to: LngLat, modes: TravelMode[], timeScale = 1): void {
     if (!this.scene.world()) throw new EngineError('not_ready', 'no world loaded (send init first)');
     const ch = this.chars.get(characterId);
     if (!ch) throw new EngineError('unknown_character', `unknown character "${characterId}"`);
-    this.travel.start(requestId, ch, to, modes);
+    this.travel.start(requestId, ch, to, modes, timeScale);
   }
 
   cancelTravel(characterId: string): void {
@@ -352,7 +352,7 @@ export class Features {
     if (this.positionTopic.active) {
       for (const c of list) {
         if (!this.positionTopic.wants(c.id)) continue;
-        const heading = headingFromYaw(c.yaw), speed = realSpeedMps(c.speed, c.activeMode);
+        const heading = headingFromYaw(c.yaw), speed = realSpeedMps(c.speed, world.unitMeters);
         const key = `${c.x.toFixed(3)}|${c.z.toFixed(3)}|${heading.toFixed(1)}|${speed.toFixed(2)}`;
         if (this.lastPosition.get(c.id) === key || !this.positionTopic.due(c.id, now)) continue;
         this.lastPosition.set(c.id, key);

@@ -8,7 +8,7 @@
 | --- | --- |
 | `device` | 기기 GPS. 엔진이 튀는 값을 걸러 내고 도로를 따라 움직입니다 |
 | `external` | 앱이 `ref.pushLocation(fix)`로 위치를 넣습니다 (자체 위치 SDK, 서버 재생 등) |
-| `simulated` | 월드의 데모 루프를 걷는 가짜 위치 |
+| `simulated` | 월드의 데모 루프를 걷는 가짜 위치 (빨리 감은 데모 속도로 걸으며 `timeScale`과 무관) |
 
 위치를 따라가는 것은 `follow="location"`인 캐릭터뿐입니다. `Character`의 `follow`를 생략하면 `none`이라서 `travel`이나 `position`으로만 움직입니다.
 
@@ -59,10 +59,32 @@ console.log(result.legs); // travel:start가 보고한 실제 구간
 
 구간마다 탈것이 나타나고 사라집니다. 캐릭터 애니메이션은 [캐릭터와 모델](./characters#애니메이션-클립)에 있어요.
 
+### 이동 속도와 `timeScale`
+
+기본은 **실제 속도**입니다. 수단별 속도는 도보 4.8, 자전거 15, 자동차 30, 지하철 60, 비행기 180 km/h이고, 월드에서는 초당 `km/h ÷ 3.6 ÷ unitMeters` 단위만큼 움직입니다. 350 m를 걸으면 실제처럼 4분 넘게 걸려요.
+
+데모나 게임처럼 빨리 감고 싶으면 `timeScale`을 줍니다. `1`이 실제 속도, `20`이면 20배 빠르게 재생합니다. 0보다 큰 유한한 수여야 합니다.
+
+```tsx
+<MapramaView ref={map} world={world} travelTimeScale={20} />                 // 이 지도의 기본 배속
+
+await map.current!.travel('me', destination, ['walk'], { timeScale: 5 }); // 이번 호출만 5배
+```
+
+- 호출의 `options.timeScale`이 map의 `travelTimeScale` prop(기본 1)보다 우선합니다. prop은 `travel`을 부를 때마다 최신 값을 읽습니다.
+- 최종 배속이 `1`이면 `travel` 명령에 `timeScale`을 넣지 않습니다.
+- 0 이하, `NaN`, `Infinity`, 숫자가 아닌 값이면 명령을 보내지 않고 `MapramaError` `invalid_argument`로 reject됩니다.
+- 거리(`travel:start`의 `legs[].meters`, `travel:progress`의 `remainingMeters`)는 배속과 무관합니다.
+- `travel:progress`의 `etaSeconds`는 **지금 배속으로** 도착까지 남은 실제 시간(벽시계 초)입니다. 실제 속도 기준 ETA ÷ `timeScale`이에요.
+- `route` 요청의 `etaSeconds`는 배속과 무관한 실제 소요 시간입니다.
+- `character:position`의 `speedMps`는 화면 속 캐릭터의 지도 위 속도(초당 m)입니다. 이동 중에는 실제 속도 × `timeScale`이라서, GPS가 그 캐릭터에 대해 보고할 값과 같아요.
+- 걷기 애니메이션은 캐릭터 크기에 대한 화면 속 속도에 맞춰 재생됩니다. 실제 속도처럼 화면에서 느릴 때도 최소 0.5배 속도로 움직입니다.
+
 ### 프로미스와 타임아웃
 
 - 프로미스는 `travel:arrive`에서 resolve됩니다.
-- `MapramaError`로 reject되는 코드: `travel_cancelled`(취소), `timeout`, `engine_reloaded`(WebView 재생성), `unmounted`, 그리고 치명적인 호스트 오류 코드(`host_load_failed` 등).
+- `MapramaError`로 reject되는 코드: `travel_cancelled`(취소), `timeout`, `engine_reloaded`(WebView 재생성), `unmounted`, `invalid_argument`(잘못된 `timeScale`, 명령을 보내지 않음), 그리고 치명적인 호스트 오류 코드(`host_load_failed` 등).
+- `travel:progress`는 구독 간격만큼 늦게 전달될 수 있어서 프로미스가 resolve된 뒤에 도착하기도 합니다. 진행 표시를 갱신할 때는 이벤트의 `requestId`가 지금 이동의 것인지 확인하세요 (`travel:start`의 `requestId`).
 - `startTimeoutMs`(기본은 map의 `travelStartTimeoutMs`, 10000 ms)는 `travel:start`까지 기다리는 시간, `options.timeoutMs`는 전체 이동 시간을 제한합니다. 전체 타임아웃이 지나면 `cancelTravel`도 보냅니다.
 - 타임아웃은 **호출 시점부터** 잽니다. 엔진이 준비되기 전에 부른 `travel`도 제때 준비되지 않으면 `timeout`으로 reject되고, 큐의 명령은 버려집니다. 명령이 엔진에 전달되면 타임아웃은 그때부터 다시 잽니다.
 - `requestTimeoutMs`와 `travelStartTimeoutMs` prop은 타이머를 걸 때마다 최신 값을 읽습니다.

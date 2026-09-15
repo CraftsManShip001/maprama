@@ -2,24 +2,35 @@
  * Travel leg planning and path following (prototype `legsFor`, `makeFollower`,
  * `setTrip`, `stepFollower`, `remainingByLeg`). Pure: no three.js, no DOM.
  *
- * Speed tables live here (they are not part of the protocol):
- * - {@link SPEED}: world units per second used for on-screen playback (a
- *   "fast-forward" demo pace, like the prototype).
- * - {@link KMH}: realistic speeds used for ETAs and reported speeds.
+ * Speeds (not part of the protocol): {@link KMH} holds the real-world speed
+ * per mode. Travel playback moves at that speed times the travel's
+ * `timeScale` ({@link playbackSpeeds}), so `timeScale` 1 is real time and
+ * ETAs ({@link remainingEtaSeconds}) follow the scaled playback.
  *
  * @module
  */
 
-import type { Station, TravelMode, WorldPoint } from '@maprama/protocol';
+import { DEFAULT_UNIT_METERS, TRAVEL_MODES, type Station, type TravelMode, type WorldPoint } from '@maprama/protocol';
 import { clamp } from '../util/math.js';
 import { route, snap, type RoadGraph } from '../world/graph.js';
 import type { WorldKind } from '../world/model.js';
 
-/** Playback speed per mode in world units per second (prototype `SPEED`). */
-export const SPEED: Readonly<Record<TravelMode, number>> = Object.freeze({ walk: 3.2, bike: 7.5, car: 13, plane: 22, subway: 16 });
-
-/** Realistic speed per mode in km/h used for ETAs (prototype `KMH`). */
+/** Real-world speed per mode in km/h (prototype `KMH`): playback at `timeScale` 1, ETAs. */
 export const KMH: Readonly<Record<TravelMode, number>> = Object.freeze({ walk: 4.8, bike: 15, car: 30, plane: 180, subway: 60 });
+
+/**
+ * Travel playback speed per mode in world units per wall-clock second:
+ * `KMH[mode] / 3.6 / unitMeters × timeScale` (`timeScale` 1 = real-world speed).
+ */
+export function playbackSpeeds(unitMeters: number = DEFAULT_UNIT_METERS, timeScale = 1): Readonly<Record<TravelMode, number>> {
+  const k = timeScale / 3.6 / unitMeters;
+  const out = {} as Record<TravelMode, number>;
+  for (const m of TRAVEL_MODES) out[m] = KMH[m] * k;
+  return Object.freeze(out);
+}
+
+/** Real-world playback speeds for the default world scale (8 m per unit). */
+const REAL_TIME_SPEEDS = playbackSpeeds();
 
 /** Trips shorter than this (world units) fly as a walk instead (prototype). */
 export const PLANE_MIN_UNITS = 12;
@@ -201,6 +212,14 @@ export function etaSeconds(meters: number, mode: TravelMode, kmh: Readonly<Recor
   return meters / (kmh[mode] / 3.6);
 }
 
+/**
+ * Wall-clock seconds to cover the remaining legs (world units) at
+ * `timeScale`: the real-world ETA divided by `timeScale`.
+ */
+export function remainingEtaSeconds(remaining: readonly LegRemaining[], unitMeters: number, timeScale = 1): number {
+  return remaining.reduce((a, r) => a + etaSeconds(r.d * unitMeters, r.mode, KMH), 0) / timeScale;
+}
+
 /** A body moved by a {@link Follower} (a character). */
 export interface FollowerBody {
   x: number;
@@ -230,6 +249,8 @@ export class Follower {
   si = 0;
   wait = 0;
   speedOverride: number | null = null;
+  /** Per-mode speeds (world units / s) of the current trip, see {@link playbackSpeeds}. */
+  speeds: Readonly<Record<TravelMode, number>> = REAL_TIME_SPEEDS;
   /** Called once when the last leg is completed. */
   onArrive: (() => void) | null = null;
 
@@ -244,19 +265,24 @@ export class Follower {
     return this.legs[this.li]?.mode ?? null;
   }
 
-  /** Starts a trip (or stops with `[]`). `speedOverride` replaces the per-mode speed. */
-  setTrip(legs: Leg[], speedOverride: number | null = null): void {
+  /**
+   * Starts a trip (or stops with `[]`). `speedOverride` replaces the per-mode
+   * speed; `speeds` are the per-mode playback speeds (default: real-world
+   * speed at 8 m per world unit).
+   */
+  setTrip(legs: Leg[], speedOverride: number | null = null, speeds: Readonly<Record<TravelMode, number>> = REAL_TIME_SPEEDS): void {
     this.legs = legs;
     this.li = 0;
     this.si = 0;
     this.speedOverride = speedOverride;
+    this.speeds = speeds;
     this.wait = 0;
     const first = legs[0];
     if (first && this.body.setMode(first.mode) && first.mode !== 'walk') this.wait = MODE_SWITCH_WAIT_START;
   }
 
   /** Advances by `dt` seconds. */
-  step(dt: number, speeds: Readonly<Record<TravelMode, number>> = SPEED): void {
+  step(dt: number, speeds: Readonly<Record<TravelMode, number>> = this.speeds): void {
     const b = this.body;
     if (this.wait > 0) {
       this.wait -= dt;

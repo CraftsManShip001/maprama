@@ -53,7 +53,7 @@ import type { SceneApi } from '../scene-api.js';
 import { clamp, cssHexToNumber, mixHex, offsetHslHex, wrapDeg } from '../util/math.js';
 import { snap } from '../world/graph.js';
 import type { WorldModel } from '../world/model.js';
-import { Follower, groundYFor, KMH, SPEED, type FollowerBody } from './follower.js';
+import { Follower, groundYFor, type FollowerBody } from './follower.js';
 import { buildVehicles, capsule, PLANE_SCALE, PLANE_TOP_Y, stepVehicles, switchVehicle, type PartFn, type VehicleSet } from './vehicles.js';
 
 /** Height of the procedural character in world units (glTF models are scaled to it). */
@@ -63,6 +63,21 @@ const NPC_COLORS = [0x4e9c84, 0xc25b70, 0xd3a03e, 0x6f63b8, 0x3f86be, 0xa8653a];
 const CROSSFADE = 0.25;
 /** Default Draco decoder location (only fetched for Draco-compressed models). */
 export const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/';
+
+/**
+ * On-screen speed (world units / s) at which a character of
+ * {@link CHARACTER_HEIGHT} at scale 1 walks at its natural cadence (walk clip
+ * at 1×; the prototype's demo walking pace). Cadence scales with this and the
+ * character scale so feet do not slide.
+ */
+export const WALK_CADENCE_SPEED = 3.2;
+/** Minimum animation cadence while moving (e.g. real-time travel, which is slow on screen). */
+export const MIN_CADENCE = 0.5;
+const MAX_CADENCE = 2.2;
+/** Cadence above which the `run` clip is chosen. */
+const RUN_CADENCE = 1.6;
+/** Below this speed (world units / s) a character counts as standing. */
+const IDLE_SPEED = 1e-3;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -87,13 +102,17 @@ export function resolveClips(clipNames: readonly string[], mapping?: Partial<Rec
   return out;
 }
 
-/** Animation for a mode and speed (world units / s), with fallbacks to available clips. */
-export function chooseAnimation(mode: TravelMode, speed: number, available: Partial<Record<AnimationName, string>>): AnimationName | null {
+/**
+ * Animation for a mode and speed (world units / s), with fallbacks to
+ * available clips. `run` is chosen above 1.6× the natural walking cadence of
+ * a character of the given `scale` ({@link walkCadence}).
+ */
+export function chooseAnimation(mode: TravelMode, speed: number, available: Partial<Record<AnimationName, string>>, scale = 1): AnimationName | null {
   let want: AnimationName;
   if (mode === 'bike' || mode === 'car') want = 'ride';
   else if (mode === 'plane' || mode === 'subway') want = 'idle';
-  else if (speed < 0.05) want = 'idle';
-  else want = speed / SPEED.walk > 1.6 ? 'run' : 'walk';
+  else if (speed < IDLE_SPEED) want = 'idle';
+  else want = walkCadence(speed, scale) > RUN_CADENCE ? 'run' : 'walk';
   const chains: Record<AnimationName, AnimationName[]> = { ride: ['ride', 'idle'], run: ['run', 'walk', 'idle'], walk: ['walk', 'run', 'idle'], idle: ['idle'], wave: ['wave', 'idle'] };
   return chains[want].find((n) => available[n] !== undefined) ?? null;
 }
@@ -104,9 +123,29 @@ export function headingFromYaw(yaw: number): number {
   return ((d % 360) + 360) % 360;
 }
 
-/** Realistic ground speed in m/s for a playback speed in world units / s. */
-export function realSpeedMps(speedUnits: number, mode: TravelMode): number {
-  return (speedUnits / SPEED[mode]) * (KMH[mode] / 3.6);
+/**
+ * On-map ground speed in meters per wall-clock second for a speed in world
+ * units / s: what a GPS would report for the animated character (real-world
+ * speed × `timeScale` while travelling).
+ */
+export function realSpeedMps(speedUnits: number, unitMeters: number): number {
+  return speedUnits * unitMeters;
+}
+
+/**
+ * Walking cadence: on-screen speed relative to the natural walking pace of a
+ * character of `scale` ({@link WALK_CADENCE_SPEED} × scale). 1 = natural.
+ */
+export function walkCadence(speedUnits: number, scale = 1): number {
+  return speedUnits / (WALK_CADENCE_SPEED * (scale > 0 ? scale : 1));
+}
+
+/**
+ * Playback rate of the `walk` / `run` clip for a cadence (a run cycle covers
+ * about twice the ground), clamped to [{@link MIN_CADENCE}, 2.2].
+ */
+export function clipTimeScale(clip: 'walk' | 'run', cadence: number): number {
+  return clamp(clip === 'run' ? cadence / 2 : cadence, MIN_CADENCE, MAX_CADENCE);
 }
 
 /**
@@ -411,7 +450,7 @@ export class Character implements FollowerBody {
     this.yaw += diff * (reduceMotion ? 1 : Math.min(1, dt * 10));
     this.root.rotation.y = this.yaw;
     this.root.position.set(this.x, this.y, this.z);
-    const mode = this.mode, sp = this.speed;
+    const mode = this.mode, sp = this.speed, scale = this.spec.scale ?? 1;
     if (this.vehicles) stepVehicles(this.vehicles, mode, sp, dt, t, this.planePitch, reduceMotion);
     const veh = this.vehicles && mode !== 'walk' ? this.vehicles[mode] : null;
     const hideBody = !!veh && mode !== 'bike' && veh.group.visible && veh.p > 0.55;
@@ -420,7 +459,7 @@ export class Character implements FollowerBody {
       const m = this.model;
       m.wrap.visible = !hideBody;
       m.wrap.position.set(0, onBike ? 0.32 : 0, onBike ? -0.17 : 0);
-      const want = chooseAnimation(onBike || mode === 'car' ? mode : 'walk', sp, m.clips);
+      const want = chooseAnimation(onBike || mode === 'car' ? mode : 'walk', sp, m.clips, scale);
       if (want !== m.current) {
         const next = want ? m.actions[want] : undefined;
         const prev = m.current ? m.actions[m.current] : undefined;
@@ -429,7 +468,7 @@ export class Character implements FollowerBody {
         m.current = want;
       }
       const cur = m.current ? m.actions[m.current] : undefined;
-      if (cur && (m.current === 'walk' || m.current === 'run')) cur.timeScale = clamp(sp / (m.current === 'run' ? SPEED.walk * 2 : SPEED.walk), 0.5, 2.2);
+      if (cur && (m.current === 'walk' || m.current === 'run')) cur.timeScale = clipTimeScale(m.current, walkCadence(sp, scale));
       m.mixer.update(dt);
       return;
     }
@@ -453,8 +492,9 @@ export class Character implements FollowerBody {
         r.elbows[s]!.rotation.x = -0.25;
       }
     } else if (mode !== 'car') {
-      const k = sp / SPEED.walk, amp = Math.min(k, 1), run = clamp((k - 1.2) / 0.8, 0, 1);
-      if (sp < 0.05) {
+      // cadence relative to the character size, at least MIN_CADENCE while moving
+      const k = Math.max(walkCadence(sp, scale), MIN_CADENCE), amp = Math.min(k, 1), run = clamp((k - 1.2) / 0.8, 0, 1);
+      if (sp < IDLE_SPEED) {
         for (let s = 0; s < 2; s++) {
           r.hips[s]!.rotation.x = 0;
           r.knees[s]!.rotation.x = 0.02;
@@ -463,7 +503,7 @@ export class Character implements FollowerBody {
         }
         rig.scale.y = 1 + (reduceMotion ? 0 : Math.sin(t * 2.4 + this.phase) * 0.01);
       } else {
-        this.phase += dt * sp * (2.3 - run * 0.5);
+        this.phase += dt * k * WALK_CADENCE_SPEED * (2.3 - run * 0.5);
         for (let s = 0; s < 2; s++) {
           const a = this.phase + s * Math.PI, sn = Math.sin(a), cs = Math.cos(a);
           r.hips[s]!.rotation.x = sn * (0.5 + run * 0.35) * amp;

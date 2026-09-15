@@ -188,7 +188,7 @@ const commandSamples = {
     type: 'pushLocation',
     fix: { lng: 126.978, lat: 37.5665, accuracyMeters: 5, headingDeg: 90, speedMps: 1.2, timestamp: 1700000000000 },
   },
-  travel: { type: 'travel', requestId: 't1', characterId: 'player', to: ll2, modes: ['walk', 'subway'] },
+  travel: { type: 'travel', requestId: 't1', characterId: 'player', to: ll2, modes: ['walk', 'subway'], timeScale: 20 },
   cancelTravel: { type: 'cancelTravel', characterId: 'player' },
   setDropLayer: {
     type: 'setDropLayer',

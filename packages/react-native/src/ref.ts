@@ -61,6 +61,8 @@ export interface MapControllerOptions {
   travelStartTimeoutMs?: number;
   /** Current timeout defaults (e.g. from the latest props); read every time a timer is armed. */
   getTimeouts?: () => { requestTimeoutMs?: number | undefined; travelStartTimeoutMs?: number | undefined };
+  /** Current default travel `timeScale` (e.g. the `travelTimeScale` prop); read at every `travel` call. Default 1. */
+  getTravelTimeScale?: () => number | undefined;
   /** Implements {@link MapramaViewRef.refreshLabelContent}. */
   refreshLabelContent?: () => void;
 }
@@ -330,6 +332,12 @@ export class MapController implements MapramaViewRef {
 
   travel(characterId: string, to: LngLat, modes: TravelMode | TravelMode[] = ['walk'], options: TravelOptions = {}): Promise<TravelResult> {
     if (this.disposed) return Promise.reject(new MapramaError('unmounted', 'the map was unmounted'));
+    const perCall = options.timeScale !== undefined;
+    const timeScale: unknown = perCall ? options.timeScale : (this.options.getTravelTimeScale?.() ?? 1);
+    if (!(typeof timeScale === 'number' && Number.isFinite(timeScale) && timeScale > 0)) {
+      const source = perCall ? 'options.timeScale' : 'travelTimeScale';
+      return Promise.reject(new MapramaError('invalid_argument', `travel: ${source} must be a finite number > 0, got ${String(timeScale)}`));
+    }
     const requestId = nextId('travel');
     const modeList = Array.isArray(modes) ? modes : [modes];
     return new Promise<TravelResult>((resolve, reject) => {
@@ -345,7 +353,8 @@ export class MapController implements MapramaViewRef {
         timeoutMs: options.timeoutMs,
       };
       this.travels.set(requestId, travel);
-      this.send({ type: 'travel', requestId, characterId, to, modes: modeList });
+      // Real-world speed (1) keeps the command shape of engines that predate `timeScale`.
+      this.send(timeScale === 1 ? { type: 'travel', requestId, characterId, to, modes: modeList } : { type: 'travel', requestId, characterId, to, modes: modeList, timeScale });
       // Before ready this bounds the wait for the engine; `ready` re-arms the timers from delivery.
       this.armTravelTimers(requestId, travel);
     });

@@ -19,8 +19,11 @@ import type { EngineErrorCode } from '@maprama/protocol';
  * - `location_unavailable` / `location_permission_denied`: device location could not start.
  * - `drops_fetch_failed`: `DropLayer source="service"` could not load nearby drops.
  * - `listener_error`: an app callback threw.
+ * - `invalid_argument`: an argument of a library call was invalid (e.g. a
+ *   travel `timeScale` that is not a finite number > 0); nothing was sent.
  */
 export type HostErrorCode =
+  | 'invalid_argument'
   | 'timeout'
   | 'travel_cancelled'
   | 'engine_reloaded'

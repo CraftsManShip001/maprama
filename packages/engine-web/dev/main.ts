@@ -128,6 +128,8 @@ const log = (msg: string): void => { logEl.textContent = msg; };
 let lastIndex: LabelInfo[] = [];
 let hasPlayer = false;
 let npcCount = 0;
+/** Travel defaults to real-world speed; the dev harness fast-forwards 20× (about the old demo pace). */
+const DEMO_TIME_SCALE = 20;
 const listeners = new Set<(e: EngineEvent) => void>();
 const transport = createDirectTransport();
 transport.onEvent((event, raw) => {
@@ -136,7 +138,7 @@ transport.onEvent((event, raw) => {
   else if (event.type === 'labelsIndex') lastIndex = event.labels;
   else if (event.type === 'map:press') {
     log(`map:press ${event.coordinate.lng.toFixed(5)}, ${event.coordinate.lat.toFixed(5)}`);
-    if (hasPlayer) send({ type: 'travel', requestId: `tap-${Date.now()}`, characterId: 'me', to: event.coordinate, modes: modesFor(state.travelMode) });
+    if (hasPlayer) send({ type: 'travel', requestId: `tap-${Date.now()}`, characterId: 'me', to: event.coordinate, modes: modesFor(state.travelMode), timeScale: DEMO_TIME_SCALE });
   } else if (event.type === 'building:press') log(`building:press ${event.buildingId}`);
   else if (event.type === 'drop:collect') log(`drop:collect ${event.dropId} by ${event.characterId}\ncollectId ${event.collectId}`);
   else if (event.type === 'travel:start') log(`travel:start ${event.legs.map((l) => `${l.mode} ${Math.round(l.meters)}m`).join(' → ')}`);
@@ -256,7 +258,7 @@ async function demoTravel(choice: TravelChoice): Promise<void> {
   const started = waitFor((e) => (e.type === 'travel:start' && e.requestId === 'demo' ? e : undefined));
   await engine.dispatch({ type: 'subscribe', topic: 'travel:progress', id: 'me', throttleMs: 0 });
   await engine.dispatch({ type: 'setCamera', camera: { follow: 'me' } });
-  await engine.dispatch({ type: 'travel', requestId: 'demo', characterId: 'me', to: scene.toLngLat(dest), modes: modesFor(choice) });
+  await engine.dispatch({ type: 'travel', requestId: 'demo', characterId: 'me', to: scene.toLngLat(dest), modes: modesFor(choice), timeScale: DEMO_TIME_SCALE });
   const start = await started;
   const target: TravelMode = choice === 'plane' || choice === 'subway' ? choice : choice === 'mixed' ? 'car' : choice;
   const idx = start.legs.findIndex((l) => l.mode === target);

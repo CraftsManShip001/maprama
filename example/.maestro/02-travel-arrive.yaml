@@ -1,4 +1,4 @@
-# Travel: walk to the far preset (≈350 m of road, about 13 s at the engine's demo speed) and wait for
+# Travel: walk to the far preset (≈350 m of road, about 13 s at the screen's ×20 playback) and wait for
 # travel:arrive, then relaunch and check that the near preset (≈75 m of road) arrives with a two-digit length.
 # Taps cap Maestro's wait-to-settle: the map keeps animating, so an uncapped tap can block for 20+ s and
 # return after the walk has already ended.
