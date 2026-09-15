@@ -1,5 +1,8 @@
 package dev.maprama.enginenative
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+
 /**
  * Platform side of the core's `MapAdapter` (cpp/include/maprama/MapAdapter.hpp). libmaprama_engine.so calls
  * these methods (JNI, by name) with the engine lock held, from the thread that entered the engine:
@@ -57,6 +60,15 @@ interface MapramaMapHost {
   fun startLocationUpdates()
 
   fun stopLocationUpdates()
+
+  /**
+   * M3b: a new model frame (3D characters, vehicles, drop items) is kept natively for the render thread; redraw the
+   * map (called every game tick while models are on screen).
+   */
+  fun modelLayerChanged()
+
+  /** M3b: downloads a binary resource (glTF / GLB models and their buffers / images; http(s) and file URLs); reply [MapramaJni.onBinaryFetched]. */
+  fun fetchBinary(token: Long, url: String)
 }
 
 /** JNI entry points of libmaprama_engine.so (`android/src/main/cpp/maprama_jni.cpp`). */
@@ -87,6 +99,38 @@ internal object MapramaJni {
   @JvmStatic external fun onBuildingQueried(handle: Long, token: Long, buildingId: String?, groundHit: Boolean, lng: Double, lat: Double)
 
   @JvmStatic external fun onTextFetched(handle: Long, token: Long, ok: Boolean, bodyOrError: String)
+
+  /** Reply to [MapramaMapHost.fetchBinary]: the bytes, or (`bytes` null) a complete error message. */
+  @JvmStatic external fun onBinaryFetched(handle: Long, token: Long, ok: Boolean, bytes: ByteArray?, message: String)
+
+  /**
+   * M3b glTF base colour textures: PNG / JPEG bytes -> `[width, height, ARGB pixels…]` (straight alpha), or null.
+   * Called by libmaprama_engine.so on model worker threads.
+   */
+  @JvmStatic
+  fun decodeImage(bytes: ByteArray): IntArray? {
+    val options = BitmapFactory.Options().apply {
+      inPreferredConfig = Bitmap.Config.ARGB_8888
+      inPremultiplied = false
+    }
+    val bitmap = try {
+      BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    } catch (e: Throwable) {
+      null
+    } ?: return null
+    try {
+      val w = bitmap.width
+      val h = bitmap.height
+      if (w <= 0 || h <= 0 || w.toLong() * h > 16_777_216L) return null
+      val out = IntArray(2 + w * h)
+      out[0] = w
+      out[1] = h
+      bitmap.getPixels(out, 2, w, 0, 0, w, h)
+      return out
+    } finally {
+      bitmap.recycle()
+    }
+  }
 
   @JvmStatic external fun frame(handle: Long, timestampMs: Double)
 

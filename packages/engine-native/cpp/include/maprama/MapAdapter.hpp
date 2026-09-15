@@ -28,6 +28,7 @@
 namespace maprama {
 
 struct BuildingLayerData;
+struct ModelLayerFrame;
 
 /// A camera in MapLibre terms (512-px tiles, `zoom` is MapLibre's zoom level).
 struct MapCameraPose {
@@ -170,6 +171,22 @@ class MapAdapter {
   virtual void startLocationUpdates() {}
   /// Stops the platform location feed.
   virtual void stopLocationUpdates() {}
+
+  // ---- M3b 3D models (defaults: no-ops) -----------------------------------------------------------
+
+  /// The latest model frame (glTF / procedural characters, vehicles, drop items; ModelLayer.hpp), drawn with GPU
+  /// skinning by the custom layer of `setBuildingLayer` right after the building meshes, depth-tested against
+  /// the extrusions. Immutable, read on the render thread; sent every game tick while models are on screen, and
+  /// the platform redraws the map for each (an empty frame clears the models).
+  virtual void setModelLayer(std::shared_ptr<const ModelLayerFrame> frame) { (void)frame; }
+
+  /// Downloads a binary resource (glTF / GLB models and the external buffers / images they reference; http(s)
+  /// and file URLs). Reply: `Engine::onBinaryFetched(token, ok, ok ? bytes : errorMessage)`, the message being
+  /// complete (`HTTP <status> while loading <url>`, `failed to load <url>: <reason>`).
+  virtual void fetchBinary(std::uint64_t token, const std::string& url) {
+    (void)token;
+    (void)url;
+  }
 };
 
 }  // namespace maprama

@@ -1,6 +1,7 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M3a (game systems as style layers)** on top of M2c (diorama look, part 2: custom building layer),
+Status: **M3b (3D characters and drop models in the custom layer)** on top of M3a (game systems), M2c (diorama look,
+part 2: custom building layer),
 procedural worlds (M2b), M2a (diorama look, part 1) and M1 (map on screen). This package contains:
 
 - this design;
@@ -9,8 +10,9 @@ procedural worlds (M2b), M2a (diorama look, part 1) and M1 (map on screen). This
   `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) behind the
   `MapAdapter` interface (§2.1), the M2c building meshes (roofs, facade windows and details, outlines,
   captured flag; `BuildingMesh`, §6.2) and the game session (characters, location sources, travel + routing,
-  drops, geofences, camera follow, drawn with GeoJSON style layers, §2.2), with their conformance and
-  behaviour tests;
+  drops, geofences, camera follow, §2.2) with its overlays as GeoJSON style layers and, since M3b, glTF /
+  procedural characters, vehicles and drop items as a skinned model pass of the custom layer (§6.3, §6.4), with
+  their conformance and behaviour tests;
 - the React Native library: codegen specs, the `native` engine host (`src/`), the iOS Fabric view +
   TurboModule + Metal custom layer (`ios/`, `MapramaEngineNative.podspec`) and the Android ones with a GL ES 3
   custom layer (`android/`), all on the official prebuilt MapLibre Native SDKs (no fork, §6.1);
@@ -102,6 +104,8 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `queryBuilding(token, x, y)` (M2a) | `visibleFeaturesAtPoint:inStyleLayersWithIdentifiers:{buildings}` + `convertPoint:toCoordinateFromView:` | `queryRenderedFeatures(PointF, "buildings")` + `fromScreenLocation` | `Engine::onBuildingQueried(token, id?, ground?)` |
 | `fetchText(token, url)` | `NSURLSession` | `HttpURLConnection` on a worker thread | `Engine::onTextFetched(token, ok, body \| message)` |
 | `scheduleFrame(delayMs)` | `dispatch_after` on the main queue | `Handler.postDelayed` on the main looper | `Engine::frame(t)` |
+| `setModelLayer(frame)` (M3b) | `MapramaBuildingLayer setModelFrame:` (the same `MLNCustomStyleLayer`: model pass after the building meshes) + `setNeedsDisplay`, one main-thread hop per batch of frames | `BuildingLayerState::setModelFrame` read by the `BuildingLayerHost` on the render thread, `modelLayerChanged()` → coalesced `triggerRepaint` | — |
+| `fetchBinary(token, url)` (M3b) | `NSURLSession` (http(s) and file URLs) | `HttpURLConnection` / `File` on a worker thread | `Engine::onBinaryFetched(token, ok, bytes \| message)` |
 | `setSourceData(sourceId, geojson)` (M3a) | `MLNShapeSource.shape = [MLNShape shapeWithData:…]`, the latest data per source kept until `didFinishLoadingStyle` | `GeoJsonSource.setGeoJson(json)` in `getStyle {}` of the current style generation, one pending update per source | — |
 | `startLocationUpdates()` / `stopLocationUpdates()` (M3a) | `CLLocationManager` (best accuracy, no distance filter); not authorised → error, started again on `locationManagerDidChangeAuthorization` | `LocationManager` GPS + network providers (1 s); no `ACCESS_FINE/COARSE_LOCATION` → error | `Engine::onDeviceLocation(fix)`, `Engine::onDeviceLocationError(message)` |
 | (pan observer, M3a) | `mapView:regionWillChangeWithReason:animated:` with `MLNCameraChangeReasonGesturePan` | `addOnMoveListener` (`onMoveBegin`) | `Engine::onUserPan()` (stops `setCamera.follow`) |
@@ -213,27 +217,28 @@ fixture-conformance tested) with engine-web `Features` semantics [V: `cpp/tests/
 - **Tick.** One simulation tick per `MapAdapter::scheduleFrame` frame, in engine-web's `Features.frame`
   order: simulated location step, follower steps (+ `travel:arrive`), drop checks (`drop:collect`), geofence
   enter / exit, camera follow (`1 − e^(−5 dt)` towards the character), `character:position`,
-  `travel:progress`, then the changed game sources. dt is clamped to 50 ms like engine-web's render loop. Frames
-  are requested only while something moves: 16 ms while a character moves / waits for a vehicle, a drop
-  pops or the camera catches up with a followed character; 250 ms while only the `simulated` walker runs (it
-  advances in wall-clock time); none otherwise. Frames requested by the map session are ignored by the game
+  `travel:progress`, then the changed game sources and (M3b) the model frame. dt is clamped to 50 ms like engine-web's render loop. Frames
+  are requested only while something moves: 16 ms while a character moves / waits for a vehicle, the camera
+  catches up with a followed character or (M3b) any character or drop item is on screen (idle clips, breathing,
+  drop bob / spin / pop animate every frame, like engine-web's render loop); 250 ms while only the `simulated`
+  walker runs (it advances in wall-clock time); none otherwise. Frames requested by the map session are ignored by the game
   session (and vice versa) so the two never multiply each other's frame chains.
 - **Device location.** `setLocationSource {kind: "device"}` starts the platform feed
   (`MapAdapter::startLocationUpdates`); fixes go through `LocationService::onDevice`, failures become
   `error {location_unavailable, "device geolocation failed: <message>"}` (engine-web's code and prefix).
   Requesting the permission is the app's job.
-- **Visuals** (`cpp/include/maprama/GameVisuals.hpp`). Five GeoJSON sources updated with
+- **Visuals** (`cpp/include/maprama/GameVisuals.hpp`). Three GeoJSON sources updated with
   `MapAdapter::setSourceData` only when they changed: geofences (fill 7 % + ring 85 %, 80 segments,
   engine-web's `min(0.35, 0.2 r)` ring width), the player's route (lines by mode in engine-web's route colours,
-  subway station rings, destination pin), the location puck (accuracy disc from the last smoothed fix while
-  the player follows the location, dot under the player), drops (rarity colour, 300 ms collect pop: radius
-  +60 %, fade out) and characters (body colour with the time-of-day tint, a vehicle-coloured ring while riding,
-  a heading dot). Ground layers (geofences, route, puck accuracy) are inserted below the 3D buildings, and so also below the
-  M2c custom building layer, which every platform inserts directly below `buildings`; markers (route pin, drops,
-  puck, characters) are drawn above them; sizes are world sizes
-  with an on-screen minimum. Name tags wait for the label view pool (M2b); glTF characters and drop models
-  are M3b (custom render layer, M2c). Tick cost and source updates are logged every 5 s by the core and by
-  both platforms (main-thread cost of the source updates).
+  subway station rings, destination pin) and the location puck (accuracy disc from the last smoothed fix while
+  the player follows the location, dot under the player). Ground layers (geofences, route, puck accuracy) are
+  inserted below the 3D buildings, and so also below the custom layer, which every platform inserts directly
+  below `buildings`; the route pin and the puck dot are drawn above them; sizes are world sizes with an on-screen
+  minimum. M3a's flat character / drop circles are gone: since M3b characters, vehicles and drop items are 3D
+  models (`ModelLayer.hpp`, §6.3, §6.4) sent as one `ModelLayerFrame` per tick through
+  `MapAdapter::setModelLayer` and drawn by the custom layer in the extrusions' depth range (occluded by and
+  occluding the buildings). Name tags wait for the label view pool (M2b). Tick cost, source updates and model
+  frames are logged every 5 s by the core; both platforms log the layer's per-frame cost (§8).
 
 ## 3. Threading model
 
@@ -270,6 +275,13 @@ it is cheap enough for M1 because MapLibre owns rendering: the core only merges 
 requests and throttles `camera:change` (flushed by `MapAdapter::scheduleFrame`, not by a render loop).
 Events are emitted one envelope at a time through the TurboModule event emitter (§4.1). The queue above
 replaces the mutex when the core gains per-frame work (M2/M3) without changing the `Engine` interface.
+
+**M3b workers.** glTF parsing (cgltf, texture decoding through the platform decoder) runs on worker threads
+(`EngineConfig::runAsync`, a detached `std::thread` per model by default): the worker only touches copies of its
+input, then delivers the result under the engine lock through an `AsyncMailbox` that the engine's destructor
+clears (a late worker never touches a destroyed engine). On Android native threads that attach to the VM are
+detached when they exit (`pthread_key` destructor in `maprama_jni.cpp`). The per-tick model frame is an immutable
+`shared_ptr` snapshot read by the render thread (the "frame snapshot" of queue 2, for models only).
 
 **Lifecycle.**
 1. Fabric mount creates the engine.
@@ -345,13 +357,13 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2b |
 | `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; `GameSession` location puck (M3a) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` = puck layers under the player (§2.2) | M2a, **M3a** (puck) |
 | `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow` through `GameSession` (§2.2): unknown id → `error{unknown_character}` and nothing applied, `null` / `center` without `follow` / user pan stop following, the camera eases towards the character every tick (after a running animation) | M1, **M3a** (`follow`) |
-| `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; drawn as style-layer markers; `model` (default avatar) and `showNameTag` warn-logged once | **M3a** (glTF M3b, name tags M2b) |
+| `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; glTF / GLB models loaded off the engine lock and drawn skinned in the custom layer (clips by `animations` / conventional names, cadence, 150 ms cross-fades), the procedural body while loading / without a model / after `error{model_load_failed}` (M3b, §6.4); `showNameTag` warn-logged once | **M3a**, **M3b** (glTF), M2b (name tags) |
 | `removeCharacters` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Removes characters; running travels emit `travel:cancel` | as engine-web (also stops following the character) | **M3a** |
 | `setLocationSource` | fire-and-forget | `GameSession` (`LocationService`) + `MapAdapter::startLocationUpdates` | `device` starts GPS (main thread), `external` waits for `pushLocation`, `simulated` runs the demo loop | as engine-web; device failures → `error{location_unavailable}` | **M3a** |
 | `pushLocation` | fire-and-forget | `GameSession` (`LocationService::push`) | Smoothed fix for the player (effective with `external`) | smoothed, drives `follow: "location"` characters along the roads | **M3a** |
 | `travel` | fire-and-forget (answered by events) | `GameSession` (`TravelTrips::start`, `planLegs`) | Cancels any previous travel (`travel:cancel`), expands legs, emits `travel:start`, then `travel:progress` (subscribed) and `travel:arrive`. Moves at real-world speed per mode (`KMH / 3.6 / unitMeters` world units/s) × optional `timeScale` (finite, > 0, default 1); `travel:progress.etaSeconds` is wall-clock time at that scale (real ETA / `timeScale`) and `character:position.speedMps` the on-map ground speed, while the `route` request keeps unscaled real-world ETAs | as engine-web: `error{not_ready}` without a world, `error{unknown_character}`; the player's route drawn as line + pin layers | **M3a** |
 | `cancelTravel` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Emits `travel:cancel` if a travel was running | as engine-web (`error{unknown_character}`) | **M3a** |
-| `setDropLayer` | fire-and-forget | `GameSession` (`DropCollector::setLayer`) | Replaces the layer; builds instance buffers; collection radius and collectors | kept until a world loads; drawn as rarity-coloured markers; `model` drops warn-logged once (3D models M3b) | **M3a** |
+| `setDropLayer` | fire-and-forget | `GameSession` (`DropCollector::setLayer`) | Replaces the layer; builds instance buffers; collection radius and collectors | kept until a world loads; 3D items in the custom layer (coin / gem, CD, LP, note, glTF `model` drops; appear, bob, spin, collect pop, rarity beam + ring; §6.3); a failed model shows a coin and emits `error{model_load_failed}` | **M3a**, **M3b** (3D) |
 | `removeDropLayer` | fire-and-forget | `GameSession` (`DropCollector::removeLayer`) | Removes the layer and its instances | as engine-web | **M3a** |
 | `setGeofences` | fire-and-forget | `GameSession` (`GeofenceTracker::set`) | Replaces all geofences; membership of unchanged ids preserved; removed ones are forgotten silently (no `exit`) | as engine-web; fill + ring layers | **M3a** |
 | `setBuildingStyle` | fire-and-forget | `MapSession` building overrides → extrusion paint (M2a) + custom building layer (M2c) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | `color` and `state: "captured"` (glow mix + accent ring) as data-driven extrusion paint (§2.1); `roof` (gable / dome on rectangles), `facade` and the captured flag in the custom building layer (M2c); `null` clears; decorations / massing / replaceModel warn-logged once; `error{unknown_building}` / `error{not_ready}` as engine-web | M2a (color, state), M2c (roof, facade, captured flag), M4 (decorations, massing, replaceModel) |
@@ -367,7 +379,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | Event | Emitted by | Trigger | Delivery | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `ready` | `Engine::start` → `Dispatcher::emitReady` | Engine created and sink attached | Once; `engine.kind = "native"` | emitted | M0 |
-| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), game session (`not_ready`, `unknown_character`, `invalid_character`, `location_unavailable`, `internal`), `model_load_failed` (M3b) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle`; the M3a game codes (§2.2) | M0 / **M3a** (`model_load_failed` M3b) |
+| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), game session (`not_ready`, `unknown_character`, `invalid_character`, `location_unavailable`, `internal`), `model_load_failed` (M3b) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle`; the M3a game codes (§2.2); `model_load_failed` (engine-web's messages `character <id>: failed to load <uri>: <reason>`, `drop <layer>/<id>: …`) | M0 / **M3a** / **M3b** |
 | `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2b |
 | `map:press` | `MapSession::tap` → `MapAdapter::queryBuilding` | Tap whose ray hits the ground and no building | Immediate (after the platform query) | emitted (ground coordinate under the tap) | M2a |
 | `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a; the custom layer has no picking hook, roofs above the walls are not pickable) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
@@ -476,8 +488,21 @@ are not drawn, the captured glow does not pulse, and `soft` masses are not round
 - The collection test runs on the core thread with engine-web's rule: squared ground distance in flat world
   units against `(collectRadiusMeters / unitMeters)²` for every allowed collector [V: `cpp/src/DropLogic.cpp`,
   `drops.json` conformance] (no haversine; a broad-phase grid can come with the instanced renderer if drop
-  counts need it). A collected drop is marked collected before `drop:collect` is emitted (M3a: its style-layer
-  marker then pops for 300 ms).
+  counts need it). A collected drop is marked collected before `drop:collect` is emitted (then its item pops).
+
+**M3b (implemented, `ModelLayer.cpp`, `ProceduralMeshes.cpp`).** Each drop is an item of engine-web's `DropVisuals`
+[V: `m3b_drop_item_transforms_and_frames`]: gold coin (a gem octahedron when `value ≥ 50`), CD / LP discs
+(the canvas label textures become vertex-coloured rings with the same radii and colours, spindle hole open),
+the extruded note (without its bevel) in the rarity colour, `model` drops as their glTF normalized to 1.1 by the
+largest extent (nothing while loading, a coin after a failed load). Animation as engine-web: appear
+(`easeOutBack` over 0.35 s), idle bob (`sin(3t + phase) · 0.12`, music items `sin(2.4t + phase) · 0.1`, 0.05
+higher) and spin (2.2 / 1.6 rad/s), collect pop over **0.45 s** (grows `1 + 1.5k`, then shrinks `1.6(1 − k)/0.6`,
+rises 5 units/s, spins 14 rad/s; M3a's circle popped for 300 ms), and for music drops or rare / legendary
+rarities the additive beam (open cone, 1.5× for legendary, collapses during the pop) and glow ring (a vertex-alpha
+disc instead of the glow texture). The orbiting note sprites, the "+value" text and the chime are not drawn.
+The core computes the item transforms per tick (a few µs per drop) and batches every rigid item mesh into one
+instanced draw per mesh with the identity palette, so 1,500 drops cost ≈ 10 draws; moving the animation into
+the vertex shader (the plan above) remains an option if drop counts grow.
 
 ### 6.4 Skinned glTF characters, and why the core has its own JSON
 
@@ -489,6 +514,38 @@ are not drawn, the captured glow does not pulse, and `soft` masses are not round
   uniform buffer, and ≤ 4 influences per vertex. An animation state machine (`idle`, `walk`, `run`,
   `ride`, `wave`, mapped through `CharacterSpec.animations`) samples channels on the core thread and writes
   the joint matrices into the frame snapshot. Cross-fades take 150 ms.
+- **M3b (implemented).** `GltfLoader.cpp` (cgltf v1.15) reads GLB and glTF with `data:` / relative / http(s)
+  buffers and images (fetched through `MapAdapter::fetchBinary`, parsed again with them), rejects Draco and
+  meshopt geometry (`KHR_draco_mesh_compression`, `EXT_/KHR_meshopt_compression` required) and models needing more
+  than 63 joints, and converts every triangle primitive to the 36-byte `ModelVertex` (position, snorm normal with
+  an unlit flag for `KHR_materials_unlit`, uv, sRGB colour = linear base colour factor × vertex colour, 4 joints,
+  4 unorm8 weights summing to 255). **One palette per model** unifies the two kinds of glTF animation: entry 0 is
+  the identity (static geometry baked into model space), each rigidly animated mesh node gets an entry with an
+  identity inverse bind matrix (the example robot: 8 entries), each skin joint `global(joint) × inverseBind`;
+  the GPU skins every vertex with ≤ 4 influences, so node-animated and skinned models share one shader.
+  Base colour textures (PNG / JPEG) are decoded by ImageIO / BitmapFactory on the worker (RGBA8, no mipmaps, no
+  ASTC transcoding yet); alpha `MASK` discards, `BLEND` goes to the blended pass. Morph targets, cameras, lights
+  and other material maps are ignored. `ModelLibrary` shares loaded models by URI and, like engine-web's
+  `gltfCache`, retries a failed URI on the next request.
+- **Animation (M3b).** `CharacterAnimation.cpp` ports `resolveClips`, `chooseAnimation`, `walkCadence`,
+  `clipTimeScale` and `headingFromYaw` [V: `characters.json`, 1,566 cases] and samples TRS channels like three.js'
+  interpolants (linear with slerp, step, cubic spline). `ModelAnimator` ports the part of `AnimationMixer`
+  engine-web uses (looping actions, `crossFadeTo` / `fadeIn` / `fadeOut`, per-action time scale, weighted
+  accumulation with the rest pose filling the missing weight) and is checked frame by frame against three.js
+  driving the example robot through idle → walk ×1.3 → idle → walk with **150 ms** cross-fades (engine-web uses
+  0.25 s) [V: `m3b_model_animator_crossfade_matches_three`, max 2.7e-8]; node matrices and a generated skinned
+  model's `skeleton.boneMatrices` match three.js within 1.7e-8 / 5.6e-8 [V: `m3b_gltf_loader_sample_robot_matches_three`,
+  `m3b_skinning_palette_matches_three`]. glTF characters are normalized like engine-web (`CHARACTER_HEIGHT` 1.9 ×
+  `scale`, feet at 0, centred), rotate with the smoothed heading and sit on the bike (0.32 up, 0.17 back).
+- **Procedural body and vehicles (M3b).** Without a model (and while one loads, or after a failure) the character
+  is engine-web's procedural body (`geos()`: lathe torso, head, hair or the player's cap + backpack, capsule limbs,
+  unlit eyes) as a 9-joint rigid mesh per (colour, player), animated by the port of `Character.animate`'s
+  procedural branch (walk / run swing by cadence, idle breathing, pedalling). The four vehicles of `vehicles.ts`
+  are ported whole (bike with spoked wheels and crank, extruded car with windows, lights and driver, plane with
+  propeller and pitch, translucent subway ghost train) with pop-in (`easeOutBack` 0.35 s), wheel spin, propeller,
+  car bob and engine-web's `hideBody` / `onBike` rules. Not drawn: ink outline hulls, silhouettes of characters
+  behind buildings (the custom layer draws before the extrusions, so there is no "behind" pass; characters are
+  simply occluded), name tags (label pool), `wave`.
 - **Why no nlohmann/json.** The core must reproduce `decodeCommand` byte for byte. That needs JS semantics
   nlohmann does not have:
   - every number is a double, and `1e400` parses to `Infinity`;
@@ -666,6 +723,25 @@ captured tower, realistic theme). Idle gaps > 100 ms (MapLibre renders on demand
 Uploads (≈ 3.6 MB of vertices) happen only when the layer data changes. The emulator figure is bound by the
 emulator's GL translation; no baseline without the layer and no device numbers were taken (M4).
 
+**M3b measurements (models; Seongsu, M3b example screen, simulators).** Taken with a scratch Maestro flow that
+switches the screen's crowd between 1, 10 and 50 walking characters (half the example glTF robot — 84 triangles,
+8 palette entries — half procedural bodies — ≈ 1,900 triangles, 9 joints; walk ×20 on the roads around the start)
+plus 8 drop items (the 6 showcase items and the 2 route drops) for ≈ 16 s each, reading the core's 5 s tick log
+and the layer's 240-frame `maprama-frame-stats` (steady-state windows; the camera follows / frames the crowd).
+
+| Characters | Core tick (sim + model frame), avg / max | iOS 26.5 sim (Metal): frame GPU avg / p95, layer encode (models) | Android 15 emulator (GL ES translator): layer render avg / p95 (models) | Frame interval iOS / Android |
+| --- | --- | --- | --- | --- |
+| 1 | iOS 0.05 / 0.14 ms, Android 0.06–0.07 / 0.8 ms | 0.10 / 0.15 ms, 0.011 ms (0.006 ms) | 0.70–0.85 / 1.3–1.7 ms (0.27–0.35 ms) | 16.7 ms (vsync) / 8–10 ms |
+| 10 | iOS 0.09 / 0.47 ms, Android 0.11–0.13 / 0.74 ms | 0.12 / 0.18 ms, 0.012–0.016 ms (0.007–0.010 ms) | 1.0–1.18 / 2.1–2.6 ms (0.48–0.61 ms) | 16.7–17.1 ms / 10–13 ms |
+| 50 | iOS 0.19–0.22 / 1.3 ms, Android 0.20–0.21 / 1.8 ms | 0.11–0.12 / 0.15 ms, 0.017–0.021 ms (0.012–0.016 ms) | 1.9–2.0 / 3.7–4.1 ms (1.38–1.45 / 3.0–3.3 ms) | 16.7–17.9 ms / 15.5–16.3 ms |
+
+The same scene on the Mac (`-O2`, the core only: 600 ticks of `Engine::frame` with N characters travelling) costs
+0.002 / 0.012 / 0.059 ms per tick for 1 / 10 / 50 characters (50 draws, 8,016 palette floats). One draw per body or
+vehicle, the rigid drop items instanced per mesh (the 8 items above take 8 draws). The GPU cost on the iOS
+simulator is flat (≈ 0.1 ms for the whole frame); the emulator's GL translation makes its model pass grow ≈ 23 µs
+per character. The model frames also keep MapLibre rendering at the display rate while models are on screen
+(engine-web's render loop does the same); throttling idle-only animation to 30 fps is an M4 option.
+
 ## 9. Build and packaging
 
 - The core is built by `scripts/build-core.sh` on macOS with `xcrun clang++` (no CMake on this toolchain)
@@ -686,6 +762,9 @@ emulator's GL translation; no baseline without the layer and no device numbers w
   **Fork fallback only:** if a later milestone needs the fork, the patched MapLibre is built in CI from
   `patches/` into an XCFramework (Metal) and an AAR; app builds would consume these prebuilt artifacts, so
   they never apply patches.
+- **M3b:** cgltf v1.15 is vendored in `cpp/vendor/cgltf` (MIT, root `NOTICE`) and compiled once by
+  `cpp/src/GltfLoader.cpp` (warnings of the third-party header suppressed); the podspec adds `ImageIO`; no new
+  Android dependency (BitmapFactory, GL ES 3 instancing and uniform blocks).
 - Tests: `npm test -w @maprama/engine-native` runs these steps:
   1. export fixtures from the built protocol package (including `resolveTheme` cases);
   2. check DESIGN.md coverage;
@@ -756,9 +835,9 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Map UI | `setUi` | v1 | **M2a** (location puck **M3a**) |
 | Presses | `map:press`, `building:press` | v1 | **M2a** (rendered-feature query) |
 | Overlay anchors | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
-| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** style-layer markers, all location sources (device feed on both platforms), camera follow; M3b glTF characters; M2b name tags |
+| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** all location sources (device feed on both platforms), camera follow; **M3b** glTF characters (GPU skinning, clips, cross-fades), procedural body, vehicles, `model_load_failed`; M2b name tags; outlines / silhouettes open |
 | Travel + routing | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | **M3a** (route line + pin layers) |
-| Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | **M3a** rarity markers + collect pop; M3b 3D drop models, bob / spin / beams |
+| Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | **M3a** collection; **M3b** 3D items (instanced), glTF drops, bob / spin / pop, beams + rings; note sprites, "+value" text, chime open |
 | Geofences | `setGeofences`, `geofence:*` | v1 | **M3a** (fill + ring layers; no pulse) |
 | Zoom-out game view | `theme.zoomOut` | v1 | M4 |
 | PMTiles / tile-backed WorldData | (protocol addition) | planned | planned (same release as web) |
@@ -798,10 +877,11 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
   - **M3-core (done).** Pure C++ ports of engine-web's travel planning / follower (Dijkstra over the planar
     road graph, subway legs between the stations nearest to both ends: no separate station graph), location
     smoothing, drop collection and geofence tracking, fixture-conformance tested.
-  - **M3a (this change).** `GameSession` (§2.2): every M3 command, event and request on `engine="native"`
+  - **M3a (done).** `GameSession` (§2.2): every M3 command, event and request on `engine="native"`
     with engine-web semantics, drawn with GeoJSON style layers; device location feeds; camera follow.
-  - **M3b.** glTF characters (cgltf skinning) and 3D drop models on the M2c custom render layer; name tags
-    with the M2b label view pool.
+  - **M3b (this change).** glTF characters (cgltf, GPU skinning, 150 ms cross-fades), the procedural body,
+    vehicles and 3D drop items as a model pass of the M2c custom layer, depth-shared with the extrusions
+    (§6.3, §6.4); name tags stay with the M2b label view pool.
 - **M4 — parity and performance.**
   - Zoom-out game view.
   - Device perf and memory measured against §8.
@@ -813,11 +893,11 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Component | License | Used for | Status |
 | --- | --- | --- | --- |
 | MapLibre Native | BSD-2-Clause | Base renderer: official prebuilt iOS / Android SDKs linked by apps (M1); three `custom_layer*` headers vendored in `android/src/main/cpp/vendor/maplibre` (M2c) | used; root `NOTICE` entry with the license text (M2c) |
-| cgltf | MIT | glTF 2.0 / GLB loading | planned (M3) |
+| cgltf | MIT | glTF 2.0 / GLB loading | used (M3b): `cpp/vendor/cgltf/cgltf.h` from tag v1.15, unmodified, with its `LICENSE`; root `NOTICE` entry |
 | earcut.hpp | ISC | — | **not used**: roof caps use a small ear-clipping triangulator in `BuildingMesh.cpp` (MapLibre's bundled copy is not reachable through the prebuilt SDKs) |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Core behaviour summary (M1 + M2a + M2b procedural worlds + M2c + M3a)
+## 13. Core behaviour summary (M1 + M2a + M2b procedural worlds + M2c + M3a + M3b)
 
 | Input | Output |
 | --- | --- |
@@ -829,11 +909,12 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | `setTheme` | Resolved theme → changed paint properties + light, and the rebuilt custom building layer (facades, details, outlines, window lights); varied massing / grading / zoomOut warn-logged once |
 | `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; roof / facade / captured flag in the custom building layer; `error {unknown_building \| not_ready, fatal: false}` |
 | World load, `setTheme`, `setBuildingStyle`, adapter attach | `MapAdapter::setBuildingLayer(data)` after the style, only when the layer content changed |
+| Game tick with characters or drops on screen | `MapAdapter::setModelLayer(frame)`: palettes, instances and draws of every body, vehicle and drop item (one empty frame when the last disappears) |
 | `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` draws the puck under the player |
-| `upsertCharacters` / `removeCharacters` | Characters created / merged / removed (kept until a world loads); > 1 player → `error {invalid_character, "upsertCharacters: at most one character can be the player (got a, b)"}`; removal cancels trips |
+| `upsertCharacters` / `removeCharacters` | Characters created / merged / removed (kept until a world loads); > 1 player → `error {invalid_character, "upsertCharacters: at most one character can be the player (got a, b)"}`; removal cancels trips; `model` loads the glTF (shared by URI, parsed off the lock) and shows it skinned, else the procedural body; a failed load → `error {model_load_failed, "character <id>: failed to load <uri>: <reason>", fatal: false}` |
 | `setLocationSource` / `pushLocation` / device fixes | `simulated` demo loop, `external` fixes, `device` platform feed (`error {location_unavailable, "device geolocation failed: …"}`); smoothed fixes drive `follow: "location"` characters along the roads |
 | `travel` / `cancelTravel` | `travel:start`, throttled `travel:progress`, `travel:arrive` / `travel:cancel`; `error {not_ready, "travel: no world loaded (send init first)"}`, `error {unknown_character, "travel: unknown character \"<id>\""}` |
-| `setDropLayer` / `removeDropLayer` | `drop:collect {layerId, dropId, characterId, coordinate, collectId}` once per drop and collector; duplicate collectIds → `error {internal}` |
+| `setDropLayer` / `removeDropLayer` | `drop:collect {layerId, dropId, characterId, coordinate, collectId}` once per drop and collector; duplicate collectIds → `error {internal}`; 3D items with engine-web's animation; failed `model` drops → coin + `error {model_load_failed, "drop <layer>/<id>: failed to load <uri>: <reason>"}` |
 | `setGeofences` | `geofence:enter` / `geofence:exit` in geofence order, then character order |
 | `subscribe` / `unsubscribe` `character:position` / `travel:progress` | Throttled per subscription and key (engine-web `ThrottledTopic`) |
 | `setOverlayAnchors` | `overlay:positions {positions: [{id, x, y, visible}]}` at most once per 16 ms frame while the view changes |

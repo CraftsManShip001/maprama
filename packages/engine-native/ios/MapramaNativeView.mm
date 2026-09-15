@@ -1,6 +1,7 @@
 #import "MapramaNativeView.h"
 
 #import <CoreLocation/CoreLocation.h>
+#import <ImageIO/ImageIO.h>
 #import <MapLibre/MapLibre.h>
 #import <QuartzCore/QuartzCore.h>
 #import <os/log.h>
@@ -13,7 +14,10 @@
 #import "MapramaBuildingLayer.h"
 #import "MapramaEngineModule.h"
 
+#include <algorithm>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,6 +25,7 @@
 #include "maprama/Engine.hpp"
 #include "maprama/EngineRegistry.hpp"
 #include "maprama/MapAdapter.hpp"
+#include "maprama/ModelLayer.hpp"
 
 using namespace facebook::react;
 
@@ -37,6 +42,7 @@ static NSString *const kBuildingsLayer = @"buildings";
 - (void)maprama_setLight:(const maprama::MapLight &)light;
 - (void)maprama_setUi:(const maprama::MapUiState &)ui;
 - (void)maprama_setBuildingLayer:(std::shared_ptr<const maprama::BuildingLayerData>)data;
+- (void)maprama_setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame;
 @end
 
 namespace {
@@ -95,6 +101,54 @@ NSExpression *expressionFromJson(NSString *json) {
   if ([object isKindOfClass:NSNumber.class]) return [NSExpression expressionForConstantValue:object];
   return [NSExpression expressionWithMLNJSONObject:object];
 }
+
+/// M3b glTF base colour textures: PNG / JPEG → RGBA8 with straight alpha (ImageIO; called on worker threads).
+bool decodeImageWithImageIO(const std::uint8_t *data, std::size_t size, maprama::ModelTexture &out) {
+  @autoreleasepool {
+    CFDataRef bytes = CFDataCreate(kCFAllocatorDefault, data, static_cast<CFIndex>(size));
+    if (bytes == nullptr) return false;
+    CGImageSourceRef source = CGImageSourceCreateWithData(bytes, nullptr);
+    CFRelease(bytes);
+    if (source == nullptr) return false;
+    CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, nullptr);
+    CFRelease(source);
+    if (image == nullptr) return false;
+    const std::size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
+    if (w == 0 || h == 0 || w > 8192 || h > 8192) {
+      CGImageRelease(image);
+      return false;
+    }
+    out.width = static_cast<int>(w);
+    out.height = static_cast<int>(h);
+    out.rgba.assign(w * h * 4, 0);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(out.rgba.data(), w, h, 8, w * 4, space,
+                                                 kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(space);
+    if (context == nullptr) {
+      CGImageRelease(image);
+      return false;
+    }
+    // Row 0 of the bitmap is the top of the image: glTF's (0, 0) texture coordinate.
+    CGContextDrawImage(context, CGRectMake(0, 0, w, h), image);
+    CGContextRelease(context);
+    CGImageRelease(image);
+    for (std::size_t i = 0; i < w * h; ++i) {
+      std::uint8_t *p = &out.rgba[i * 4];
+      const unsigned a = p[3];
+      if (a == 0 || a == 255) continue;
+      for (int c = 0; c < 3; ++c) p[c] = static_cast<std::uint8_t>(std::min(255u, (p[c] * 255u + a / 2) / a));
+    }
+    return true;
+  }
+}
+
+/// The latest model frame for the main thread (the core sends one per tick; the main thread takes the newest).
+struct ModelFrameSlot {
+  std::mutex mutex;
+  std::shared_ptr<const maprama::ModelLayerFrame> frame;
+  std::atomic<bool> pending{false};
+};
 
 /// Engine output -> JS (TurboModule event emitter) and os_log.
 class AppleMessageSink final : public maprama::MessageSink {
@@ -287,6 +341,57 @@ class AppleMapAdapter final : public maprama::MapAdapter {
     [task resume];
   }
 
+  void setModelLayer(std::shared_ptr<const maprama::ModelLayerFrame> frame) override {
+    {
+      std::lock_guard<std::mutex> lock(modelSlot_->mutex);
+      modelSlot_->frame = std::move(frame);
+    }
+    if (modelSlot_->pending.exchange(true)) return;  // a main-thread hop is already queued
+    std::shared_ptr<ModelFrameSlot> slot = modelSlot_;
+    onView(^(MapramaNativeView *view) {
+      slot->pending = false;
+      std::shared_ptr<const maprama::ModelLayerFrame> latest;
+      {
+        std::lock_guard<std::mutex> lock(slot->mutex);
+        latest = slot->frame;
+      }
+      [view maprama_setModelFrame:latest];
+    });
+  }
+
+  void fetchBinary(std::uint64_t token, const std::string &url) override {
+    std::weak_ptr<maprama::Engine> weakEngine = engine_;
+    NSString *urlString = toNSString(url);
+    NSURL *nsurl = [NSURL URLWithString:urlString];
+    if (nsurl == nil) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (auto engine = weakEngine.lock()) {
+          engine->onBinaryFetched(token, false, std::string("failed to load ") + urlString.UTF8String + ": invalid URL");
+        }
+      });
+      return;
+    }
+    // NSURLSession serves http(s) and file URLs.
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession
+          dataTaskWithURL:nsurl
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+          auto engine = weakEngine.lock();
+          if (!engine) return;
+          const std::string u(urlString.UTF8String);
+          if (error != nil) {
+            engine->onBinaryFetched(token, false, "failed to load " + u + ": " + error.localizedDescription.UTF8String);
+            return;
+          }
+          NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 200;
+          if (status < 200 || status >= 300) {
+            engine->onBinaryFetched(token, false, "HTTP " + std::to_string(status) + " while loading " + u);
+            return;
+          }
+          engine->onBinaryFetched(token, true, std::string(static_cast<const char *>(data.bytes), data.length));
+        }];
+    [task resume];
+  }
+
   void setSourceData(const std::string &sourceId, std::string geojson) override {
     NSString *source = toNSString(sourceId);
     NSString *json = toNSString(geojson);
@@ -335,6 +440,7 @@ class AppleMapAdapter final : public maprama::MapAdapter {
   __weak MapramaNativeView *view_;
   __weak MLNMapView *mapView_;
   std::weak_ptr<maprama::Engine> engine_;
+  std::shared_ptr<ModelFrameSlot> modelSlot_ = std::make_shared<ModelFrameSlot>();
 };
 
 UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
@@ -377,6 +483,8 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   // M2c custom building layer: the latest core data, drawn by a layer re-inserted into every loaded style.
   std::shared_ptr<const maprama::BuildingLayerData> _buildingData;
   MapramaBuildingLayer *_buildingLayer;
+  // M3b: the latest model frame, drawn by the same custom layer (kept across style reloads).
+  std::shared_ptr<const maprama::ModelLayerFrame> _modelFrame;
   /// Game source data (M3a) waiting for the style: only the latest data per source is kept.
   NSMutableDictionary<NSString *, NSString *> *_pendingSourceData;
   // Main-thread cost of the game source updates (logged every 5 s).
@@ -478,6 +586,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 #if DEBUG
   config.validateOutgoingEvents = true;
 #endif
+  config.decodeImage = decodeImageWithImageIO;
   std::shared_ptr<maprama::Engine> engine = maprama::createEngine(sink, config);
   _engine = engine;
   maprama::EngineRegistry::shared().add(std::string(_engineId.UTF8String), engine);
@@ -683,16 +792,24 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   [self installBuildingLayer];
 }
 
+- (void)maprama_setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame {
+  _modelFrame = std::move(frame);
+  if (_buildingLayer != nil) [_buildingLayer setModelFrame:_modelFrame];
+  [self installBuildingLayer];
+}
+
 /// Inserts the custom layer directly below the `buildings` fill-extrusion of the loaded style (once per style):
 /// both write and test depth, so the draw order only decides ties, and the same position works on every backend.
+/// It draws the building meshes (M2c) and the models (M3b).
 - (void)installBuildingLayer {
   MLNStyle *style = _mapView.style;
-  if (!_styleLoaded || style == nil || !_buildingData) return;
+  if (!_styleLoaded || style == nil || (!_buildingData && !_modelFrame)) return;
   if (_buildingLayer != nil && [style layerWithIdentifier:MapramaBuildingLayerIdentifier] == _buildingLayer) return;
   MLNStyleLayer *buildings = [style layerWithIdentifier:kBuildingsLayer];
   if (buildings == nil) return;
   _buildingLayer = [[MapramaBuildingLayer alloc] initWithIdentifier:MapramaBuildingLayerIdentifier];
   [_buildingLayer setData:_buildingData];
+  [_buildingLayer setModelFrame:_modelFrame];
   [style insertLayer:_buildingLayer belowLayer:buildings];
 }
 

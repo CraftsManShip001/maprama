@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "maprama/CameraController.hpp"
+#include "maprama/GltfLoader.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MessageSink.hpp"
 #include "maprama/json.hpp"
@@ -33,6 +34,12 @@ struct EngineConfig {
   std::function<double()> random;
   /// `drop:collect` collectId generator; `randomCollectId` (UUID v4) when empty (tests inject one).
   std::function<std::string()> collectId;
+  /// M3b: runs glTF parsing off the engine lock (a detached std::thread per job when empty; tests inject a queue).
+  /// The job's result is then delivered with the engine lock held.
+  std::function<void(std::function<void()>)> runAsync;
+  /// M3b: the platform image decoder for glTF base colour textures (ImageIO / BitmapFactory), called on worker
+  /// threads; textures are skipped when empty.
+  ImageDecoder decodeImage;
 };
 
 /// One engine instance per map view. All methods are safe to call from any thread: M1 serialises them
@@ -76,6 +83,8 @@ class Engine {
   virtual void onUnprojected(std::uint64_t token, std::optional<LngLat> coordinate) = 0;
   /// Reply to `MapAdapter::fetchText`: the body, or a complete error message when `ok` is false.
   virtual void onTextFetched(std::uint64_t token, bool ok, std::string bodyOrError) = 0;
+  /// Reply to `MapAdapter::fetchBinary` (M3b models): the bytes, or a complete error message when `ok` is false.
+  virtual void onBinaryFetched(std::uint64_t token, bool ok, std::string bytesOrError) = 0;
   /// Reply to `MapAdapter::projectPoints`: screen points (dp) in request order.
   virtual void onPointsProjected(std::uint64_t token, std::vector<ScreenPoint> points) = 0;
   /// Reply to `MapAdapter::queryBuilding`: the pressed building's `id` (nullopt: none) and the ground

@@ -84,12 +84,6 @@ std::vector<TravelMode> parseModes(const Value* v) {
   return modes;
 }
 
-/// engine-web `headingFromYaw`: degrees clockwise from north for a yaw `atan2(dx, dz)` (+z south).
-double headingFromYaw(double yaw) {
-  const double d = (std::atan2(std::sin(yaw), -std::cos(yaw)) * 180.0) / kPi;
-  return std::fmod(std::fmod(d, 360.0) + 360.0, 360.0);
-}
-
 double wrapAngle(double a) { return std::atan2(std::sin(a), std::cos(a)); }
 
 /// engine-web's `character:position` change key (`toFixed(3)` / `toFixed(1)` / `toFixed(2)`).
@@ -98,6 +92,16 @@ std::string positionKey(double x, double z, double heading, double speed) {
   std::snprintf(buf, sizeof buf, "%.3f|%.3f|%.1f|%.2f", x, z, heading, speed);
   return buf;
 }
+
+/// `CharacterSpec.model.uri` (absent / cleared: the procedural body).
+std::optional<std::string> modelUriOf(const Value& spec) {
+  const Value* model = member(spec, "model");
+  if (model == nullptr || !model->isObject()) return std::nullopt;
+  return stringMember(*model, "uri");
+}
+
+/// A model URI for logs (data: URIs are long).
+std::string shortUri(const std::string& uri) { return uri.size() > 64 ? uri.substr(0, 64) + "..." : uri; }
 
 bool isPlayerSpec(const Value& spec) {
   const Value* v = member(spec, "isPlayer");
@@ -149,6 +153,11 @@ struct GameSession::Character {
   Follower follower;
   /// Smoothed facing (engine-web `Character.yaw`, eased towards the follower's `targetYaw`).
   double yaw = kPi / 2;
+  /// M3b: the 3D body (glTF or procedural) and vehicles; the model URI shown or loading (engine-web `modelUri`)
+  /// and whether a load for it is pending (engine-web's `loadToken` check).
+  CharacterModel visual;
+  std::optional<std::string> modelUri;
+  bool modelWaiting = false;
 
   const std::string& id() const { return spec.find("id")->asString(); }
   bool isPlayer() const { return isPlayerSpec(spec); }
@@ -183,6 +192,7 @@ GameSession::~GameSession() = default;
 
 void GameSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   adapter_ = std::move(adapter);
+  models_.attachAdapter(adapter_.get());
   scheduledAtMs_ = kInf;
   deviceRunning_ = false;
   if (!adapter_) return;
@@ -194,6 +204,7 @@ void GameSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
 void GameSession::detachAdapter() {
   if (deviceRunning_ && adapter_) adapter_->stopLocationUpdates();
   deviceRunning_ = false;
+  models_.detachAdapter();
   adapter_.reset();
   scheduledAtMs_ = kInf;
 }
@@ -304,11 +315,9 @@ void GameSession::applyUpsert(const std::vector<Value>& specs) {
         ch->follower.body.z = p.z;
       }
     }
-    if (member(ch->spec, "model") != nullptr) {
-      warnOnce("character.model",
-               "engine-native: CharacterSpec.model is accepted but characters are drawn as style-layer markers until glTF "
-               "characters (M3b)");
-    }
+    // engine-web `CharacterManager.upsert`: `refreshClips()`, then `setModel(spec.model?.uri ?? null)`.
+    ch->visual.setMapping(animationMapping(member(ch->spec, "animations")));
+    setModel(*ch, modelUriOf(ch->spec));
     if (const Value* tag = member(ch->spec, "showNameTag"); tag != nullptr && tag->asBool()) {
       warnOnce("character.showNameTag",
                "engine-native: CharacterSpec.showNameTag is accepted but name tags are not drawn yet (label view pool, M2b)");
@@ -330,7 +339,7 @@ void GameSession::applyUpsert(const std::vector<Value>& specs) {
       if (Character* ch = find(s.find("id")->asString())) driveToFix(*ch, WorldPoint{last->fix.x, last->fix.z});
     }
   }
-  dirty_ |= kCharacters | kPuck;
+  dirty_ |= kModels | kPuck;
   wake();
 }
 
@@ -370,7 +379,7 @@ void GameSession::removeCharacters(const Value& ids) {
   processTravelEvents(events);
   chars_.erase(std::remove_if(chars_.begin(), chars_.end(), [&](const std::unique_ptr<Character>& c) { return listed(c->id()); }),
                chars_.end());
-  dirty_ |= kCharacters | kPuck;
+  dirty_ |= kModels | kPuck;
   wake();
 }
 
@@ -419,7 +428,7 @@ void GameSession::driveToFix(Character& ch, const WorldPoint& estimate) {
   if (!worldReady_ || trips_.isTraveling(ch.id())) return;
   const FollowerBody& b = ch.follower.body;
   applyLocationDrive(ch.follower, planLocationDrive(plan_.graph, WorldPoint{b.x, b.z}, estimate));
-  dirty_ |= kCharacters | kPuck;
+  dirty_ |= kModels | kPuck;
 }
 
 void GameSession::travel(const Value& msg) {
@@ -444,7 +453,7 @@ void GameSession::travel(const Value& msg) {
     routes_[characterId] = std::move(legs);
     dirty_ |= kRoute;
   }
-  dirty_ |= kCharacters;
+  dirty_ |= kModels;
   wake();
 }
 
@@ -457,7 +466,7 @@ void GameSession::cancelTravel(const std::string& characterId) {
   std::vector<TravelEvent> events;
   trips_.cancel(characterId, ch->follower, events);
   processTravelEvents(events);
-  dirty_ |= kCharacters;
+  dirty_ |= kModels;
   wake();
 }
 
@@ -484,10 +493,6 @@ void GameSession::setDropLayer(const Value& msg) {
       if (const std::optional<std::string> rarity = stringMember(d, "rarity")) spec.rarity = parseEnum<Rarity>(*rarity);
       spec.value = numberMember(d, "value");
       if (const Value* payload = member(d, "payload")) spec.payload = *payload;
-      if (spec.type == DropType::Model || spec.model) {
-        warnOnce("drop.model",
-                 "engine-native: model drops are accepted but drawn as rarity markers until 3D drop models (M3b)");
-      }
       layer.drops.push_back(std::move(spec));
     }
   }
@@ -503,33 +508,21 @@ void GameSession::setDropLayer(const Value& msg) {
 
 void GameSession::applyDropLayer(const DropLayer& layer) {
   const LayerDiff diff = collector_.setLayer(layer, *proj_);
-  for (const DropState& d : diff.removed) {
-    const std::string key = dropKey(d.layerId, d.spec.id);
-    dropVisuals_.erase(key);
-    popStartMs_.erase(key);
-  }
-  for (const DropState& d : diff.added) {
-    const std::string key = dropKey(d.layerId, d.spec.id);
-    popStartMs_.erase(key);
-    dropVisuals_[key] = DropVisual{d.layerId, d.spec.id, d.spec.coordinate, d.spec.rarity.value_or(Rarity::Common), 0.0};
-  }
+  for (const DropState& d : diff.removed) dropVisuals_.erase(dropKey(d.layerId, d.spec.id));
+  for (const DropState& d : diff.added) dropVisuals_[dropKey(d.layerId, d.spec.id)] = makeDropVisual(d);
   for (const DropState& d : diff.moved) {
     auto it = dropVisuals_.find(dropKey(d.layerId, d.spec.id));
     if (it != dropVisuals_.end()) it->second.position = d.spec.coordinate;
   }
-  dirty_ |= kDrops;
+  dirty_ |= kModels;
   wake();
 }
 
 void GameSession::removeDropLayer(const std::string& layerId) {
   dropLayers_.erase(std::remove_if(dropLayers_.begin(), dropLayers_.end(), [&](const auto& e) { return e.first == layerId; }),
                     dropLayers_.end());
-  for (const DropState& d : collector_.removeLayer(layerId)) {
-    const std::string key = dropKey(d.layerId, d.spec.id);
-    dropVisuals_.erase(key);
-    popStartMs_.erase(key);
-  }
-  dirty_ |= kDrops;
+  for (const DropState& d : collector_.removeLayer(layerId)) dropVisuals_.erase(dropKey(d.layerId, d.spec.id));
+  dirty_ |= kModels;
   wake();
 }
 
@@ -592,7 +585,7 @@ void GameSession::request(const std::string& requestId, RequestMethod method, co
 }
 
 void GameSession::themeChanged() {
-  dirty_ |= kCharacters;
+  dirty_ |= kModels;
   wake();
 }
 
@@ -604,6 +597,7 @@ void GameSession::uiChanged() {
 void GameSession::shutdown() {
   if (deviceRunning_ && adapter_) adapter_->stopLocationUpdates();
   deviceRunning_ = false;
+  models_.detachAdapter();
   adapter_.reset();
   subscriptions_.clear();
   scheduledAtMs_ = kInf;
@@ -665,17 +659,13 @@ void GameSession::worldLoaded(const Value& /*initMsg*/, const ProceduralWorld* p
                                                : buildDemoLoop(plan_.graph, {}, dataWorldStart(w)));
   applyLocationKind(locationSource_);
   for (const std::string& id : collector_.layerIds()) {
-    for (const DropState& d : collector_.removeLayer(id)) {
-      const std::string key = dropKey(d.layerId, d.spec.id);
-      dropVisuals_.erase(key);
-      popStartMs_.erase(key);
-    }
+    for (const DropState& d : collector_.removeLayer(id)) dropVisuals_.erase(dropKey(d.layerId, d.spec.id));
   }
   for (const auto& entry : dropLayers_) applyDropLayer(entry.second);
   applyGeofences();
   lastPosition_.clear();
   dirty_ = kAll;
-  flushVisuals();
+  flushVisuals(clock_());
   wake();
 }
 
@@ -714,8 +704,9 @@ void GameSession::tick(double nowMs) {
     const double yawBefore = ch->yaw;
     if (f.stepCharacter(dt)) trips_.arrived(ch->id(), events);
     ch->yaw += wrapAngle(f.body.targetYaw - ch->yaw) * std::min(1.0, dt * 10.0);
+    ch->visual.step(dt, nowMs / 1000.0, f.body, ch->scale());
     if (before.x != f.body.x || before.z != f.body.z || before.mode != f.body.mode || std::fabs(yawBefore - ch->yaw) > 1e-6) {
-      dirty_ |= kCharacters | kPuck;
+      dirty_ |= kModels | kPuck;
     }
   }
   processTravelEvents(events);
@@ -729,8 +720,9 @@ void GameSession::tick(double nowMs) {
   if (result.error) emitError(error_codes::kInternal, "drop:collect: " + *result.error);
   for (const DropCollection& c : result.collected) {
     const std::string key = dropKey(c.layerId, c.dropId);
-    if (dropVisuals_.count(key) != 0 && popStartMs_.count(key) == 0) popStartMs_[key] = nowMs;
-    dirty_ |= kDrops;
+    const auto visual = dropVisuals_.find(key);
+    if (visual != dropVisuals_.end() && !visual->second.popMs) visual->second.popMs = nowMs;
+    dirty_ |= kModels;
     emit(Value::object({{"type", "drop:collect"},
                         {"layerId", c.layerId},
                         {"dropId", c.dropId},
@@ -743,23 +735,20 @@ void GameSession::tick(double nowMs) {
                         {"geofenceId", t.geofenceId},
                         {"characterId", t.characterId}}));
   }
-  for (auto it = popStartMs_.begin(); it != popStartMs_.end();) {
-    const double k = (nowMs - it->second) / game_style::kCollectPopMs;
-    auto visual = dropVisuals_.find(it->first);
-    if (k >= 1.0 || visual == dropVisuals_.end()) {
-      if (visual != dropVisuals_.end()) dropVisuals_.erase(visual);
-      it = popStartMs_.erase(it);
+  // engine-web `DropVisuals.step`: a collected item is removed once its pop has played.
+  for (auto it = dropVisuals_.begin(); it != dropVisuals_.end();) {
+    if (it->second.popMs && nowMs - *it->second.popMs >= kDropPopSeconds * 1000.0) {
+      it = dropVisuals_.erase(it);
+      dirty_ |= kModels;
     } else {
-      visual->second.pop = std::max(0.0, k);
       ++it;
     }
-    dirty_ |= kDrops;
   }
 
   stepFollow(dt);
   emitPositions(nowMs);
   emitProgress(nowMs);
-  flushVisuals();
+  flushVisuals(nowMs);
   recordTick(realMs() - started);
 }
 
@@ -827,8 +816,11 @@ void GameSession::emitProgress(double nowMs) {
   }
 }
 
-void GameSession::flushVisuals() {
-  if (!adapter_ || !worldReady_ || !proj_ || dirty_ == 0) return;
+void GameSession::flushVisuals(double nowMs) {
+  if (!adapter_ || !worldReady_ || !proj_) return;
+  // M3b: models animate, so their frame is re-sent every tick while any is on screen (and once more to clear).
+  const bool models = !chars_.empty() || !dropVisuals_.empty() || modelsShown_;
+  if (dirty_ == 0 && !models) return;
   const unsigned d = dirty_;
   dirty_ = 0;
   const Projection& projection = *proj_;
@@ -844,25 +836,6 @@ void GameSession::flushVisuals() {
     std::vector<std::vector<PlannedLeg>> routes;
     for (const auto& entry : routes_) routes.push_back(entry.second);
     send(game_style::kSourceRoute, routeGeoJson(routes, projection));
-  }
-  if ((d & kDrops) != 0) {
-    std::vector<DropVisual> drops;
-    drops.reserve(dropVisuals_.size());
-    for (const auto& entry : dropVisuals_) drops.push_back(entry.second);
-    send(game_style::kSourceDrops, dropsGeoJson(drops));
-  }
-  if ((d & kCharacters) != 0) {
-    std::vector<CharacterVisual> visuals;
-    visuals.reserve(chars_.size());
-    for (const auto& ch : chars_) {
-      const FollowerBody& b = ch->follower.body;
-      const double s = ch->scale();
-      const double reach = game_style::kHeadingOffsetUnits * s;
-      visuals.push_back(CharacterVisual{ch->id(), projection.toLngLat(WorldPoint{b.x, b.z}),
-                                        projection.toLngLat(WorldPoint{b.x + std::sin(ch->yaw) * reach, b.z + std::cos(ch->yaw) * reach}),
-                                        bodyColor(*ch), s, ch->isPlayer(), b.mode});
-    }
-    send(game_style::kSourceCharacters, charactersGeoJson(visuals));
   }
   if ((d & kPuck) != 0) {
     // engine-web: the puck sits under the player while `ui.locationPuck` is on; the accuracy disc shows the last
@@ -889,10 +862,59 @@ void GameSession::flushVisuals() {
     }
     send(game_style::kSourcePuck, puckGeoJson(puck));
   }
+  if (models) sendModelFrame(nowMs);
+}
+
+void GameSession::sendModelFrame(double nowMs) {
+  const WorldData* w = world_.world();
+  if (w == nullptr || !adapter_ || !proj_) return;
+  const Projection& projection = *proj_;
+  ModelFrameBuilder builder(projection, w->origin, projection.unitMeters());
+  for (const auto& ch : chars_) {
+    const FollowerBody& body = ch->follower.body;
+    ch->visual.draw(builder, body, ch->yaw, ch->scale(), baseColor(*ch), ch->isPlayer());
+    ModelVisual v;
+    v.kind = ModelVisual::Kind::Character;
+    v.id = ch->id();
+    v.position = projection.toLngLat(WorldPoint{body.x, body.z});
+    v.altitude = body.y - groundY_;
+    v.color = bodyColor(*ch);
+    v.scale = ch->scale();
+    v.isPlayer = ch->isPlayer();
+    v.mode = body.mode;
+    v.gltf = ch->visual.hasModel();
+    v.animation = ch->visual.animation();
+    v.headingDeg = headingFromYaw(ch->yaw);
+    builder.visual(std::move(v));
+  }
+  for (const auto& entry : dropVisuals_) {
+    const DropVisual& d = entry.second;
+    drawDrop(builder, d, projection.toWorld(d.position), groundY_, nowMs);
+    ModelVisual v;
+    v.kind = ModelVisual::Kind::Drop;
+    v.id = d.dropId;
+    v.layerId = d.layerId;
+    v.position = d.position;
+    v.color = game_style::kRarityColors[static_cast<std::size_t>(d.rarity)];
+    v.type = d.type;
+    v.rarity = d.rarity;
+    v.pop = dropPopProgress(d, nowMs);
+    v.gltf = d.model != nullptr;
+    builder.visual(std::move(v));
+  }
+  std::shared_ptr<ModelLayerFrame> frame = builder.finish(buildingLayerLight(map_.look().light), map_.look().tint, ++modelFrameVersion_);
+  modelsShown_ = !frame->visuals.empty();
+  ++stats_.modelFrames;
+  ++statsWindow_.modelFrames;
+  stats_.modelDraws += frame->draws.size();
+  statsWindow_.modelDraws += frame->draws.size();
+  lastModelFrame_ = frame;
+  adapter_->setModelLayer(std::move(frame));
 }
 
 bool GameSession::moving() const {
-  if (followMoving_ || !popStartMs_.empty()) return true;
+  // M3b: models animate every frame (idle clips and breathing, drop bob / spin / pop), like engine-web's render loop.
+  if (followMoving_ || !chars_.empty() || !dropVisuals_.empty()) return true;
   for (const auto& ch : chars_) {
     const Follower& f = ch->follower;
     if (f.active() || f.wait > 0 || f.body.speed > 0 || std::fabs(f.body.y - f.groundY) > 0.001 ||
@@ -930,6 +952,95 @@ void GameSession::requestFrame(double nowMs, double delayMs) {
 bool GameSession::frameScheduled() const { return std::isfinite(scheduledAtMs_); }
 
 // ---------------------------------------------------------------------------------------------------
+// M3b models
+// ---------------------------------------------------------------------------------------------------
+
+void GameSession::setModelLoading(ModelLibrary::AsyncRunner runner, ImageDecoder decoder) {
+  models_.setRunner(std::move(runner));
+  models_.setImageDecoder(std::move(decoder));
+}
+
+void GameSession::onBinaryFetched(std::uint64_t token, bool ok, std::string bytesOrError) {
+  models_.onBinaryFetched(token, ok, std::move(bytesOrError));
+  wake();
+}
+
+void GameSession::afterAsync() { wake(); }
+
+void GameSession::setModel(Character& ch, const std::optional<std::string>& uri) {
+  // engine-web `Character.setModel`: nothing to do while this model is shown (or it is the procedural body).
+  if (uri == ch.modelUri && (ch.visual.hasModel() || !uri)) return;
+  ch.modelUri = uri;
+  ch.modelWaiting = false;
+  if (!uri) {
+    ch.visual.setAsset(nullptr, AnimationClips{});
+    return;
+  }
+  if (std::shared_ptr<const ModelAsset> asset = models_.asset(*uri)) {
+    ch.visual.setAsset(std::move(asset), animationMapping(member(ch.spec, "animations")));
+    return;
+  }
+  // The current body (procedural, or the previous model) stays until the new model has loaded.
+  ch.modelWaiting = true;
+  models_.request(*uri);
+}
+
+DropVisual GameSession::makeDropVisual(const DropState& d) {
+  DropVisual v;
+  v.layerId = d.layerId;
+  v.dropId = d.spec.id;
+  v.position = d.spec.coordinate;
+  v.type = d.spec.type;
+  v.rarity = d.spec.rarity.value_or(Rarity::Common);
+  v.value = d.spec.value;
+  v.addedMs = clock_();
+  v.phase = static_cast<double>(hashId(d.spec.id) % 628u) / 100.0;
+  if (v.type == DropType::Model && d.spec.model && !d.spec.model->uri.empty()) {
+    v.modelUri = d.spec.model->uri;
+    v.model = models_.asset(v.modelUri);
+    if (!v.model) models_.request(v.modelUri);
+  }
+  return v;
+}
+
+void GameSession::modelReady(const std::string& uri, const std::shared_ptr<const ModelAsset>& asset) {
+  for (const auto& ch : chars_) {
+    if (!ch->modelWaiting || ch->modelUri != uri) continue;
+    ch->modelWaiting = false;
+    ch->visual.setAsset(asset, animationMapping(member(ch->spec, "animations")));
+  }
+  for (auto& entry : dropVisuals_) {
+    if (entry.second.modelUri == uri && !entry.second.model) entry.second.model = asset;
+  }
+  char buf[200];
+  std::snprintf(buf, sizeof buf, "engine-native: model loaded (%zu triangles, %zu palette joints, %zu clips, %zu textures): ",
+                asset->triangles, asset->joints.size(), asset->clips.size(), asset->mesh->textures.size());
+  sink_.onLog(LogLevel::Info, buf + shortUri(uri));
+  dirty_ |= kModels;
+}
+
+void GameSession::modelFailed(const std::string& uri, const std::string& message) {
+  // engine-web `Features`: one `model_load_failed` per character / drop waiting for the model; they keep the
+  // procedural body (or the model they showed) / show a coin.
+  for (const auto& ch : chars_) {
+    if (!ch->modelWaiting || ch->modelUri != uri) continue;
+    ch->modelWaiting = false;
+    emitError(kModelLoadFailedCode, "character " + ch->id() + ": failed to load " + uri + ": " + message);
+  }
+  for (auto& entry : dropVisuals_) {
+    DropVisual& d = entry.second;
+    if (d.modelUri != uri || d.model || d.modelFailed) continue;
+    d.modelFailed = true;
+    emitError(kModelLoadFailedCode, "drop " + d.layerId + "/" + d.dropId + ": failed to load " + uri + ": " + message);
+  }
+  dirty_ |= kModels;
+}
+
+void GameSession::modelWarning(const std::string& uri, const std::string& message) {
+  warnOnce("model:" + message, "engine-native: " + shortUri(uri) + ": " + message);
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------------------------------
 
@@ -947,13 +1058,16 @@ Follower* GameSession::followerOf(std::string_view id) const {
   return nullptr;
 }
 
-std::uint32_t GameSession::bodyColor(const Character& ch) const {
+std::uint32_t GameSession::baseColor(const Character& ch) const {
   std::optional<std::uint32_t> color;
   if (const std::optional<std::string> css = stringMember(ch.spec, "color")) color = parseCssHex(*css);
-  const std::uint32_t base =
-      color ? *color : ch.isPlayer() ? game_style::kPlayerColor : game_style::kNpcColors[hashId(ch.id()) % game_style::kNpcColors.size()];
-  // Characters are lit in engine-web: they follow the time-of-day tint like the rest of the map.
-  return applyTint(base, map_.look().tint);
+  return color ? *color : ch.isPlayer() ? game_style::kPlayerColor : game_style::kNpcColors[hashId(ch.id()) % game_style::kNpcColors.size()];
+}
+
+std::uint32_t GameSession::bodyColor(const Character& ch) const {
+  // Characters are lit in engine-web: they follow the time-of-day tint like the rest of the map (the model layer
+  // multiplies the same tint into every model colour).
+  return applyTint(baseColor(ch), map_.look().tint);
 }
 
 std::vector<GameSession::CharacterSnapshot> GameSession::characters() const {
@@ -1008,15 +1122,19 @@ void GameSession::recordTick(double tickMs) {
   const double now = realMs();
   if (statsWindowStartMs_ < 0) statsWindowStartMs_ = now;
   if (now - statsWindowStartMs_ < kStatsWindowMs) return;
-  char buf[256];
+  char buf[384];
   std::snprintf(buf, sizeof buf,
-                "engine-native: game ticks %llu in %.1f s: avg %.3f ms, max %.3f ms per tick; %llu source updates (avg %.0f bytes)",
+                "engine-native: game ticks %llu in %.1f s: avg %.3f ms, max %.3f ms per tick; %llu source updates (avg %.0f bytes); "
+                "%llu model frames (avg %.1f draws, %zu characters, %zu drops)",
                 static_cast<unsigned long long>(statsWindow_.ticks), (now - statsWindowStartMs_) / 1000.0,
                 statsWindow_.totalTickMs / static_cast<double>(statsWindow_.ticks), statsWindow_.maxTickMs,
                 static_cast<unsigned long long>(statsWindow_.sourceUpdates),
                 statsWindow_.sourceUpdates > 0
                     ? static_cast<double>(statsWindow_.sourceBytes) / static_cast<double>(statsWindow_.sourceUpdates)
-                    : 0.0);
+                    : 0.0,
+                static_cast<unsigned long long>(statsWindow_.modelFrames),
+                statsWindow_.modelFrames > 0 ? static_cast<double>(statsWindow_.modelDraws) / static_cast<double>(statsWindow_.modelFrames) : 0.0,
+                chars_.size(), dropVisuals_.size());
   sink_.onLog(LogLevel::Info, buf);
   statsWindow_ = GameFrameStats{};
   statsWindowStartMs_ = now;

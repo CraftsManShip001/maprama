@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -17,6 +18,8 @@
 #include "maprama/BuildingMesh.hpp"
 #include "maprama/Engine.hpp"
 #include "maprama/MapAdapter.hpp"
+#include "maprama/MapLook.hpp"
+#include "maprama/ModelLayer.hpp"
 #include "maprama/RoadGraph.hpp"
 #include "maprama/protocol.hpp"
 #include "harness.hpp"
@@ -77,6 +80,40 @@ class FakeAdapter final : public MapAdapter {
   }
   void startLocationUpdates() override { ++locationStarts; }
   void stopLocationUpdates() override { ++locationStops; }
+  void setModelLayer(std::shared_ptr<const ModelLayerFrame> frame) override { modelFrames.push_back(std::move(frame)); }
+  void fetchBinary(std::uint64_t token, const std::string& url) override { binaryFetches.emplace_back(token, url); }
+
+  /// The characters (or drops) of the last model frame as a GeoJSON-like FeatureCollection (`properties` and a point
+  /// `geometry`), so the M3a assertions read the M3b model layer the way they read the former marker sources.
+  /// Null when no model frame was sent.
+  Value modelCollection(ModelVisual::Kind kind) const {
+    if (modelFrames.empty() || !modelFrames.back()) return Value();
+    Value features = Value::array();
+    for (const ModelVisual& v : modelFrames.back()->visuals) {
+      if (v.kind != kind) continue;
+      Value props = Value::object({{"id", v.id}, {"color", cssHex(v.color)}});
+      if (kind == ModelVisual::Kind::Character) {
+        props.set("kind", "body");
+        props.set("scale", v.scale);
+        props.set("player", v.isPlayer);
+        props.set("mode", std::string(enumName(v.mode)));
+        props.set("gltf", v.gltf);
+        props.set("animation", v.animation ? Value(std::string(enumName(*v.animation))) : Value(nullptr));
+        props.set("altitude", v.altitude);
+        props.set("heading", v.headingDeg);
+      } else {
+        props.set("layer", v.layerId);
+        props.set("pop", v.pop);
+        props.set("type", std::string(enumName(v.type)));
+        props.set("rarity", std::string(enumName(v.rarity)));
+        props.set("gltf", v.gltf);
+      }
+      features.push(Value::object({{"type", "Feature"},
+                                   {"properties", std::move(props)},
+                                   {"geometry", Value::object({{"type", "Point"}, {"coordinates", Value::array({v.position.lng, v.position.lat})}})}}));
+    }
+    return Value::object({{"type", "FeatureCollection"}, {"features", std::move(features)}});
+  }
 
   /// The last data sent for a game source, parsed (null when none was sent).
   Value lastSource(const std::string& sourceId) const {
@@ -114,6 +151,8 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::pair<std::uint64_t, std::string>> fetches;
   std::vector<double> frames;
   std::vector<std::pair<std::string, std::string>> sourceData;
+  std::vector<std::shared_ptr<const ModelLayerFrame>> modelFrames;
+  std::vector<std::pair<std::uint64_t, std::string>> binaryFetches;
   int locationStarts = 0;
   int locationStops = 0;
 };
@@ -128,6 +167,8 @@ struct Harness {
   std::uint64_t collectIds = 0;
   /// Makes the collectId generator return the previous id again (duplicate-id failure path).
   bool repeatCollectIds = false;
+  /// Model parsing jobs (`EngineConfig::runAsync`), run outside the engine lock by `runJobs` / `run`.
+  std::vector<std::function<void()>> jobs;
 
   explicit Harness(bool attach = true, Viewport viewport = {390, 500, 3}) {
     EngineConfig config;
@@ -141,6 +182,7 @@ struct Harness {
       std::snprintf(id, sizeof id, "00000000-0000-4000-8000-%012llx", static_cast<unsigned long long>(collectIds));
       return std::string(id);
     };
+    config.runAsync = [this](std::function<void()> job) { jobs.push_back(std::move(job)); };
     engine = createEngine(sink, config);
     engine->start();
     if (attach) engine->attachMapAdapter(adapter);
@@ -149,10 +191,20 @@ struct Harness {
 
   void send(const Value& msg) { engine->postMessage(protocol::encodeCommand(msg, seq++)); }
 
+  /// Runs the queued worker jobs (and the jobs they queue).
+  void runJobs() {
+    while (!jobs.empty()) {
+      std::vector<std::function<void()>> list = std::move(jobs);
+      jobs.clear();
+      for (std::function<void()>& job : list) job();
+    }
+  }
+
   /// Advances the clock in 16 ms frames for `ms` milliseconds, delivering a frame each step (the sessions
   /// ignore frames they did not ask for).
   void run(double ms) {
     for (double t = 0; t < ms; t += 16) {
+      runJobs();
       now += 16;
       engine->frame(now);
     }

@@ -14,6 +14,7 @@
 #include "maprama/GameVisuals.hpp"
 #include "maprama/LocationFilter.hpp"
 #include "maprama/MapLook.hpp"
+#include "maprama/ModelLayer.hpp"
 #include "maprama/Projection.hpp"
 #include "maprama/RoadGraph.hpp"
 #include "maprama/TravelLogic.hpp"
@@ -166,6 +167,10 @@ std::string prop(const Value& feature, const char* key) {
 
 double meters(const LngLat& a, const LngLat& b) { return maprama::haversineMeters(a, b); }
 
+/// The characters / drops of the last M3b model frame (FakeAdapter::modelCollection).
+Value characterLayer(const Harness& h) { return h.adapter->modelCollection(maprama::ModelVisual::Kind::Character); }
+Value dropLayer(const Harness& h) { return h.adapter->modelCollection(maprama::ModelVisual::Kind::Drop); }
+
 int layerIndex(const Value& style, const std::string& id) {
   const auto& layers = style.find("layers")->items();
   for (std::size_t i = 0; i < layers.size(); ++i) {
@@ -221,9 +226,8 @@ MAPRAMA_TEST(m3a_visuals_builders) {
   ctx.check(at(gs::kLayerFenceFill) < at("buildings-captured") && at(gs::kLayerRoute) < at("buildings-captured") &&
                 at(gs::kLayerPuckAccuracy) < at("buildings"),
             "ground game layers below the buildings");
-  ctx.check(at(gs::kLayerDrops) > at("buildings") && at(gs::kLayerCharacters) > at(gs::kLayerPuck) &&
-                at(gs::kLayerCharacterHeading) > at(gs::kLayerCharacters) && ids.size() == 4 + 10,
-            "markers above the buildings, heading dots last");
+  ctx.check(at(gs::kLayerRoutePin) > at("buildings") && at(gs::kLayerPuck) > at(gs::kLayerRoutePin) && ids.size() == 4 + 7,
+            "route pin and puck dot above the buildings (characters and drops are 3D models since M3b)");
 
   const Value empty = maprama::json::parse(maprama::puckGeoJson(std::nullopt)).value;
   ctx.check(features(empty).empty(), "no puck -> empty collection");
@@ -260,21 +264,20 @@ MAPRAMA_TEST(m3a_commands_before_a_world) {
                         {"geofences", Value::array({Value::object({{"id", "zone"}, {"center", lngLat(o.lng, o.lat + 0.001)}, {"radiusMeters", 20}})})}}));
   h.send(Value::object({{"type", "upsertCharacters"}, {"characters", Value::array({Value::object({{"id", "gone"}})})}}));
   h.send(Value::object({{"type", "removeCharacters"}, {"ids", Value::array({"gone"})}}));
-  ctx.check(h.adapter->sourceUpdates(gs::kSourceCharacters) == 0 && h.adapter->sourceUpdates(gs::kSourceDrops) == 0,
-            "no game source data before a world");
+  ctx.check(h.adapter->modelFrames.empty() && h.adapter->sourceData.empty(), "no game source data / model frame before a world");
   const std::size_t errors = count(h, "error");
 
   initWorld(h, ctx);
   h.run(32);
   ctx.check(count(h, "error") == errors, "deferred state applies without errors");
-  const Value chars = h.adapter->lastSource(gs::kSourceCharacters);
+  const Value chars = characterLayer(h);
   const std::vector<Value> bodies = featuresWith(chars, "kind", "body");
   ctx.check(bodies.size() == 1 && prop(bodies[0], "id") == "me", "pending character created at load (removed one dropped)");
   if (!bodies.empty()) {
     ctx.check(prop(bodies[0], "color") == maprama::cssHex(gs::kPlayerColor) && bodies[0].find("properties")->find("player")->asBool(),
               "pending null cleared the colour: default player colour");
   }
-  ctx.check(features(h.adapter->lastSource(gs::kSourceDrops)).size() == 1, "pending drop layer applied at load");
+  ctx.check(features(dropLayer(h)).size() == 1, "pending drop layer applied at load");
   ctx.check(features(h.adapter->lastSource(gs::kSourceFences)).size() == 2, "pending geofence applied at load");
   ctx.check(h.sink->errors() == 0, "no invalid outgoing events");
   appendEmitted(ctx, *h.sink);
@@ -342,12 +345,12 @@ MAPRAMA_TEST(m3a_characters_merge_player_rule_and_positions) {
     const WorldPoint base = *s.world->plaza;
     const WorldPoint p{base.x + ((hsh % 1000) / 1000.0 - 0.5) * 30, base.z + (((hsh >> 10) % 1000) / 1000.0 - 0.5) * 30};
     const auto snap = maprama::snapToGraph(s.plan.graph, p.x, p.z);
-    const std::vector<Value> npc = featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "npc");
+    const std::vector<Value> npc = featuresWith(characterLayer(h), "id", "npc");
     ctx.check(snap && !npc.empty() && meters(pointOf(npc[0]), s.ll(WorldPoint{snap->x, snap->z})) < 1e-6, "NPC spawn point");
     ctx.check(!npc.empty() && prop(npc[0], "color") == maprama::cssHex(gs::kNpcColors[hsh % 6]), "NPC colour by id hash");
   }
-  const std::vector<Value> me = featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me");
-  ctx.check(!me.empty() && prop(me[0], "color") == "#E0457B" && prop(me[0], "ring") == "#FFFFFF", "player colour + ring");
+  const std::vector<Value> me = featuresWith(characterLayer(h), "id", "me");
+  ctx.check(!me.empty() && prop(me[0], "color") == "#E0457B" && me[0].find("properties")->find("player")->asBool(), "player colour");
 
   h.send(upsert(Value::array({Value::object({{"id", "npc"}, {"isPlayer", true}})})));
   ctx.check(isError(last(h, "error"), "invalid_character", "upsertCharacters: at most one character can be the player (got me, npc)"),
@@ -357,7 +360,7 @@ MAPRAMA_TEST(m3a_characters_merge_player_rule_and_positions) {
                               Value::object({{"id", "npc"}, {"isPlayer", true}})})));
   ctx.check(count(h, "error") == errors, "handing the player over in one upsert is valid");
   h.run(32);
-  const Value chars = h.adapter->lastSource(gs::kSourceCharacters);
+  const Value chars = characterLayer(h);
   const std::vector<Value> me2 = featuresWith(chars, "id", "me");
   ctx.check(!me2.empty() && prop(me2[0], "color") == maprama::cssHex(gs::kNpcColors[maprama::hashId("me") % 6]) &&
                 !me2[0].find("properties")->find("player")->asBool(),
@@ -368,7 +371,7 @@ MAPRAMA_TEST(m3a_characters_merge_player_rule_and_positions) {
   ctx.check(count(h, "character:position") == before, "no character:position while nothing moves");
   h.send(Value::object({{"type", "removeCharacters"}, {"ids", Value::array({"npc"})}}));
   h.run(32);
-  ctx.check(featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "kind", "body").size() == 1, "removeCharacters removes the marker");
+  ctx.check(featuresWith(characterLayer(h), "kind", "body").size() == 1, "removeCharacters removes the marker");
   ctx.check(h.sink->errors() == 0, "no invalid outgoing events");
   appendEmitted(ctx, *h.sink);
 }
@@ -413,7 +416,7 @@ MAPRAMA_TEST(m3a_travel_events_progress_and_time_scale) {
   }
   h.run(16);
   ctx.check(features(h.adapter->lastSource(gs::kSourceRoute)).empty(), "route overlay removed on arrival");
-  const std::vector<Value> me = featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me");
+  const std::vector<Value> me = featuresWith(characterLayer(h), "id", "me");
   ctx.check(!me.empty() && meters(pointOf(me[0]), s.ll(s.dest)) < 1e-3, "character at the destination");
 
   // A new travel supersedes the running one; cancelTravel cancels once.
@@ -434,7 +437,7 @@ MAPRAMA_TEST(m3a_travel_events_progress_and_time_scale) {
 
   // A trip to the current position has no legs and arrives at once.
   h.run(32);
-  const std::vector<Value> here = featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me");
+  const std::vector<Value> here = featuresWith(characterLayer(h), "id", "me");
   if (!here.empty()) {
     const LngLat at = pointOf(here[0]);
     h.send(travelMsg("t5", "me", lngLat(at.lng, at.lat)));
@@ -460,8 +463,8 @@ MAPRAMA_TEST(m3a_drops_collect_pop_and_layers) {
   h.send(dropLayerMsg("nobody", Value::array({Value::object({{"id", "n1"}, {"type", "note"}, {"coordinate", s.v(s.dest)}})}), 50,
                       Value::array()));
   h.run(32);
-  Value drops = h.adapter->lastSource(gs::kSourceDrops);
-  ctx.check(features(drops).size() == 2, "two drop markers");
+  Value drops = dropLayer(h);
+  ctx.check(features(drops).size() == 2, "two drop items");
   const std::vector<Value> c1 = featuresWith(drops, "id", "c1");
   ctx.check(!c1.empty() && prop(c1[0], "color") == maprama::cssHex(gs::kRarityColors[1]), "rare drop colour");
 
@@ -474,10 +477,10 @@ MAPRAMA_TEST(m3a_drops_collect_pop_and_layers) {
                 collect.find("collectId")->asString() == "00000000-0000-4000-8000-000000000001",
             "drop:collect fields");
   h.run(48);
-  const std::vector<Value> popping = featuresWith(h.adapter->lastSource(gs::kSourceDrops), "id", "c1");
+  const std::vector<Value> popping = featuresWith(dropLayer(h), "id", "c1");
   ctx.check(popping.size() == 1 && popping[0].find("properties")->find("pop")->asNumber() > 0, "collected drop pops");
-  h.run(400);
-  drops = h.adapter->lastSource(gs::kSourceDrops);
+  h.run(450);
+  drops = dropLayer(h);
   ctx.check(featuresWith(drops, "id", "c1").empty() && featuresWith(drops, "id", "n1").size() == 1,
             "popped drop removed; the collector-less layer stays");
   ctx.check(count(h, "drop:collect") == 1, "a drop is collected once");
@@ -485,7 +488,7 @@ MAPRAMA_TEST(m3a_drops_collect_pop_and_layers) {
   // The same spec again: the collector cannot collect it twice while its id stays in every spec.
   h.send(dropLayerMsg("coins", Value::array({coin}), 15));
   h.run(200);
-  ctx.check(count(h, "drop:collect") == 1 && featuresWith(h.adapter->lastSource(gs::kSourceDrops), "id", "c1").size() == 1,
+  ctx.check(count(h, "drop:collect") == 1 && featuresWith(dropLayer(h), "id", "c1").size() == 1,
             "re-sent drop shown but not collected again");
   // Removed and restored (the RN DropLayer retry path): its history is forgotten.
   h.send(dropLayerMsg("coins", Value::array(), 15));
@@ -503,7 +506,7 @@ MAPRAMA_TEST(m3a_drops_collect_pop_and_layers) {
             "duplicate collectIds -> internal error");
   h.send(Value::object({{"type", "removeDropLayer"}, {"layerId", "nobody"}}));
   h.run(32);
-  ctx.check(featuresWith(h.adapter->lastSource(gs::kSourceDrops), "id", "n1").empty(), "removeDropLayer removes its markers");
+  ctx.check(featuresWith(dropLayer(h), "id", "n1").empty(), "removeDropLayer removes its items");
   ctx.check(h.sink->errors() == 0, "no invalid outgoing events");
   appendEmitted(ctx, *h.sink);
 }
@@ -623,7 +626,7 @@ MAPRAMA_TEST(m3a_location_sources_device_and_puck) {
   device.timestamp = 6000;
   h.engine->onDeviceLocation(device);
   const bool reached = runUntil(h, [&] {
-    const std::vector<Value> me = featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me");
+    const std::vector<Value> me = featuresWith(characterLayer(h), "id", "me");
     return !me.empty() && meters(pointOf(me[0]), s.ll(s.dest)) < 1.0;
   }, 15000);
   ctx.check(reached && h.sink->eventsOfType("character:position").size() > moved, "a device fix drives the character");
@@ -644,25 +647,35 @@ MAPRAMA_TEST(m3a_style_layers_idle_frames_theme_and_reattach) {
   initWorld(h, ctx);
   const Scene s = sceneOf(h);
   const Value style = maprama::json::parse(h.engine->styleJson()).value;
-  for (const char* src : {gs::kSourceFences, gs::kSourceRoute, gs::kSourcePuck, gs::kSourceDrops, gs::kSourceCharacters}) {
+  for (const char* src : {gs::kSourceFences, gs::kSourceRoute, gs::kSourcePuck}) {
     ctx.check(style.find("sources")->find(src) != nullptr, std::string("style has source ") + src);
   }
+  ctx.check(style.find("sources")->find("maprama-game-characters") == nullptr && !hasLayer(style, "game-characters") &&
+                !hasLayer(style, "game-drops"),
+            "no character / drop marker layers (3D models since M3b)");
   ctx.check(layerIndex(style, gs::kLayerFenceFill) >= 0 && layerIndex(style, gs::kLayerFenceFill) < layerIndex(style, "buildings") &&
-                layerIndex(style, gs::kLayerCharacters) > layerIndex(style, "buildings"),
+                layerIndex(style, gs::kLayerPuck) > layerIndex(style, "buildings"),
             "game layers around the 3D buildings");
 
+  h.run(300);
+  const std::size_t emptyFrames = h.adapter->frames.size();
+  h.run(1000);
+  ctx.check(h.adapter->frames.size() == emptyFrames && h.adapter->modelFrames.empty(),
+            "idle without characters or drops (external source): no frames, no model frames");
   h.send(upsert(Value::array({Value::object({{"id", "me"}, {"isPlayer", true}, {"position", s.v(s.spawn)}})})));
   h.run(300);
   const std::size_t frames = h.adapter->frames.size();
   const std::size_t updates = h.adapter->sourceData.size();
-  h.run(2000);
-  ctx.check(h.adapter->frames.size() == frames && h.adapter->sourceData.size() == updates,
-            "idle (external source, nothing moves): no frames, no source updates");
+  const std::size_t modelFrames = h.adapter->modelFrames.size();
+  h.run(1600);
+  ctx.check(h.adapter->frames.size() >= frames + 95 && h.adapter->modelFrames.size() >= modelFrames + 95 &&
+                h.adapter->sourceData.size() == updates,
+            "a standing character animates (idle clip / breathing): a model frame every 16 ms, no source updates");
 
-  const std::string day = prop(featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me").at(0), "color");
+  const std::string day = prop(featuresWith(characterLayer(h), "id", "me").at(0), "color");
   h.send(Value::object({{"type", "setTheme"}, {"theme", Value::object({{"base", "toy"}, {"timeOfDay", "night"}})}}));
   h.run(32);
-  const std::string night = prop(featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me").at(0), "color");
+  const std::string night = prop(featuresWith(characterLayer(h), "id", "me").at(0), "color");
   ctx.check(day == maprama::cssHex(gs::kPlayerColor) && night != day, "character colour follows the time-of-day tint");
 
   h.engine->detachMapAdapter();
@@ -671,10 +684,16 @@ MAPRAMA_TEST(m3a_style_layers_idle_frames_theme_and_reattach) {
   h.engine->attachMapAdapter(h.adapter);
   h.run(32);
   bool all = h.adapter->styles.size() == styles + 1;
-  for (const char* src : {gs::kSourceFences, gs::kSourceRoute, gs::kSourcePuck, gs::kSourceDrops, gs::kSourceCharacters}) {
+  for (const char* src : {gs::kSourceFences, gs::kSourceRoute, gs::kSourcePuck}) {
     all = all && h.adapter->sourceUpdates(src) >= 1;
   }
-  ctx.check(all, "re-attach: style re-sent, then every game source");
+  ctx.check(all && !h.adapter->modelFrames.empty(), "re-attach: style re-sent, then every game source and the model frame");
+  h.send(Value::object({{"type", "removeCharacters"}, {"ids", Value::array({"me"})}}));
+  h.run(64);
+  const std::size_t afterRemoval = h.adapter->modelFrames.size();
+  ctx.check(!h.adapter->modelFrames.empty() && h.adapter->modelFrames.back()->visuals.empty(), "an empty model frame clears the models");
+  h.run(500);
+  ctx.check(h.adapter->modelFrames.size() == afterRemoval, "no model frames once nothing is on screen");
   appendEmitted(ctx, *h.sink);
 }
 
@@ -690,13 +709,13 @@ MAPRAMA_TEST(m3a_world_reload_cancels_trips_and_reprojects) {
   ctx.check(count(h, "geofence:enter") == 1, "inside the home fence");
   h.send(travelMsg("t1", "me", s.v(s.dest), 1));
   h.run(500);
-  const LngLat before = pointOf(featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me").at(0));
+  const LngLat before = pointOf(featuresWith(characterLayer(h), "id", "me").at(0));
   initWorld(h, ctx);
   ctx.check(last(h, "travel:cancel").find("requestId")->asString() == "t1", "a new world cancels running trips");
   h.run(48);
-  const LngLat after = pointOf(featuresWith(h.adapter->lastSource(gs::kSourceCharacters), "id", "me").at(0));
+  const LngLat after = pointOf(featuresWith(characterLayer(h), "id", "me").at(0));
   ctx.check(meters(before, after) < 1e-6, "characters keep their geographic position");
-  ctx.check(features(h.adapter->lastSource(gs::kSourceDrops)).size() == 1 && features(h.adapter->lastSource(gs::kSourceFences)).size() == 2,
+  ctx.check(features(dropLayer(h)).size() == 1 && features(h.adapter->lastSource(gs::kSourceFences)).size() == 2,
             "drop layers and geofences re-applied");
   ctx.check(count(h, "geofence:enter") == 1, "fence membership kept across the reload");
   appendEmitted(ctx, *h.sink);

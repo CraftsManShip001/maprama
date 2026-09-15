@@ -24,6 +24,7 @@
     "lib",
     "cpp/include",
     "cpp/src",
+    "cpp/vendor",
     "ios",
     "android/build.gradle",
     "android/CMakeLists.txt",

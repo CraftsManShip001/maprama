@@ -1,11 +1,13 @@
-# Native engine (M3a): game systems drawn with MapLibre style layers. A walker follows the simulated location
-# source (character:position readout), the `route` request places two drops on the way, the player travels to
-# the near preset (collects the first drop, enters the geofence) and then to the far preset (collects the
-# second drop, leaves the geofence). The flow checks the readouts and the event log lines written by the same
-# handlers (travel:arrive, drop onCollect, geofence onEnter / onExit), like 03-drops-collect.yaml. Taps over the
-# animated map settle for at most 500 ms.
+# Native engine (M3a + M3b): game systems with 3D models in the custom layer. A walker (the example glTF robot)
+# follows the simulated location source (character:position readout), the `route` request places two drops on
+# the way, the player (procedural body) travels to the near preset (collects the first drop, enters the geofence)
+# and then to the far preset (collects the second drop, leaves the geofence). M3b: close-ups of three statues
+# behind / at the corner of / beside a tall block (depth-tested occlusion by the building), the walking robot
+# and a 50-character crowd. The flow checks the readouts and the event log lines written by the same handlers
+# (travel:arrive, drop onCollect, geofence onEnter / onExit), like 03-drops-collect.yaml, and that no model
+# failed to load (no `error model_load_failed` line). Taps over the animated map settle for at most 500 ms.
 appId: dev.maprama.catalog
-name: Native engine M3a characters, travel, drops and geofences
+name: Native engine M3a/M3b characters, 3D models, travel, drops and geofences
 tags:
   - native
 ---
@@ -76,6 +78,63 @@ tags:
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: native-m3a-overview
+# M3b: the 3D model close-ups (the buttons sit below the travel buttons; swipe on the panel, not the map).
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        id: "native-game-crowd-off"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- tapOn:
+    id: "native-game-occlusion"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "native-game-models"
+      text: ".*occlusion: on"
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 3000
+# Statues south of the tall block, seen from the north: behind it (hidden), at its corner (half hidden), beside it.
+- takeScreenshot: native-m3b-occlusion
+- tapOn:
+    id: "native-game-closeup-walker"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+# The glTF robot walking (walk clip at its cadence), the camera following it.
+- takeScreenshot: native-m3b-robot-walking
+- tapOn:
+    id: "native-game-showcase"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+# One of each drop item: coin, gem, CD, LP, note, glTF model (rare / legendary beams and rings).
+- takeScreenshot: native-m3b-drops
+- tapOn:
+    id: "native-game-crowd-50"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "native-game-models"
+      text: "models: 5[0-9] characters · crowd: 50.*"
+    timeout: 10000
+# The crowd buttons frame START (the crowd walks within ≈110 m of it).
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: native-m3b-crowd-50
+- tapOn:
+    id: "native-game-crowd-off"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "native-game-models"
+      text: ".*crowd: 0.*"
+    timeout: 10000
 # The event log sits below the fold of the control panel; swipe on the panel, not the map.
 - repeat:
     times: 6
@@ -97,4 +156,6 @@ tags:
     text: "engine error.*"
 - assertNotVisible:
     text: ".*error [a-z_]+: .*"
+- assertNotVisible:
+    text: ".*model_load_failed.*"
 - takeScreenshot: native-m3a-log

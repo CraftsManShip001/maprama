@@ -24,8 +24,8 @@ Pod::Spec.new do |s|
   # Official prebuilt SDK (MLNMapView). The patched-fork XCFramework replaces it at M2 (DESIGN.md §10).
   # ios-v6.31.0 is published on GitHub/SPM only; the newest release on CocoaPods trunk is 6.30.0.
   s.dependency "MapLibre", "~> 6.30"
-  # Device location source (M3a): CLLocationManager.
-  s.frameworks = "CoreLocation"
+  # Device location source (M3a): CLLocationManager. glTF textures (M3b): ImageIO.
+  s.frameworks = "CoreLocation", "ImageIO"
 
   install_modules_dependencies(s)
 end
