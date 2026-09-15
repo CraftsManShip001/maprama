@@ -1,8 +1,28 @@
 {
   "name": "@maprama/engine-web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Maprama web render engine (three.js) implementing the @maprama/protocol message contract.",
+  "keywords": [
+    "maprama",
+    "map",
+    "2.5d",
+    "game-map",
+    "three",
+    "threejs",
+    "webview",
+    "openstreetmap"
+  ],
+  "homepage": "https://github.com/CraftsManShip001/maprama/tree/main/packages/engine-web#readme",
+  "bugs": {
+    "url": "https://github.com/CraftsManShip001/maprama/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CraftsManShip001/maprama.git",
+    "directory": "packages/engine-web"
+  },
   "license": "Apache-2.0",
+  "author": "The Maprama Authors",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,8 +42,15 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && node scripts/build.mjs",
@@ -34,7 +61,7 @@
     "fixtures": "node scripts/make-glb-fixture.mjs"
   },
   "dependencies": {
-    "@maprama/protocol": "*",
+    "@maprama/protocol": "^0.1.0",
     "three": "0.186.0"
   },
   "devDependencies": {

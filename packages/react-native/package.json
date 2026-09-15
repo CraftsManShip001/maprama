@@ -1,8 +1,30 @@
 {
   "name": "@maprama/react-native",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Maprama for React Native: a 2.5D game map with characters, travel, drops, labels and geofences.",
+  "keywords": [
+    "maprama",
+    "react-native",
+    "expo",
+    "map",
+    "2.5d",
+    "game-map",
+    "location",
+    "openstreetmap",
+    "ios",
+    "android"
+  ],
+  "homepage": "https://github.com/CraftsManShip001/maprama/tree/main/packages/react-native#readme",
+  "bugs": {
+    "url": "https://github.com/CraftsManShip001/maprama/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CraftsManShip001/maprama.git",
+    "directory": "packages/react-native"
+  },
   "license": "Apache-2.0",
+  "author": "The Maprama Authors",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/index.d.ts",
   "source": "./src/index.ts",
@@ -21,9 +43,14 @@
     "plugin/build",
     "app.plugin.js",
     "README.md",
+    "LICENSE",
+    "NOTICE",
     "!**/__tests__",
     "!**/__mocks__"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"for (const d of ['lib','plugin/build']) require('node:fs').rmSync(d,{recursive:true,force:true})\"",
     "build": "npm run clean && bob build && npm run build:plugin",
@@ -62,8 +89,8 @@
     }
   },
   "dependencies": {
-    "@maprama/engine-web": "*",
-    "@maprama/protocol": "*"
+    "@maprama/engine-web": "^0.1.0",
+    "@maprama/protocol": "^0.1.0"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

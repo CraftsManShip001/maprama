@@ -1,6 +1,6 @@
 {
   "name": "@maprama/api",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Maprama hosted service: world data and vector tiles, place search, transit, dynamic drops with verified collection, API keys, usage metering and webhooks (Cloudflare Workers + Hono).",
   "license": "UNLICENSED",
@@ -41,7 +41,7 @@
     "lint:openapi": "npx --yes @redocly/cli@2.53.0 lint openapi.yaml"
   },
   "dependencies": {
-    "@maprama/protocol": "0.0.0",
+    "@maprama/protocol": "^0.1.0",
     "hono": "4.13.8",
     "pmtiles": "4.5.0"
   },

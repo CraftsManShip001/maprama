@@ -199,6 +199,13 @@ interface EngineHost {
 - **WebView hardening**: the WebView only accepts navigations to the inline engine document. `originWhitelist` is `['about:blank', 'about:srcdoc', 'data:*']`, and `onShouldStartLoadWithRequest` also refuses `data:` once the engine document has loaded. http(s) links open in the system browser through `Linking.openURL`. `file:`, `javascript:` and custom schemes are refused. The whitelist affects navigations only, not the engine's resource loads (world JSON, glTF models). `allowFileAccess` is `false`. `mixedContentMode` is `"never"`: mixed-content rules only apply to secure (https) pages, and the inline document is not one. This keeps a foreign page from replacing the engine and forging events such as `drop:collect`.
 - **Custom hosts**: `registerEngineHost('native', NativeEngineHost)` and `<MapramaView engine="native">`. `createMessageChannelHost(kind, post)` builds an `EngineHost` for any string transport (JSI, WebSocket…). No other app code changes.
 
+## Links
+
+- [Repository and documentation](https://github.com/CraftsManShip001/maprama)
+- [Changelog](https://github.com/CraftsManShip001/maprama/blob/main/CHANGELOG.md)
+
 ## License
 
-Apache-2.0
+Apache-2.0. See `LICENSE` and `NOTICE`. Map data © OpenStreetMap contributors,
+ODbL: apps that show OpenStreetMap-derived worlds must display this attribution
+(`ui.attribution` draws it on the map).

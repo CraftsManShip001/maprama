@@ -1,6 +1,6 @@
 {
   "name": "maprama-monorepo",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Maprama: a React Native 2.5D game-map library.",
   "license": "Apache-2.0",
@@ -17,7 +17,7 @@
   "scripts": {
     "build:protocol": "npm run build -w @maprama/protocol",
     "build": "npm run build:protocol && npm run build --workspaces --if-present",
-    "test": "npm run build:protocol && npm run test --workspaces --if-present",
+    "test": "node scripts/check-legal-files.mjs && npm run build:protocol && npm run test --workspaces --if-present",
     "typecheck": "npm run build:protocol && npm run typecheck --workspaces --if-present",
     "lint": "node -e \"console.log('lint: no linter configured yet (placeholder)')\"",
     "docs:dev": "node docs/scripts/ensure-deps.mjs && npm --prefix docs run dev",

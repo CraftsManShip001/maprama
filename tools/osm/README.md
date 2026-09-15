@@ -1,14 +1,22 @@
 # @maprama/osm
 
-Builds Maprama [`WorldData`](../../packages/protocol/src/world.ts) JSON from
+Builds Maprama [`WorldData`](https://github.com/CraftsManShip001/maprama/blob/main/packages/protocol/src/world.ts) JSON from
 OpenStreetMap data (via the Overpass API). It can optionally add building
 heights from the Korean national building dataset.
 
 - CLI: `maprama-osm` (`fetch`, `build`, `sample`)
 - Library: `buildWorld(raw, options)`, a pure function you can unit-test without network access
-- Sample world: [`samples/seongsu.world.json`](samples/seongsu.world.json) (Seongsu-dong, Seoul)
+- Sample world: [`samples/seongsu.world.json`](samples/seongsu.world.json) (Seongsu-dong, Seoul), licensed under ODbL 1.0 (see [Licenses and attribution](#licenses-and-attribution))
 
-## Build
+## Install
+
+Requires Node.js 22.12+.
+
+```sh
+npm i -D @maprama/osm        # or run it once: npx @maprama/osm --help
+```
+
+## Build from the monorepo
 
 ```sh
 npm run build -w @maprama/protocol   # the contract must be built first

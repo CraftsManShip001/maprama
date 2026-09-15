@@ -1,14 +1,32 @@
 {
   "name": "@maprama/osm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Builds Maprama WorldData JSON from OpenStreetMap (Overpass) data, with optional Korean national building heights.",
-  "license": "Apache-2.0",
-  "private": true,
+  "keywords": [
+    "maprama",
+    "openstreetmap",
+    "osm",
+    "overpass",
+    "map",
+    "world-data",
+    "cli"
+  ],
+  "homepage": "https://github.com/CraftsManShip001/maprama/tree/main/tools/osm#readme",
+  "bugs": {
+    "url": "https://github.com/CraftsManShip001/maprama/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CraftsManShip001/maprama.git",
+    "directory": "tools/osm"
+  },
+  "license": "Apache-2.0 AND ODbL-1.0",
+  "author": "The Maprama Authors",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "maprama-osm": "./dist/bin.js"
+    "maprama-osm": "dist/bin.js"
   },
   "exports": {
     ".": {
@@ -20,9 +38,18 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "samples",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json",
@@ -31,7 +58,7 @@
     "sample:seongsu": "node dist/bin.js sample seongsu"
   },
   "dependencies": {
-    "@maprama/protocol": "0.0.0",
+    "@maprama/protocol": "^0.1.0",
     "@turf/helpers": "7.4.0",
     "@turf/intersect": "7.4.0"
   },
