@@ -27,7 +27,8 @@ export function toCharacterSpec(props: CharacterProps): CharacterSpec {
 /**
  * A character on the map (the player avatar or another actor). Renders
  * nothing; changes are diffed and batched into `upsertCharacters`, unmounting
- * sends `removeCharacters`.
+ * sends `removeCharacters`. Removing a prop restores the engine default for it
+ * (it is sent once as `null`); removing `position` leaves the character where it is.
  *
  * ```tsx
  * <Character id="me" isPlayer model={require('./hero.glb')} animations={{ walk: 'Walking_Loop' }} follow="location" />

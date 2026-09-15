@@ -30,6 +30,8 @@
 | `position` | 초기 위치. 바꾸면 순간이동 |
 | `name`, `color`, `scale`, `showNameTag` | 이름표 텍스트, 강조 색(CSS hex), 크기 배율, 이름표 표시 |
 
+prop을 지우면 엔진 기본값으로 돌아갑니다. 모델은 기본 아바타로, 이름표 텍스트는 `id`로, 색은 기본 플레이어/NPC 색으로, `scale`은 1로, `animations`는 아래의 자동 클립 찾기로 돌아가고, `showNameTag`·`isPlayer`는 꺼지며 `follow`는 `none`이 됩니다. 프로토콜로는 지운 필드가 한 번 `null`로 나갑니다(`upsertCharacters`는 엔진의 캐릭터에 병합되므로). `position`은 순간이동 명령이라 지워도 캐릭터는 제자리에 있습니다.
+
 모델 로드에 실패하면 `onError`로 `model_load_failed`가 오고 기본 아바타가 남습니다.
 
 ## 모델 파일 넘기기
@@ -59,7 +61,7 @@
 />
 ```
 
-변경은 프레임당 한 번의 `upsertCharacters` / `removeCharacters`로 묶여 나갑니다. `getPosition` 값이 바뀌면 캐릭터는 그 위치로 **순간이동**합니다. 부드러운 움직임은 [오버레이와 멀티플레이](./overlays-multiplayer#멀티플레이)를 보세요.
+변경은 프레임당 한 번의 `upsertCharacters` / `removeCharacters`로 묶여 나갑니다. getter가 값을 돌려주다가 `undefined`를 돌려주면 `Character`에서 prop을 지운 것처럼 기본값으로 돌아갑니다. `getPosition` 값이 바뀌면 캐릭터는 그 위치로 **순간이동**합니다. 부드러운 움직임은 [오버레이와 멀티플레이](./overlays-multiplayer#멀티플레이)를 보세요.
 
 캐릭터를 제거하면 진행 중인 이동이 취소되고, 카메라가 그 캐릭터를 따라가고 있었다면 멈춥니다. 지오펜스 `exit` 이벤트는 오지 않습니다.
 

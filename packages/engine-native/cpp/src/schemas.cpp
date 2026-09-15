@@ -145,14 +145,14 @@ struct Schemas {
     const Check animationMap = object({}, animationFields);
     const Check characterSpec = object({{"id", nonEmptyString}}, {
                                                                      {"model", nullable(modelSource)},
-                                                                     {"name", str},
-                                                                     {"color", cssHexColor},
+                                                                     {"name", nullable(str)},
+                                                                     {"color", nullable(cssHexColor)},
                                                                      {"position", lngLat},
-                                                                     {"follow", oneOf({"location", "none"})},
-                                                                     {"isPlayer", boolean},
-                                                                     {"scale", positiveNumber},
-                                                                     {"animations", animationMap},
-                                                                     {"showNameTag", boolean},
+                                                                     {"follow", nullable(oneOf({"location", "none"}))},
+                                                                     {"isPlayer", nullable(boolean)},
+                                                                     {"scale", nullable(positiveNumber)},
+                                                                     {"animations", nullable(animationMap)},
+                                                                     {"showNameTag", nullable(boolean)},
                                                                  });
     const Check baseDrop = object(
         {{"id", nonEmptyString}, {"type", oneOfEnum<DropType>()}, {"coordinate", lngLat}},

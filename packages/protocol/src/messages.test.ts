@@ -94,6 +94,7 @@ const commands: CommandFixtures = {
         },
         { id: 'npc-1' },
         { id: 'npc-2', model: null },
+        { id: 'npc-3', name: null, color: null, follow: null, isPlayer: null, scale: null, animations: null, showNameTag: null },
       ],
     },
   ],
@@ -316,6 +317,23 @@ describe('rejects malformed messages without throwing', () => {
       if (!r.ok) expect(r.error.startsWith(path), `error "${r.error}" should start with ${path}`).toBe(true);
       expect(validateEngineCommand(msg).ok).toBe(false);
     }
+  });
+
+  it('accepts null for each clearable character field but not for id or position', () => {
+    const upsert = (character: Record<string, unknown>): unknown => ({ type: 'upsertCharacters', characters: [character] });
+    for (const key of ['model', 'name', 'color', 'follow', 'isPlayer', 'scale', 'animations', 'showNameTag']) {
+      expect(validateEngineCommand(upsert({ id: 'a', [key]: null })), key).toEqual({ ok: true });
+      expect(decodeCommand(env(upsert({ id: 'a', [key]: null }))).ok, key).toBe(true);
+    }
+    for (const key of ['id', 'position']) {
+      const r = decodeCommand(env(upsert({ id: 'a', [key]: null })));
+      expect(r.ok, key).toBe(false);
+      if (!r.ok) expect(r.error.startsWith(`$.msg.characters[0].${key}`), r.error).toBe(true);
+      expect(validateEngineCommand(upsert({ id: 'a', [key]: null })).ok, key).toBe(false);
+    }
+    // Null still means "clear", not "any value": a wrongly typed value is rejected.
+    expect(validateEngineCommand(upsert({ id: 'a', color: 'red' })).ok).toBe(false);
+    expect(validateEngineCommand(upsert({ id: 'a', follow: 'always' })).ok).toBe(false);
   });
 
   it('rejects malformed events', () => {

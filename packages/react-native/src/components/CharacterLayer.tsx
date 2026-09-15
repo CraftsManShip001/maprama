@@ -12,6 +12,8 @@ import type { CharacterLayerProps } from '../types';
  * Many characters from app data (e.g. nearby players). Characters are keyed by
  * `getId`; added, changed and removed items become one `upsertCharacters` and
  * one `removeCharacters` per frame. Layer characters use `follow: 'none'`.
+ * A getter that returns `undefined` for an item after a value (or removing
+ * `showNameTags`) restores the engine default for that field.
  *
  * ```tsx
  * <CharacterLayer data={nearbyPlayers} getId={p => p.id} getPosition={p => p.coord} getModel={p => p.avatarUrl} />
