@@ -1,0 +1,118 @@
+# Native engine (M4): the zoom-out game view, the performance scene and the engine toggle. The camera moves
+# between a near view (320 m = 40 world units, below engine-web's D1) and a far one (1,150 m = 144 units, beyond
+# D2 = 110), with each `theme.zoomOut` behaviour: `keepGameView` keeps the diorama (the custom layer drops its
+# facade details and roof furniture, characters and drops become icon discs), `mapColors` fades the flat map
+# colours in and shrinks the buildings to 40 % height, `none` keeps everything. Then the performance scene of
+# DESIGN.md §8 (50 characters, 200 drops, 20 geofences) orbits near and far, and the same scene is rendered by
+# engine-web through the engine toggle. Taps over the animated map settle for at most 500 ms.
+appId: dev.maprama.catalog
+name: Native engine M4 zoom-out game view, performance scene and engine parity
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native-m4
+- extendedWaitUntil:
+    visible:
+      id: "m4-camera"
+      text: "camera: [0-9]+ m = [0-9.]+ units.*"
+    timeout: 30000
+- assertVisible:
+    id: "m4-zoom-state"
+    text: "zoomOut: keepGameView . near.*"
+- takeScreenshot: native-m4-near
+# Beyond D2 with keepGameView: heights and colours stay, the distance is simplified.
+- tapOn:
+    id: "m4-far"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "m4-zoom-state"
+      text: "zoomOut: keepGameView . far.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: native-m4-far-keepgameview
+# mapColors: the flat map overlay fades in over ground, water, parks and roads; buildings shrink to 40 %.
+- tapOn:
+    id: "m4-zoom-mapColors"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 4000
+- takeScreenshot: native-m4-far-mapcolors
+# none: the diorama stays exactly as it is at every distance.
+- tapOn:
+    id: "m4-zoom-none"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 4000
+- takeScreenshot: native-m4-far-none
+# Zoom back in: full height, full detail, 3D characters and drops again.
+- tapOn:
+    id: "m4-zoom-keepGameView"
+    waitToSettleTimeoutMs: 500
+- tapOn:
+    id: "m4-near"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "m4-zoom-state"
+      text: "zoomOut: keepGameView . near.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: native-m4-back-near
+# Performance scene (DESIGN.md §8): 50 characters, 200 drops, 20 geofences, orbiting camera.
+- tapOn:
+    id: "m4-load-perf"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "m4-load-state"
+      text: ".*51 characters . 200 drops . 20 geofences"
+    timeout: 20000
+- tapOn:
+    id: "m4-orbit"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 9000
+- takeScreenshot: native-m4-perf-orbit
+- tapOn:
+    id: "m4-far"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 6000
+- takeScreenshot: native-m4-perf-far
+# Parity: the same scene rendered by engine-web (the toggle remounts the map with the other engine host).
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        id: "m4-engine-web"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- tapOn:
+    id: "m4-engine-web"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "engine-status"
+      text: "engine ready"
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: "m4-camera"
+      text: "camera: [0-9]+ m = [0-9.]+ units.*"
+    timeout: 30000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: native-m4-web-near
+- assertNotVisible:
+    text: "engine error.*"
+- assertNotVisible:
+    text: ".*error [a-z_]+: .*"
