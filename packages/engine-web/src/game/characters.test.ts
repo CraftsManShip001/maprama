@@ -95,6 +95,13 @@ describe('CharacterManager.upsert with cleared fields (no WebGL)', () => {
     expect(me.spec).toStrictEqual({ id: 'me', position: at, isPlayer: true });
   });
 
+  it('gives a character created without a model its procedural body', () => {
+    const mgr = manager();
+    const npc = mgr.upsert([{ id: 'npc', position: at }], world, proj)[0]!;
+    expect(npc.procedural).not.toBeNull();
+    expect(npc.procedural!.rig.visible).toBe(true);
+  });
+
   it('treats isPlayer: null as false for the one-player rule and the procedural body', () => {
     const mgr = manager();
     const me = mgr.upsert([{ id: 'me', position: at, isPlayer: true }], world, proj)[0]!;

@@ -338,7 +338,11 @@ export class Character implements FollowerBody {
 
   /** Starts loading `uri` (or shows the procedural body when `null`). */
   setModel(uri: string | null): void {
-    if (uri === this.modelUri && (this.model || uri === null)) return;
+    if (uri === this.modelUri && (this.model || uri === null)) {
+      // A character created without a model still needs its procedural body (idempotent).
+      if (uri === null) this.mgr.ensureProcedural(this);
+      return;
+    }
     this.modelUri = uri;
     const token = ++this.loadToken;
     if (!uri) { this.dropModel(); this.mgr.ensureProcedural(this); return; }
