@@ -10,6 +10,7 @@ import { resolveLabels } from './controller.js';
 import { HOLO_ICONS, ICON_COLORS } from './icons.js';
 import {
   buildLabelEntries,
+  clampLabelX,
   domLabelVisible,
   holoEligible,
   hudExclusions,
@@ -129,5 +130,14 @@ describe('placement', () => {
     expect(domLabelVisible('minimal', { kind: 'road', pri: 3 }, 30, 0)).toBe(false);
     expect(domLabelVisible('clean', { kind: 'poi', pri: 2 }, 100, 0)).toBe(false);
     expect(uprightAngle(Math.PI * 0.75)).toBeCloseTo(-Math.PI * 0.25, 9);
+  });
+
+  it('keeps label boxes inside the viewport horizontally with a 6 px margin', () => {
+    expect(clampLabelX(200, 50, 390)).toBe(200);
+    expect(clampLabelX(10, 50, 390)).toBe(56); // near the left edge
+    expect(clampLabelX(-20, 50, 390)).toBe(56); // anchor slightly off screen
+    expect(clampLabelX(385, 50, 390)).toBe(334); // right edge
+    expect(clampLabelX(5, 30, 390, 0)).toBe(30);
+    expect(clampLabelX(0, 300, 390)).toBe(195); // wider than the viewport: centered
   });
 });

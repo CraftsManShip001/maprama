@@ -232,6 +232,19 @@ export function domLabelVisible(style: DomLabelStyle, e: Pick<LabelEntry, 'kind'
   return show;
 }
 
+/** Gap (CSS px) kept between a label box and the left / right viewport edge. */
+export const LABEL_EDGE_MARGIN = 6;
+
+/**
+ * Horizontal center for a label box of half width `hw` wanted at `x`, moved
+ * so the box stays inside `[margin, vw − margin]` (a box wider than that is
+ * centered in the viewport).
+ */
+export function clampLabelX(x: number, hw: number, vw: number, margin = LABEL_EDGE_MARGIN): number {
+  const lo = margin + hw, hi = vw - margin - hw;
+  return lo > hi ? vw / 2 : Math.min(hi, Math.max(lo, x));
+}
+
 /** Collision box of a rotated DOM label of size `w`×`h` at `(x, y)` (prototype padding). */
 export function rotatedBox(x: number, y: number, w: number, h: number, angle: number): Box {
   const c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));

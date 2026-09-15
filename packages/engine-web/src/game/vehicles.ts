@@ -32,6 +32,11 @@ import { clamp } from '../util/math.js';
 export type VehicleMode = Exclude<TravelMode, 'walk'>;
 export const VEHICLE_MODES: readonly VehicleMode[] = ['bike', 'car', 'plane', 'subway'];
 
+/** Scale of the plane model (its `base`). */
+export const PLANE_SCALE = 0.9;
+/** Top of the plane's tail fin, its highest point, in model units (before `PLANE_SCALE`); see the plane parts in `buildVehicles`. */
+export const PLANE_TOP_Y = 1.69;
+
 /** Adds a part: `(parent, geometry, material, x, y, z, outline, noSilhouette)` → the part's group. */
 export type PartFn = (parent: Object3D, geo: BufferGeometry, mat: Material | Material[], x: number, y: number, z: number, outline: number, noSil?: boolean) => Group;
 
@@ -204,7 +209,7 @@ export function buildVehicles(root: Object3D, P: PartFn, mats: MaterialFactory, 
   return {
     bike: vehicle(bike, { wheels: bikeWheels, crank, base: 1, wheelR: 0.33 }),
     car: vehicle(car, { wheels: carWheels, body, base: 1.25, wheelR: 0.27 }),
-    plane: vehicle(plane, { base: 0.9, wheelR: 1, prop }),
+    plane: vehicle(plane, { base: PLANE_SCALE, wheelR: 1, prop }),
     subway: vehicle(sub, { base: 1, wheelR: 1 }),
   };
 }

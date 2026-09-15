@@ -12,7 +12,7 @@ import type { LabelContent, LabelContentMode } from '@maprama/protocol';
 import type { CameraController } from '../core/camera.js';
 import { inFront } from './dom-styles.js';
 import { HOLO_ICONS, ICON_COLORS } from './icons.js';
-import { HOLO_HEIGHT, holoEligible, placeHolo, resolveLabelContent, type Box, type HoloCandidate, type LabelEntry } from './index.js';
+import { clampLabelX, HOLO_HEIGHT, holoEligible, placeHolo, resolveLabelContent, type Box, type HoloCandidate, type LabelEntry } from './index.js';
 
 interface Holo {
   entry: LabelEntry;
@@ -74,7 +74,8 @@ export class HoloLabels {
   update(cam: CameraController, mode: LabelContentMode, entries: Readonly<Record<string, LabelContent>>, exclusions: readonly Box[], groundY: number, now: number): void {
     const tx = cam.orbit.x, tz = cam.orbit.z, dist = cam.orbit.distance, W = cam.width, H = cam.height;
     const cands: HoloCandidate[] = [];
-    const ground = new Map<string, { x: number; y: number }>();
+    // true anchors: the ground dot and the top of the leader line
+    const anchors = new Map<string, { gx: number; gy: number; tx: number }>();
     for (const h of this.holos) {
       const e = h.entry, dT = Math.hypot(e.x - tx, e.z - tz);
       const eligible = holoEligible(e.kind, dT, dist);
@@ -83,15 +84,15 @@ export class HoloLabels {
         this.applyContent(h, mode, entries);
         const g = cam.worldToScreen(e.x, groundY, e.z), t = cam.worldToScreen(e.x, groundY + HOLO_HEIGHT[e.kind], e.z);
         onScreen = inFront(cam, e.x, e.z) && t.x >= -0.01 * W && t.x <= 1.01 * W && t.y >= 0.01 * H && t.y <= 0.99 * H;
-        top = { x: t.x, y: t.y };
-        ground.set(e.id, { x: g.x, y: g.y });
+        anchors.set(e.id, { gx: g.x, gy: g.y, tx: t.x });
         if (onScreen && !h.w) {
           h.root.style.display = '';
           h.w = h.card.offsetWidth;
           h.h = h.card.offsetHeight;
         }
-        // keep the whole card inside the viewport horizontally (the prototype only checked the anchor)
-        if (onScreen && h.w && (t.x - h.w / 2 < 4 || t.x + h.w / 2 > W - 4)) onScreen = false;
+        // keep the whole card inside the viewport horizontally: the panel slides along the edge
+        // (the dot and the leader line stay at the true anchor)
+        top = { x: h.w ? clampLabelX(t.x, h.w / 2, W) : t.x, y: t.y };
       }
       cands.push({ id: e.id, kind: e.kind, pri: e.pri, dT, eligible, top, onScreen, w: h.w, h: h.h });
     }
@@ -99,11 +100,14 @@ export class HoloLabels {
     for (const h of this.holos) {
       const box = shown.get(h.entry.id);
       if (box) {
-        const g = ground.get(h.entry.id)!, c = cands.find((q) => q.id === h.entry.id)!;
-        const px = c.top.x, py = c.top.y;
+        const a = anchors.get(h.entry.id)!, c = cands.find((q) => q.id === h.entry.id)!;
+        const g = { x: a.gx, y: a.gy };
+        // panel position; the line ends at the true anchor, kept under the (possibly shifted) panel
+        const px = c.top.x, py = c.top.y, inset = Math.min(10, h.w / 2);
+        const lx = Math.min(px + h.w / 2 - inset, Math.max(px - h.w / 2 + inset, a.tx));
         h.dot.style.transform = `translate(${g.x.toFixed(1)}px, ${g.y.toFixed(1)}px)`;
-        h.line.style.transform = `translate(${g.x.toFixed(1)}px, ${g.y.toFixed(1)}px) rotate(${Math.atan2(py - g.y, px - g.x).toFixed(3)}rad)`;
-        h.line.style.width = `${Math.hypot(px - g.x, py - g.y).toFixed(1)}px`;
+        h.line.style.transform = `translate(${g.x.toFixed(1)}px, ${g.y.toFixed(1)}px) rotate(${Math.atan2(py - g.y, lx - g.x).toFixed(3)}rad)`;
+        h.line.style.width = `${Math.hypot(lx - g.x, py - g.y).toFixed(1)}px`;
         h.panel.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) translate(-50%, calc(-100% - 2px))`;
         if (!h.on) {
           h.root.style.display = '';
