@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build:protocol": "npm run build -w @maprama/protocol",
-    "build": "npm run build:protocol && npm run build --workspaces --if-present",
+    "build": "node scripts/build-workspaces.mjs",
     "test": "node scripts/check-legal-files.mjs && npm run build:protocol && npm run test --workspaces --if-present",
     "typecheck": "npm run build:protocol && npm run typecheck --workspaces --if-present",
     "lint": "node -e \"console.log('lint: no linter configured yet (placeholder)')\"",
