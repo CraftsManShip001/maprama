@@ -1,12 +1,15 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M2a (diorama look, part 1)** on top of M1 (map on screen). This package contains:
+Status: **M3a (game systems as style layers)** on top of M2a (diorama look, part 1) and M1 (map on screen).
+This package contains:
 
 - this design;
-- the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, `ThemeResolver`, the dispatcher, and the
+- the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, `ThemeResolver`, the dispatcher, the
   map session (world → MapLibre style with 3D buildings in theme colours, camera, `camera:change`,
-  `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) behind the
-  `MapAdapter` interface (§2.1), with its conformance and behaviour tests;
+  `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) and the game
+  session (characters, location sources, travel + routing, drops, geofences, camera follow, drawn with
+  GeoJSON style layers, §2.2) behind the `MapAdapter` interface (§2.1), with its conformance and behaviour
+  tests;
 - the React Native library: codegen specs, the `native` engine host (`src/`), the iOS Fabric view +
   TurboModule (`ios/`, `MapramaEngineNative.podspec`) and the Android ones (`android/`), both on the
   official prebuilt MapLibre Native SDKs;
@@ -57,7 +60,7 @@ to be confirmed in milestone M1.
 │ C++ core  (cpp/)                                                             │
 │   Engine ─ Dispatcher (decode = decodeCommand, routing, SubscriptionRegistry) │
 │   WorldStore · Projection · ThemeResolver · LabelSystem · CameraController   │
-│   CharacterSystem · TravelPlanner · DropSystem · GeofenceSystem              │
+│   GameSession: characters · location · travel · drops · geofences (M3a)      │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ MapLibre Native (patched) + Maprama layer                                    │
 │   mbgl::Map / style / vector tiles / PMTiles / labels of the base map        │
@@ -97,6 +100,9 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `queryBuilding(token, x, y)` (M2a) | `visibleFeaturesAtPoint:inStyleLayersWithIdentifiers:{buildings}` + `convertPoint:toCoordinateFromView:` | `queryRenderedFeatures(PointF, "buildings")` + `fromScreenLocation` | `Engine::onBuildingQueried(token, id?, ground?)` |
 | `fetchText(token, url)` | `NSURLSession` | `HttpURLConnection` on a worker thread | `Engine::onTextFetched(token, ok, body \| message)` |
 | `scheduleFrame(delayMs)` | `dispatch_after` on the main queue | `Handler.postDelayed` on the main looper | `Engine::frame(t)` |
+| `setSourceData(sourceId, geojson)` (M3a) | `MLNShapeSource.shape = [MLNShape shapeWithData:…]`, the latest data per source kept until `didFinishLoadingStyle` | `GeoJsonSource.setGeoJson(json)` in `getStyle {}` of the current style generation, one pending update per source | — |
+| `startLocationUpdates()` / `stopLocationUpdates()` (M3a) | `CLLocationManager` (best accuracy, no distance filter); not authorised → error, started again on `locationManagerDidChangeAuthorization` | `LocationManager` GPS + network providers (1 s); no `ACCESS_FINE/COARSE_LOCATION` → error | `Engine::onDeviceLocation(fix)`, `Engine::onDeviceLocationError(message)` |
+| (pan observer, M3a) | `mapView:regionWillChangeWithReason:animated:` with `MLNCameraChangeReasonGesturePan` | `addOnMoveListener` (`onMoveBegin`) | `Engine::onUserPan()` (stops `setCamera.follow`) |
 | (camera observer) | `mapViewRegionIsChanging:` / `regionDidChangeAnimated:` | `OnCameraMoveListener` / `OnCameraIdleListener` | `Engine::onCameraChanged(pose)` |
 | (tap observer, M2a) | `UITapGestureRecognizer` on the map (waits for the double-tap zoom, recognises alongside the SDK's own; not on the zoom buttons) | `addOnMapClickListener` | `Engine::tap(x, y)` → `queryBuilding` |
 
@@ -161,6 +167,49 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
   `project`/`unproject` requests are answered with `ok: false` (`not_ready`) when the view detaches.
 - **Fork fallback.** Only if M2c needs it (§1): an adapter implemented on `mbgl::Map` (patched fork) would
   replace both platform adapters; `MapSession`, the style builder and the tests stay.
+
+### 2.2 Game session (M3a)
+
+`GameSession` (`cpp/include/maprama/GameSession.hpp`) sits next to `MapSession` and wires the pure ports of
+engine-web's game logic (`TravelLogic`, `LocationFilter`, `DropLogic`, `GeofenceLogic`, `RoadGraph`, all
+fixture-conformance tested) with engine-web `Features` semantics [V: `cpp/tests/game_session_tests.cpp`]:
+
+- **World hooks.** `MapSession` calls `MapSessionHooks` to add the game sources / layers to every style it
+  builds, after every complete style (`styleSent`: the game sources are re-sent), after a world load (before
+  `init.camera`, which may follow a character) and for `setCamera.follow`. On a world load running trips are
+  cancelled (`travel:cancel`), characters keep their geographic position, the road graph / stations
+  (`planWorldFromData`) and the demo loop are rebuilt, and drop layers and geofences are re-projected.
+  Characters, drop layers and geofences sent before the first world wait for it (engine-web's deferred state).
+- **Commands.** `upsertCharacters` (merge; `null` restores a default; more than one player →
+  `error {invalid_character}`), `removeCharacters` (cancels trips, stops following), `setLocationSource`,
+  `pushLocation`, `travel` (`not_ready` without a world, `unknown_character`; `timeScale` = map-level
+  `travelTimeScale` or per-call override, as on web), `cancelTravel`, `setDropLayer` / `removeDropLayer`,
+  `setGeofences`, `setCamera.follow` (`unknown_character` fails the whole command, a `center` without
+  `follow` and a user pan stop following), the `character:position` / `travel:progress` topics (throttled per
+  subscription and key like engine-web `ThrottledTopic`, `SubscriptionRegistry::due`) and the `route` /
+  `snapToRoad` requests (`not_ready` without a world). Error messages carry engine-web's command prefix.
+- **Tick.** One simulation tick per `MapAdapter::scheduleFrame` frame, in engine-web's `Features.frame`
+  order: simulated location step, follower steps (+ `travel:arrive`), drop checks (`drop:collect`), geofence
+  enter / exit, camera follow (`1 − e^(−5 dt)` towards the character), `character:position`,
+  `travel:progress`, then the changed game sources. dt is clamped to 50 ms like engine-web's render loop. Frames
+  are requested only while something moves: 16 ms while a character moves / waits for a vehicle, a drop
+  pops or the camera catches up with a followed character; 250 ms while only the `simulated` walker runs (it
+  advances in wall-clock time); none otherwise. Frames requested by the map session are ignored by the game
+  session (and vice versa) so the two never multiply each other's frame chains.
+- **Device location.** `setLocationSource {kind: "device"}` starts the platform feed
+  (`MapAdapter::startLocationUpdates`); fixes go through `LocationService::onDevice`, failures become
+  `error {location_unavailable, "device geolocation failed: <message>"}` (engine-web's code and prefix).
+  Requesting the permission is the app's job.
+- **Visuals** (`cpp/include/maprama/GameVisuals.hpp`). Five GeoJSON sources updated with
+  `MapAdapter::setSourceData` only when they changed: geofences (fill 7 % + ring 85 %, 80 segments,
+  engine-web's `min(0.35, 0.2 r)` ring width), the player's route (lines by mode in engine-web's route colours,
+  subway station rings, destination pin), the location puck (accuracy disc from the last smoothed fix while
+  the player follows the location, dot under the player), drops (rarity colour, 300 ms collect pop: radius
+  +60 %, fade out) and characters (body colour with the time-of-day tint, a vehicle-coloured ring while riding,
+  a heading dot). Ground layers are inserted below the 3D buildings, markers above them; sizes are world sizes
+  with an on-screen minimum. Name tags wait for the label view pool (M2b); glTF characters and drop models
+  are M3b (custom render layer, M2c). Tick cost and source updates are logged every 5 s by the core and by
+  both platforms (main-thread cost of the source updates).
 
 ## 3. Threading model
 
@@ -266,26 +315,26 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 <!-- protocol-commands:start -->
 | Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
-| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` → `error{unsupported, fatal: true}`; `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); labels and a non-`external` locationSource warn-logged once | M1 (world, camera), M2a (theme, ui), M2b (labels, procedural), M3 (location) |
+| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `GameSession`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` → `error{unsupported, fatal: true}`; `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); `locationSource` applied when the world loads (M3a); `camera.follow` of an unknown character → `error{unknown_character}` ("init: …"); labels warn-logged once | M1 (world, camera), M2a (theme, ui), M2b (labels, procedural), **M3a** (location) |
 | `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer uniforms (M2c) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facade / outline / details / varied massing / cinematic grading / zoomOut warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, outlines, grade), M4 (zoomOut) |
 | `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2b |
 | `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2b |
-| `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; location puck (M3) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` warn-logged once | M2a (puck M3) |
-| `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow: "<id>"` warn-logged (needs characters), other fields still applied | M1 (`follow` M3) |
-| `upsertCharacters` | fire-and-forget | `CharacterSystem::upsert` | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | ignored + warn log | M3 |
-| `removeCharacters` | fire-and-forget | `CharacterSystem::remove`, `TravelPlanner::cancel` | Removes characters; running travels emit `travel:cancel` | ignored + warn log | M3 |
-| `setLocationSource` | fire-and-forget | `CharacterSystem::setLocationSource` + platform location provider | `device` starts GPS (main thread), `external` waits for `pushLocation`, `simulated` runs the demo loop | ignored + warn log | M3 |
-| `pushLocation` | fire-and-forget | `CharacterSystem::pushLocation` | Smoothed fix for the player (effective with `external`) | ignored + warn log | M3 |
-| `travel` | fire-and-forget (answered by events) | `TravelPlanner::start` | Cancels any previous travel (`travel:cancel`), expands legs, emits `travel:start`, then `travel:progress` (subscribed) and `travel:arrive`. Moves at real-world speed per mode (`KMH / 3.6 / unitMeters` world units/s) × optional `timeScale` (finite, > 0, default 1); `travel:progress.etaSeconds` is wall-clock time at that scale (real ETA / `timeScale`) and `character:position.speedMps` the on-map ground speed, while the `route` request keeps unscaled real-world ETAs | ignored + warn log | M3 |
-| `cancelTravel` | fire-and-forget | `TravelPlanner::cancel` | Emits `travel:cancel` if a travel was running | ignored + warn log | M3 |
-| `setDropLayer` | fire-and-forget | `DropSystem::setLayer` | Replaces the layer; builds instance buffers; collection radius and collectors | ignored + warn log | M3 |
-| `removeDropLayer` | fire-and-forget | `DropSystem::removeLayer` | Removes the layer and its instances | ignored + warn log | M3 |
-| `setGeofences` | fire-and-forget | `GeofenceSystem::setGeofences` | Replaces all geofences; membership of unchanged ids preserved | ignored + warn log | M3 |
+| `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; `GameSession` location puck (M3a) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` = puck layers under the player (§2.2) | M2a, **M3a** (puck) |
+| `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow` through `GameSession` (§2.2): unknown id → `error{unknown_character}` and nothing applied, `null` / `center` without `follow` / user pan stop following, the camera eases towards the character every tick (after a running animation) | M1, **M3a** (`follow`) |
+| `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; drawn as style-layer markers; `model` (default avatar) and `showNameTag` warn-logged once | **M3a** (glTF M3b, name tags M2b) |
+| `removeCharacters` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Removes characters; running travels emit `travel:cancel` | as engine-web (also stops following the character) | **M3a** |
+| `setLocationSource` | fire-and-forget | `GameSession` (`LocationService`) + `MapAdapter::startLocationUpdates` | `device` starts GPS (main thread), `external` waits for `pushLocation`, `simulated` runs the demo loop | as engine-web; device failures → `error{location_unavailable}` | **M3a** |
+| `pushLocation` | fire-and-forget | `GameSession` (`LocationService::push`) | Smoothed fix for the player (effective with `external`) | smoothed, drives `follow: "location"` characters along the roads | **M3a** |
+| `travel` | fire-and-forget (answered by events) | `GameSession` (`TravelTrips::start`, `planLegs`) | Cancels any previous travel (`travel:cancel`), expands legs, emits `travel:start`, then `travel:progress` (subscribed) and `travel:arrive`. Moves at real-world speed per mode (`KMH / 3.6 / unitMeters` world units/s) × optional `timeScale` (finite, > 0, default 1); `travel:progress.etaSeconds` is wall-clock time at that scale (real ETA / `timeScale`) and `character:position.speedMps` the on-map ground speed, while the `route` request keeps unscaled real-world ETAs | as engine-web: `error{not_ready}` without a world, `error{unknown_character}`; the player's route drawn as line + pin layers | **M3a** |
+| `cancelTravel` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Emits `travel:cancel` if a travel was running | as engine-web (`error{unknown_character}`) | **M3a** |
+| `setDropLayer` | fire-and-forget | `GameSession` (`DropCollector::setLayer`) | Replaces the layer; builds instance buffers; collection radius and collectors | kept until a world loads; drawn as rarity-coloured markers; `model` drops warn-logged once (3D models M3b) | **M3a** |
+| `removeDropLayer` | fire-and-forget | `GameSession` (`DropCollector::removeLayer`) | Removes the layer and its instances | as engine-web | **M3a** |
+| `setGeofences` | fire-and-forget | `GameSession` (`GeofenceTracker::set`) | Replaces all geofences; membership of unchanged ids preserved; removed ones are forgotten silently (no `exit`) | as engine-web; fill + ring layers | **M3a** |
 | `setBuildingStyle` | fire-and-forget | `MapSession` building overrides → extrusion paint (M2a); custom layer style table (M2c) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | `color` and `state: "captured"` (glow mix + accent ring) as data-driven extrusion paint (§2.1); `null` clears; roof / facade / decorations / massing / replaceModel warn-logged once; `error{unknown_building}` / `error{not_ready}` as engine-web | M2a (color, state), M2c (the rest) |
 | `setOverlayAnchors` | fire-and-forget | `MapSession` overlay anchors → `MapAdapter::projectPoints` | Emits `overlay:positions` while anchors exist and the view changes | one `projectPoints` batch per 16 ms frame while anchors exist and the camera / viewport / anchors change (§2.1) | M2a |
-| `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | `camera:change` → `SubscriptionRegistry` (emitted once on subscribe, then throttled); other topics warn-logged | M1 (`camera:change`), M3 |
-| `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics warn-logged | M1 (`camera:change`), M3 |
-| `request` | request → `response` | `project`, `unproject` → `CameraController`; `snapToRoad`, `route` → `TravelPlanner` | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` → `ok: false`, `unsupported` | M1 (`project`, `unproject`), M3 (`snapToRoad`, `route`) |
+| `subscribe` | fire-and-forget | `SubscriptionRegistry` (`MapSession` for `camera:change`, `GameSession` for the rest) | Topic × optional id × `throttleMs`; samples the characters / camera / trips each tick | `camera:change` emitted once on subscribe, then throttled; `character:position` (on change) and `travel:progress` throttled per subscription and key (§2.2) | M1 (`camera:change`), **M3a** |
+| `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics by id | M1 (`camera:change`), **M3a** |
+| `request` | request → `response` | `project`, `unproject` → `MapSession` (adapter); `snapToRoad`, `route` → `GameSession` (`RoadGraph`, `planLegs`) | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` answered synchronously (`not_ready` without a world) | M1 (`project`, `unproject`), **M3a** (`snapToRoad`, `route`) |
 <!-- protocol-commands:end -->
 
 ### 5.2 Events (engine → host) — all 16 `ENGINE_EVENT_TYPES`
@@ -294,21 +343,21 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | Event | Emitted by | Trigger | Delivery | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `ready` | `Engine::start` → `Dispatcher::emitReady` | Engine created and sink attached | Once; `engine.kind = "native"` | emitted | M0 |
-| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle` | M0 / M3 |
+| `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), game session (`not_ready`, `unknown_character`, `invalid_character`, `location_unavailable`, `internal`), `model_load_failed` (M3b) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle`; the M3a game codes (§2.2) | M0 / **M3a** (`model_load_failed` M3b) |
 | `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2b |
 | `map:press` | `MapSession::tap` → `MapAdapter::queryBuilding` | Tap whose ray hits the ground and no building | Immediate (after the platform query) | emitted (ground coordinate under the tap) | M2a |
 | `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a); custom-layer ID-buffer picking (M2c) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
-| `drop:collect` | `DropSystem::update` | Collector within `collectRadiusMeters`; nonce from platform CSPRNG | Immediate; drop removed first (never twice) | not emitted | M3 |
-| `travel:start` | `TravelPlanner::start` | Accepted `travel` | Immediate, before any progress | not emitted | M3 |
-| `travel:progress` | `SubscriptionRegistry` sampling `TravelPlanner::active` | Topic `travel:progress` subscribed | Throttled (`throttleMs`) | not emitted | M3 |
-| `travel:arrive` | `TravelPlanner::update` | Destination reached | Immediate | not emitted | M3 |
-| `travel:cancel` | `TravelPlanner::start` / `cancel`, `CharacterSystem::remove` | Superseded, cancelled or character removed | Immediate | not emitted | M3 |
-| `geofence:enter` | `GeofenceSystem::update` | Character crosses into a geofence | Immediate | not emitted | M3 |
-| `geofence:exit` | `GeofenceSystem::update` | Character leaves a geofence (or geofence removed) | Immediate | not emitted | M3 |
-| `character:position` | `SubscriptionRegistry` sampling `CharacterSystem::states` | Topic subscribed (optionally per id) | Throttled | not emitted | M3 |
+| `drop:collect` | `GameSession` tick (`DropCollector::check`) | Collector within `collectRadiusMeters` (squared distance in flat world units); UUID v4 nonce from `std::random_device` | Immediate; drop marked collected first (never twice), then its marker pops | emitted | **M3a** |
+| `travel:start` | `GameSession::travel` (`TravelTrips::start`) | Accepted `travel` | Immediate, before any progress | emitted | **M3a** |
+| `travel:progress` | `GameSession` tick (`TravelTrips::progress`) | Topic `travel:progress` subscribed | Throttled (`throttleMs`) per subscription and character | emitted | **M3a** |
+| `travel:arrive` | `GameSession` tick (`Follower::stepCharacter` → `TravelTrips::arrived`) | Destination reached (a trip without legs arrives at once) | Immediate | emitted | **M3a** |
+| `travel:cancel` | `TravelTrips::start` / `cancel` / `cancelAll`, `removeCharacters`, world load | Superseded, cancelled, character removed or new world | Immediate | emitted | **M3a** |
+| `geofence:enter` | `GameSession` tick (`GeofenceTracker::update`) | Character's ground distance becomes < radius | Immediate | emitted | **M3a** |
+| `geofence:exit` | `GameSession` tick (`GeofenceTracker::update`) | Character leaves a geofence (removed geofences / characters are forgotten silently, as engine-web) | Immediate | emitted | **M3a** |
+| `character:position` | `GameSession` tick | Topic subscribed (optionally per id); on position / heading / speed change | Throttled per subscription and character | emitted | **M3a** |
 | `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | emitted by `MapSession` (after a world load; gestures, animations and `setCamera`) | M1 |
 | `overlay:positions` | `MapSession` (`projectPoints` replies) | Anchors exist and the view or anchors changed | At most once per frame (16 ms) | emitted | M2a |
-| `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `not_ready`; `unsupported` for M3 methods | M1 / M3 |
+| `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `snapToRoad` / `route` results (M3a); `not_ready` | M1 / **M3a** |
 <!-- protocol-events:end -->
 
 The table coverage is enforced by `npm test` [V: `scripts/check-design-coverage.mjs` fails when a name in
@@ -356,9 +405,11 @@ once per world load, never per vertex per frame.
   per-instance buffer `{x, z, bobPhase, type, rarity}` (`DropInstance`).
 - The bob and spin animation runs in the vertex shader from a time uniform, so the core does no per-drop work.
   Rarity controls the rim glow, sparkle particles (legendary) and beam height.
-- The collection test runs on the core thread: a uniform grid (cell = 2 × max radius) for the broad phase,
-  then `haversineMeters` [V: `cpp/src/Projection.cpp`] for the narrow phase. A collected drop is removed from
-  the instance buffer before `drop:collect` is emitted.
+- The collection test runs on the core thread with engine-web's rule: squared ground distance in flat world
+  units against `(collectRadiusMeters / unitMeters)²` for every allowed collector [V: `cpp/src/DropLogic.cpp`,
+  `drops.json` conformance] (no haversine; a broad-phase grid can come with the instanced renderer if drop
+  counts need it). A collected drop is marked collected before `drop:collect` is emitted (M3a: its style-layer
+  marker then pops for 300 ms).
 
 ### 6.4 Skinned glTF characters, and why the core has its own JSON
 
@@ -567,18 +618,18 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | WorldData load (`data`) | `init.world` | v1 | **M1** (flat map) |
 | WorldData `url` | `init.world` | v1 | **M1** (platform fetch) |
 | WorldData `procedural` | `init.world` | v1 | M2b (`unsupported` error until then) |
-| Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow` M3) |
-| Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; M3 other topics |
+| Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow` **M3a**) |
+| Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; **M3a** other topics |
 | Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | **M2a** extrusion, theme colours, colour / captured overrides; M2c facades, roofs, massing, replaced models |
 | Themes + time of day + cinematic | `setTheme` | v1 | **M2a** resolution, colours, light + time-of-day tint; M2c cinematic grading, outlines, cross-fade |
 | Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
-| Map UI | `setUi` | v1 | **M2a** (location puck M3) |
+| Map UI | `setUi` | v1 | **M2a** (location puck **M3a**) |
 | Presses | `map:press`, `building:press` | v1 | **M2a** (rendered-feature query) |
 | Overlay anchors | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
-| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | M3 |
-| Travel + routing | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | M3 |
-| Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | M3 |
-| Geofences | `setGeofences`, `geofence:*` | v1 | M3 |
+| Characters (glTF skinning) + location sources | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** style-layer markers, all location sources (device feed on both platforms), camera follow; M3b glTF characters; M2b name tags |
+| Travel + routing | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | **M3a** (route line + pin layers) |
+| Drops | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | **M3a** rarity markers + collect pop; M3b 3D drop models, bob / spin / beams |
+| Geofences | `setGeofences`, `geofence:*` | v1 | **M3a** (fill + ring layers; no pulse) |
 | Zoom-out game view | `theme.zoomOut` | v1 | M4 |
 | PMTiles / tile-backed WorldData | (protocol addition) | planned | planned (same release as web) |
 
@@ -610,8 +661,14 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
     grading; the core thread + frame snapshot arrive with the layer's per-frame data.
   - **Fallback.** Fork + patch queue (pin `UPSTREAM`, `maprama` layer type, CI artifacts) and an
     `mbgl`-backed `MapAdapter`, only if M2c cannot be built on the SDKs' custom layer APIs.
-- **M3 — game systems.** cgltf skinning, `CharacterSystem` and location sources, `TravelPlanner` (A*,
-  subway expansion), drops, geofences, all remaining events.
+- **M3 — game systems.**
+  - **M3-core (done).** Pure C++ ports of engine-web's travel planning / follower (Dijkstra over the planar
+    road graph, subway legs between the stations nearest to both ends: no separate station graph), location
+    smoothing, drop collection and geofence tracking, fixture-conformance tested.
+  - **M3a (this change).** `GameSession` (§2.2): every M3 command, event and request on `engine="native"`
+    with engine-web semantics, drawn with GeoJSON style layers; device location feeds; camera follow.
+  - **M3b.** glTF characters (cgltf skinning) and 3D drop models on the M2c custom render layer; name tags
+    with the M2b label view pool.
 - **M4 — parity and performance.**
   - Zoom-out game view.
   - Device perf and memory measured against §8.
@@ -629,22 +686,28 @@ The root `NOTICE` is intentionally not modified by M0. Add these entries when th
 | earcut.hpp | ISC | Roof and polygon triangulation (via MapLibre) | planned (M2) [U: bundled by MapLibre] |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Core behaviour summary (M1 + M2a)
+## 13. Core behaviour summary (M1 + M2a + M3a)
 
 | Input | Output |
 | --- | --- |
 | Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.1.0", kind: "native"}}` |
 | Envelope failing `decodeCommand` rules | `error {code: "invalid_message", message: <exact decodeCommand error>, fatal: false}` |
-| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style sent, default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme and ui applied; labels and locationSource warn-logged |
+| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style (with the game layers) sent, game state rebuilt (§2.2), default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme, ui and locationSource applied; labels warn-logged |
 | `init` with `world.kind = "procedural"` | `error {code: "unsupported", fatal: true}` |
-| `setCamera` | Merged into the camera and applied to the map (§5.1); `follow: "<id>"` warn-logged |
+| `setCamera` | Merged into the camera and applied to the map (§5.1); `follow` eases the camera towards the character every tick; unknown id → `error {unknown_character, "setCamera: cannot follow \"<id>\": no such character"}` |
 | `setTheme` | Resolved theme → changed paint properties + light; options without a style-layer equivalent warn-logged once |
 | `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; `error {unknown_building \| not_ready, fatal: false}` |
-| `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` warn-logged |
+| `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` draws the puck under the player |
+| `upsertCharacters` / `removeCharacters` | Characters created / merged / removed (kept until a world loads); > 1 player → `error {invalid_character, "upsertCharacters: at most one character can be the player (got a, b)"}`; removal cancels trips |
+| `setLocationSource` / `pushLocation` / device fixes | `simulated` demo loop, `external` fixes, `device` platform feed (`error {location_unavailable, "device geolocation failed: …"}`); smoothed fixes drive `follow: "location"` characters along the roads |
+| `travel` / `cancelTravel` | `travel:start`, throttled `travel:progress`, `travel:arrive` / `travel:cancel`; `error {not_ready, "travel: no world loaded (send init first)"}`, `error {unknown_character, "travel: unknown character \"<id>\""}` |
+| `setDropLayer` / `removeDropLayer` | `drop:collect {layerId, dropId, characterId, coordinate, collectId}` once per drop and collector; duplicate collectIds → `error {internal}` |
+| `setGeofences` | `geofence:enter` / `geofence:exit` in geofence order, then character order |
+| `subscribe` / `unsubscribe` `character:position` / `travel:progress` | Throttled per subscription and key (engine-web `ThrottledTopic`) |
 | `setOverlayAnchors` | `overlay:positions {positions: [{id, x, y, visible}]}` at most once per 16 ms frame while the view changes |
 | Platform tap | `building:press {buildingId, coordinate}` or `map:press {coordinate}` |
 | `subscribe` / `unsubscribe` `camera:change` | `camera:change {camera: {center, distance, pitch, bearing ∈ [0, 360)}}` once on subscribe (after a world load), then throttled on every change |
 | `request` `project` / `unproject` | `response {ok: true, result: {x, y, visible} \| {coordinate \| null}}` through the adapter; `ok: false, not_ready` without a laid-out view |
-| `request` `snapToRoad` / `route` | `response {requestId, ok: false, error: {code: "unsupported", message}}` |
+| `request` `snapToRoad` / `route` | `response {ok: true, result: SnapToRoadResult \| null \| RouteResult}` (engine-web's planner, real-world ETA); `ok: false, not_ready` without a world |
 | Any other command | Ignored with a `LogLevel::Warn` log (the protocol has no warning event) |
 | Outgoing events (debug/tests) | Validated with `validateEngineEvent`; invalid ones dropped and logged |
