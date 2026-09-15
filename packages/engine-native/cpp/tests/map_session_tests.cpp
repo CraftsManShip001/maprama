@@ -375,9 +375,9 @@ MAPRAMA_TEST(m1_url_and_procedural_worlds) {
 
   Harness p;
   p.send(initMsg(Value::object({{"kind", "procedural"}, {"layout", "town"}, {"seed", 7}})));
-  errors = p.sink->eventsOfType("error");
-  ctx.check(errors.size() == 1 && errors[0].find("code")->asString() == "unsupported" && errors[0].find("fatal")->asBool(),
-            "procedural world -> fatal unsupported error (M1)");
+  ctx.check(p.sink->eventsOfType("error").empty() && p.engine->worldStore().loaded() &&
+                p.engine->worldStore().world()->name == "Procedural town",
+            "procedural world loads (M2b, see procedural_tests.cpp)");
   appendEmitted(ctx, *h.sink);
   appendEmitted(ctx, *f.sink);
   appendEmitted(ctx, *p.sink);

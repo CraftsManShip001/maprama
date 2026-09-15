@@ -1,11 +1,13 @@
 #include "maprama/MapSession.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <utility>
 
 #include "maprama/CameraMath.hpp"
+#include "maprama/ProceduralWorld.hpp"
 #include "maprama/WorldStore.hpp"
 #include "maprama/protocol.hpp"
 
@@ -349,25 +351,45 @@ void MapSession::init(const Value& msg) {
     const std::uint64_t token = pending.token;
     pendingWorld_ = std::move(pending);
     adapter_->fetchText(token, url);
+  } else if (kind == "procedural") {
+    loadProceduralWorld(source, msg);
   } else {
-    emitError(error_codes::kUnsupported,
-              "world source kind " + json::quote(kind) +
-                  " is not implemented by the maprama-native core yet (procedural worlds arrive in M2b; \"data\" and \"url\" render)",
-              true);
+    // Unreachable: decodeCommand only accepts data / url / procedural.
+    emitError(error_codes::kUnsupported, "world source kind " + json::quote(kind) + " is not supported", true);
   }
 }
 
-void MapSession::loadWorldValue(const Value& worldData, const Value& initMsg, const std::string& url) {
+void MapSession::loadProceduralWorld(const Value& source, const Value& initMsg) {
+  // `decodeCommand` already checked `layout` (grid | town) and `seed` (integer).
+  const ProceduralLayout layout =
+      parseEnum<ProceduralLayout>(source.find("layout")->asString()).value_or(ProceduralLayout::Town);
+  const double seed = numberMember(source, "seed").value_or(0.0);
+  const auto t0 = std::chrono::steady_clock::now();
+  const ProceduralWorld generated = buildProceduralWorld(layout, seed);
+  const Value worldData = proceduralWorldData(generated);
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  log(LogLevel::Info, "engine-native: generated procedural " + std::string(enumName(layout)) + " (seed " +
+                          json::numberToString(seed) + ", " + std::to_string(generated.buildings.size()) +
+                          " buildings) in " + json::numberToString(std::round(ms * 10) / 10) + " ms");
+  WorldExtras extras;
+  extras.start = generated.start;
+  extras.palette.reserve(generated.buildings.size());
+  for (const ProceduralBuilding& b : generated.buildings) extras.palette.push_back(static_cast<std::uint32_t>(b.ci));
+  loadWorldValue(worldData, initMsg, {}, extras);
+}
+
+void MapSession::loadWorldValue(const Value& worldData, const Value& initMsg, const std::string& url,
+                                const WorldExtras& extras) {
   Result<WorldLoadReport> loaded = world_.load(worldData);
   if (!loaded.ok()) {
     emitError(error_codes::kWorldLoadFailed, url.empty() ? loaded.error : "invalid WorldData from " + url + ": " + loaded.error,
               true);
     return;
   }
-  onWorldLoaded(*loaded.value, initMsg);
+  onWorldLoaded(*loaded.value, initMsg, extras);
 }
 
-void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initMsg) {
+void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initMsg, const WorldExtras& extras) {
   for (const std::string& warning : report.warnings) log(LogLevel::Warn, "engine-native: init world: " + warning);
   const WorldData& world = *world_.world();
   const Projection& projection = *world_.projection();
@@ -376,6 +398,10 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
 
   // A new world starts without building overrides (engine-web keeps them only for the same world).
   rendered_ = renderedBuildings(world);
+  if (extras.palette.size() == world.buildings.size()) {
+    // Procedural worlds keep the generator's palette index (engine-web `BuildingModel.ci`).
+    for (RenderedBuilding& rb : rendered_) rb.ci = extras.palette[rb.worldIndex];
+  }
   renderedIndex_.clear();
   for (std::size_t i = 0; i < rendered_.size(); ++i) {
     renderedIndex_.emplace(world.buildings[rendered_[i].worldIndex].id, i);  // first id wins, like findBuilding
@@ -390,6 +416,7 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   // engine-web `loadWorld`: target the world start (plaza, else bounds centre) with DEFAULT_ORBIT.
   WorldPoint start{(world.bounds.minX + world.bounds.maxX) / 2.0, (world.bounds.minZ + world.bounds.maxZ) / 2.0};
   if (world.plaza) start = *world.plaza;
+  if (extras.start) start = *extras.start;  // procedural: engine-web targets the generator's start point
   state_.center = projection.toLngLat(start);
   state_.distance = cm::kDefaultDistanceUnits * world.unitMeters;
   state_.pitch = cm::kDefaultPitch;

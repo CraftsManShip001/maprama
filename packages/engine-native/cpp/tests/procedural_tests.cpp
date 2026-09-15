@@ -10,6 +10,7 @@
 #include "maprama/ProceduralWorld.hpp"
 #include "maprama/WorldStore.hpp"
 #include "harness.hpp"
+#include "map_harness.hpp"
 
 namespace {
 
@@ -374,5 +375,55 @@ MAPRAMA_TEST(procedural_generation_time) {
     std::cout << line;
     // Sanity bound for the sanitizer build; the -O2 number is recorded in DESIGN.md §6.8.
     ctx.check(total[3] < 2000, "generation finishes in reasonable time");
+  }
+}
+
+MAPRAMA_TEST(procedural_init_renders_the_generated_world) {
+  namespace mt = maprama::test::maptest;
+  struct Case {
+    const char* layout;
+    std::optional<double> seed;
+  };
+  for (const Case& c : {Case{"town", 7.0}, Case{"grid", std::nullopt}}) {
+    const maprama::ProceduralLayout layout = *maprama::parseEnum<maprama::ProceduralLayout>(c.layout);
+    const maprama::ProceduralWorld expected = maprama::buildProceduralWorld(layout, c.seed.value_or(0.0));
+    const std::string label = std::string("init procedural ") + c.layout;
+    Value source = Value::object({{"kind", "procedural"}, {"layout", c.layout}});
+    if (c.seed) source.set("seed", *c.seed);
+
+    mt::Harness h;
+    h.send(mt::initMsg(source));
+    ctx.check(h.sink->eventsOfType("error").empty(), label + ": no error event (was `unsupported` before M2b)");
+    ctx.check(h.sink->loggedContaining(std::string("generated procedural ") + c.layout, maprama::LogLevel::Info),
+              label + ": generation logged with its time");
+    const maprama::WorldStore& store = h.engine->worldStore();
+    if (!ctx.check(store.loaded() && store.world()->name == expected.name, label + ": generated world loaded")) continue;
+    ctx.check(store.world()->buildings.size() == expected.buildings.size() &&
+                  store.world()->roads.size() == expected.graph.roads.size(),
+              label + ": all generated buildings and roads");
+    if (!ctx.check(!h.adapter->styles.empty(), label + ": style sent to the map")) continue;
+    const Value style = maprama::json::parse(h.adapter->styles.back()).value;
+    const auto& features = style.find("sources")->find("maprama-buildings")->find("data")->find("features")->items();
+    bool sameBuildings = features.size() == expected.buildings.size();
+    for (std::size_t i = 0; sameBuildings && i < features.size(); ++i) {
+      const Value& p = *features[i].find("properties");
+      const maprama::ProceduralBuilding& b = expected.buildings[i];
+      sameBuildings = p.find("id")->asString() == b.id && p.find("ci")->asNumber() == b.ci &&
+                      std::fabs(p.find("height")->asNumber() - std::max(0.2, b.h) * 8) < 1e-9 &&
+                      p.find("kind")->asString() == maprama::enumName(b.kind);
+    }
+    ctx.check(sameBuildings, label + ": extruded buildings carry the generated id / palette index / height / kind");
+    const maprama::LngLat startLL = store.projection()->toLngLat(maprama::WorldPoint{expected.start.x, expected.start.z});
+    const maprama::CameraState state = h.engine->cameraState();
+    ctx.near(state.center.lng, startLL.lng, 1e-12, label + ": default framing at the generator's start (lng)");
+    ctx.near(state.center.lat, startLL.lat, 1e-12, label + ": default framing at the generator's start (lat)");
+
+    // init.camera still wins over the default framing.
+    mt::Harness h2;
+    h2.send(mt::initMsg(source, Value::object({{"center", mt::lngLat(126.98, 37.567)}, {"pitch", 30}})));
+    const maprama::CameraState s2 = h2.engine->cameraState();
+    ctx.check(s2.center.lng == 126.98 && s2.center.lat == 37.567 && s2.pitch == 30, label + ": init.camera applied");
+    mt::appendEmitted(ctx, *h.sink);
+    mt::appendEmitted(ctx, *h2.sink);
   }
 }
