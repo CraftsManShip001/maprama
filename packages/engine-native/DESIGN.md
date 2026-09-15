@@ -179,7 +179,9 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
   to engine-web's 40° reference frustum, so both engines frame the same area for the same `CameraState`
   (the protocol `zoom` z is MapLibre zoom z − 1) [V: `cpp/include/maprama/CameraMath.hpp`,
   `camera_math_conversions`]. The distance limits are engine-web's (14–150 world units) and are pushed as
-  MapLibre zoom limits for gestures; pitch is limited to 0–60°.
+  MapLibre zoom limits for gestures; pitch is limited to 0–60°. A camera that waits for the viewport (no
+  laid-out view yet) stays the target: camera reports that arrive before it reached the map describe the
+  map's own initial pose (0,0, zoom 0) and are ignored [V: `m1_camera_report_before_viewport_keeps_world_camera`].
 - **Replies are asynchronous.** The core calls the adapter with its lock held; the adapter posts to the
   main thread and answers through the Engine's `on*` methods, which take the lock again. Pending
   `project`/`unproject` requests are answered with `ok: false` (`not_ready`) when the view detaches.

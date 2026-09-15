@@ -203,6 +203,10 @@ void MapSession::setViewport(const Viewport& viewport) {
 }
 
 void MapSession::onCameraChanged(const MapCameraPose& pose) {
+  // A camera still waiting for the viewport (`sendState`) is the target: until it reached the map, the map
+  // reports its own initial pose (0,0, zoom 0), which must not replace it (iOS remounts: the world loads
+  // before the view is laid out and the new map reports in between).
+  if (cameraUnsent_) return;
   CameraState next;
   next.center = pose.center;
   next.distance = cm::mapLibreZoomToDistance(pose.zoom, pose.center.lat, viewport_.height);

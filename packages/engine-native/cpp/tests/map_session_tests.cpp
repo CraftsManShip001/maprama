@@ -421,3 +421,31 @@ MAPRAMA_TEST(m1_viewport_and_late_attach) {
   appendEmitted(ctx, *h.sink);
   appendEmitted(ctx, *late.sink);
 }
+
+MAPRAMA_TEST(m1_camera_report_before_viewport_keeps_world_camera) {
+  // The world loads before the view is laid out, and the map reports its own initial pose (MLNMapView:
+  // 0,0, zoom 0, pitch 0) before the viewport arrives (seen on iOS when a MapramaView remounts). That pose
+  // must not replace the world camera that waits for the viewport.
+  Harness h(true, maprama::Viewport{0, 0, 1});
+  h.send(initMsg(dataWorld(ctx), Value::object({{"pitch", 45.0}, {"distance", 400.0}})));
+  ctx.check(h.adapter->moves.empty(), "no camera without a viewport");
+  const auto target = h.engine->cameraState();
+  h.engine->onCameraChanged(maprama::MapCameraPose{});
+  h.engine->setViewport({390, 500, 3});
+  ctx.check(h.adapter->moves.size() == 1, "the viewport sends the pending camera");
+  if (!h.adapter->moves.empty()) {
+    const maprama::MapCameraPose& sent = h.adapter->moves.back().first;
+    ctx.near(sent.center.lng, target.center.lng, 1e-9, "pending camera keeps the world centre (lng)");
+    ctx.near(sent.center.lat, target.center.lat, 1e-9, "pending camera keeps the world centre (lat)");
+    ctx.near(sent.pitch, 45.0, 1e-9, "pending camera keeps the pitch");
+    ctx.near(sent.zoom, cm::distanceToMapLibreZoom(400.0, target.center.lat, 500), 1e-9, "pending camera keeps the distance");
+  }
+  ctx.near(h.engine->cameraState().distance, 400.0, 1e-9, "camera state keeps the distance");
+
+  // Once the camera reached the map, its reports are the camera again.
+  maprama::MapCameraPose moved = h.adapter->moves.empty() ? maprama::MapCameraPose{} : h.adapter->moves.back().first;
+  moved.center.lng += 0.001;
+  h.engine->onCameraChanged(moved);
+  ctx.near(h.engine->cameraState().center.lng, moved.center.lng, 1e-12, "reports after the camera was sent update the state");
+  appendEmitted(ctx, *h.sink);
+}

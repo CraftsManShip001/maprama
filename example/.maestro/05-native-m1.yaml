@@ -1,6 +1,6 @@
 # Native engine (M1): the Seongsu world as a flat MapLibre map, camera presets update the camera:change
 # readout, and a project/unproject round trip answers. M2b: the world source switches to a procedural town
-# the C++ core generates, framed at the generator's start point.
+# the C++ core generates, framed at the generator's start point, then back to the Seongsu data (third mount).
 appId: dev.maprama.catalog
 name: Native engine M1 map, camera and project
 tags:
@@ -78,3 +78,34 @@ tags:
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: screenshots/native-procedural-town
+# Back to the Seongsu data: the third MapramaNativeView in one screen visit. The world loads before the new
+# view is laid out, and the new map reports its own initial pose (0,0) meanwhile; the world camera must still
+# frame Seongsu (iOS once showed an empty map at 0,0 · 1524 m here).
+- repeat:
+    while:
+      notVisible:
+        id: "native-world-data"
+    times: 20
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- tapOn:
+    id: "native-world-data"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "engine-status"
+      text: "engine ready"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: "camera: 127\\.0[0-9]*, 37\\.5[0-9]* · 400 m · pitch 45° .*"
+    timeout: 30000
+- assertNotVisible:
+    text: "engine error.*"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-third-mount-data
