@@ -631,8 +631,10 @@ cross-fade remain open (M4).
     vertices, without facade details and roof furniture (`BuildingLayerData::lowDetailIndices`, ≈ 8 % fewer
     triangles for Seongsu with `modern`, 22 % with `details: true`) — and beyond **D2** characters and drops
     become **icon discs**: one instanced draw for all of them (ground discs in the body / rarity colour with a
-    dark rim, `iconDiscMesh`), with hysteresis at 0.95 · D2. This is the one deliberate visual difference from
-    engine-web, which keeps its 3D models at every distance (§11).
+    dark rim, `iconDiscMesh`), with hysteresis at 0.95 · D2. Both are deliberate differences from engine-web,
+    which keeps its facade details, roof furniture and 3D models at every distance and instead hides the street
+    clutter the native engine never had (§11); at 1,150 m the dropped roof furniture (solar panels, HVAC) is
+    visible when the behaviour is switched between `none` and `keepGameView` side by side.
   - Fog, the shadow camera and the haze overlay of engine-web's controller are computed and conformance-tested
     but not drawn: the native engine has no fog, shadow or post pass yet (§6.6).
   - Labels are **pending** (M2b, not merged yet): engine-web hides road / POI labels and fades district labels in
@@ -711,8 +713,9 @@ routing). The same seed gives the same world as engine-web.
 ## 8. Memory and performance budgets
 
 Targets for a mid-range reference device (iPhone 12 / Pixel 6a class) with the Seongsu sample scaled to
-20,000 buildings. All figures are **[E]** until they are measured in M4. CI perf gates are added once real
-numbers exist.
+20,000 buildings. The targets themselves are still **[E]**: M4 measured the engine on the iOS simulator and the
+Android emulator (below), **not** on the reference devices, and not with 20,000 buildings. CI perf gates are
+added once device numbers exist.
 
 | Budget | Target |
 | --- | --- |
@@ -763,6 +766,72 @@ vehicle, the rigid drop items instanced per mesh (the 8 items above take 8 draws
 simulator is flat (≈ 0.1 ms for the whole frame); the emulator's GL translation makes its model pass grow ≈ 23 µs
 per character. The model frames also keep MapLibre rendering at the display rate while models are on screen
 (engine-web's render loop does the same); throttling idle-only animation to 30 fps is an M4 option.
+
+**M4 measurements (performance scene and zoom-out; simulators only — real devices are still unmeasured).**
+Scene: the Seongsu data world (428 buildings) with the `modern` preset, **51 characters** (the player's procedural
+body, the glTF walker on the simulated source and a 49-character crowd, half glTF robot / half procedural, all
+walking ×20), **200 drops**, **20 geofences** and labels pending (M2b), driven by the example's `native-m4` screen:
+a near camera (320 m = 40 world units) and a far one (1,150 m = 144 units, beyond D2), each with two 8 s 180°
+orbits. Release builds, the same flow before (HEAD = M3b) and after (M4); the layer's `maprama-frame-stats` and the
+core's 5 s tick log are the sources, idle gaps > 100 ms excluded.
+
+| | iOS 26.5 simulator (Metal) before → after | Android 15 emulator (GL ES translator) before → after |
+| --- | --- | --- |
+| Near + orbit: frame interval avg / p95 | 16.7–19.5 / 17.3–33.7 ms → 16.7–17.9 / 17.1–31.8 ms (vsync-bound) | 19.8–24.3 / 23.9–32.7 → 13.9–20.5 / 18.5–30.4 ms |
+| Near: layer cost per frame (model pass) | encode 0.032 / 0.033 ms (0.02 ms) → 0.022–0.039 ms (0.018–0.033 ms) | render 3.2–4.3 ms (2.4–2.9 ms) → 1.7–3.0 ms (1.3–2.3 ms) |
+| **Far (144 units) + orbit: frame interval avg / p95** | 16.7–19.5 / 17.3–33.4 ms → 16.7–17.2 / 17.0–27.6 ms | **31.7–47.3 / 70.0–87.2 → 8.2–13.1 / 11.5–20.6 ms** |
+| **Far: layer cost per frame (model pass)** | encode 0.032 ms (0.02 ms) → **0.008–0.010 ms (0.004 ms)** | render **5.1–10.8 ms (3.5–7.3 ms) → 0.51–0.75 ms (0.09–0.14 ms)** |
+| **Far: model draws** | 64 → **1** (icon discs, one instanced draw) | 64 → **1** |
+| Whole-frame GPU (iOS command buffer) | 0.11–0.12 / p95 0.14–0.16 ms → 0.08–0.10 / 0.11–0.15 ms | — (no equivalent counter) |
+| Core tick avg / max (51 characters, 200 drops) | 0.36–0.38 / 0.51–0.62 ms → 0.16–0.33 / 0.44–0.80 ms | 0.58–6.16 / up to 198 ms → 0.18–0.27 / 1.0–2.4 ms |
+| Memory | footprint 146 MB → 106 MB (light) / 140–147 MB (perf scene) | PSS 207–224 MB → 208–219 MB; native heap ≈ 102–104 MB; GL buffers 11.8 MB (meshes) + 1.05 MB (models, 0 with icon discs) |
+
+Against the budgets: the **core tick stays far inside 2 ms** on both (the 198 ms emulator outlier before M4 was a
+single stall, gone after); **draw calls** are 2 (building meshes + outlines) + 64 model draws near / 1 far, well
+inside 150; **drops** 200 of the 1,500 visible budget; **characters** 51 against a 32-skinned budget, deliberately
+over it to see the cost. The **16.6 ms p95 frame** budget is met on the iOS simulator (vsync-bound) but not on the
+Android emulator at the near camera (p95 18–30 ms), whose GL translation layer bounds the frame — the same caveat
+as M2c/M3b. Memory stays inside the 250 MB budget on both, but neither environment is the reference device.
+The M4 zoom-out LOD is what moves the far-camera numbers: the icon discs cut the model pass from 64 draws to 1
+(Android: 7× less layer time, ~30× less model time) and the low-detail range removes the facade details and roof
+furniture from the building mesh.
+
+**Idle animation and the 30 fps question (M4).** M3b left an open decision: while any character or drop exists, the
+core asks for a frame every 16 ms (idle clips, breathing, drop bob / spin), which keeps MapLibre redrawing at the
+display rate — engine-web does the same, because its renderer runs `requestAnimationFrame` continuously. Measured
+with a scratch flow that parks the app for ~30 s on a screen without models (the M2c `native` screen) and then ~30 s
+on the M4 screen with two characters in view (Android emulator, Release, process CPU from `top`, one sample per 8 s):
+
+| Idle window (Android emulator) | process CPU | layer frames |
+| --- | --- | --- |
+| No characters or drops (no animation frames requested) | **8–24 %** | none (MapLibre redraws on demand only) |
+| Two characters in view, idle animation at the frame rate | **112–132 %** | continuous, 12–18 ms interval, layer 0.8–1.5 ms, core tick 0.06–0.09 ms |
+
+The iOS simulator shows the same effect in frames, but not in CPU: with two characters in view the custom layer is
+asked to draw every 16.7 ms (encode 0.011 ms, footprint ≈ 106–118 MB), and on a screen with no characters or drops
+it is not asked to draw at all (no `maprama-frame-stats` batch appears in that window). The process CPU is
+23–28 % in both windows, i.e. the animation disappears in React Native and simulator overhead — unsurprising when
+the layer encode is 0.011 ms and the whole frame's GPU time 0.08 ms. The Android emulator, whose GL translation
+makes every frame expensive, is where the cost shows.
+
+So the *continuous redraw*, not the core, is what costs battery: the core tick is ~0.07 ms of the ~16 ms frame.
+Two changes in M4 remove the cost where it buys nothing, **without changing anything engine-web shows**:
+models that are outside the camera's view no longer request animation frames (a conservative frustum test with
+engine-web's 40° camera, widened 25 %, plus a 4-unit margin), and the icon discs beyond D2 are static, so a far
+camera over a still crowd renders on demand again.
+
+A blanket **30 fps idle throttle was evaluated and not implemented**: engine-web renders visible idle motion
+(drop spin 2.2 rad/s, bob, breathing, beams) at the display rate, so halving the rate would visibly differ from the
+web engine for anything actually on screen — the lead's condition for adopting it. Its saving would be roughly half
+of the redraw cost in the table above (the frame interval doubles; the core tick is negligible either way), i.e. of
+the order of 50 percentage points of emulator CPU in the worst case, and it remains available as an opt-in if a
+future app-level setting ever asks for it.
+
+Two counters could not be read in these environments: both SDKs report ~0 for their own frame encode / render
+times (`mapViewDidFinishRenderingFrame:…frameEncodingTime:`, `OnDidFinishRenderingFrameListener`), and
+`MTLDevice.currentAllocatedSize` reads 0 on the simulator, so the iOS memory figure is the process footprint
+(`task_info(TASK_VM_INFO).phys_footprint`) and the Android one is `Debug.MemoryInfo` PSS plus the layer's own GL
+buffer accounting. Binary size and cold start were not measured in M4.
 
 ## 9. Build and packaging
 
@@ -863,6 +932,26 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Geofences | `setGeofences`, `geofence:*` | v1 | **M3a** (fill + ring layers; no pulse) |
 | Zoom-out game view | `theme.zoomOut` | v1 | **M4** (`zoomOutTarget` / controller conformance-tested against engine-web; `mapColors` overlay + 40 % heights, low-detail custom layer, icon discs beyond D2; fog / shadows / haze not drawn, labels pending) |
 | PMTiles / tile-backed WorldData | (protocol addition) | planned | planned (same release as web) |
+
+**Remaining differences to engine-web (M4 parity pass).** Walked row by row with both engines rendering the same
+scene through the example's engine toggle (`example/app/native-m4.tsx`, Maestro `10-native-m4`), on the iOS
+simulator and the Android emulator:
+
+| Area | Difference | Why / where |
+| --- | --- | --- |
+| Labels and name tags | Not drawn at all (no `labelsIndex`, `setLabels`, `setLabelContent`, no character name tags, none of engine-web's zoom-out label rules) | **M2b, not merged yet** — the one capability still missing for beta |
+| Zoom-out (§6.7) | Beyond D2 characters and drops are icon discs; engine-web keeps its 3D models at every distance | Deliberate: one instanced draw instead of one per character (§8 measurements below) |
+| Zoom-out (§6.7) | From `t ≥ 0.5` the custom layer drops facade details and roof furniture; engine-web keeps them (it hides street clutter instead, which the native engine does not draw) | Deliberate: the low-detail index range; visible at 1,150 m when switching `none` ↔ `keepGameView` |
+| Zoom-out (§6.7) | Fog and shadow ranges and the haze overlay are computed (and conformance-tested) but not drawn | The native engine has no fog, shadow or post pass yet (§6.6) |
+| Reduced motion | The OS "reduce motion" setting is not read; engine-web snaps the zoom-out factor and skips bounces | Needs a new platform → core input; not in M4 |
+| Buildings | `massing: "varied"`, `decorations` and `replaceModel` are not drawn; the captured glow does not pulse; `soft` masses are not rounded; facade patterns are procedural (no texture atlas); roof parts above the walls are not pickable | §6.2; the extrusion answers presses |
+| Buildings | A tapped building does not bounce (engine-web's `buildingsR.bounce`) | Would need per-building animation in the custom layer |
+| Street scenery | `street.props` / `street.parked` / `street.traffic` (lamps, signs, parked cars, benches, bus stops, traffic), park and street trees, and `roads.crosswalks` are not drawn, so engine-web's "hide the clutter when zoomed out" has no native counterpart | Never implemented natively (M2c scope); clearly visible side by side on the `native-m4` screen |
+| Colours and lighting | The same preset reads slightly darker and flatter natively: engine-web shades with a hemisphere + sun light, tone mapping and exposure, the native engine with MapLibre's extrusion lighting plus the time-of-day tint | §2.1, §6.6; the palettes themselves are the resolved theme's |
+| Themes | Cinematic grading, the post pass (haze, vignette, grade), fog and the 300 ms theme cross-fade are missing; the time-of-day tint is applied instead | §6.6 |
+| Drops | The orbiting note sprites, the "+value" text and the collect chime are missing | §6.3 |
+| Characters | Ink outlines, the silhouette pass behind buildings and `wave` are missing | §6.4 |
+| Geofences | The ring does not pulse | §2.2 |
 
 **Milestones**
 
