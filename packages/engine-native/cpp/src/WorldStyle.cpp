@@ -219,7 +219,7 @@ Value buildWorldStyleValue(const WorldData& world, const Projection& projection)
       {"type", "circle"},
       {"source", world_style::kSourceStations},
       {"paint", Value::object({{"circle-radius", 7}, {"circle-color", kStation}, {"circle-stroke-width", 2.5},
-                               {"circle-stroke-color", "#FFFFFF"}})},
+                               {"circle-stroke-color", "#FFFFFF"}, {"circle-pitch-alignment", "map"}})},
   }));
   return style;
 }
