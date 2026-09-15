@@ -14,6 +14,9 @@
  * - json-format.json     JS number/string/key-order formatting (JSON.stringify, String(number))
  * - procedural.json      engine-web's procedural generators (buildTownWorld / buildGridWorld) for several
  *                        seeds, plus raw mulberry32 sequences; the C++ port must match them (DESIGN.md §6.8)
+ * - travel-plan.json, travel-trace.json, location.json, drops.json, geofences.json
+ *                        game logic (M3 core) from engine-web's TypeScript sources, written by
+ *                        scripts/export-game-fixtures.mjs (run through tsx, see the last section)
  *
  * Run `npm run build -w @maprama/protocol` and `npm run build -w @maprama/engine-web` first (the root
  * `npm run build` does both).
@@ -764,3 +767,21 @@ for (const [file, data] of Object.entries(files)) {
   console.log(`export-fixtures: ${file} (${count} entries, ${(text.length / 1024).toFixed(0)} KiB)`);
 }
 console.log(`export-fixtures: wrote ${Object.keys(files).length} files (${(total / 1024).toFixed(0)} KiB) to ${outDir}`);
+
+// ---------------------------------------------------------------------------
+// Game logic (M3 core): travel planning / following, location smoothing, drops, geofences
+// ---------------------------------------------------------------------------
+
+// engine-web's dist bundle does not export these helpers: run the side script on its TypeScript sources
+// through tsx (hoisted devDependency of the monorepo).
+{
+  const { execFileSync } = await import('node:child_process');
+  let tsx;
+  try {
+    tsx = import.meta.resolve('tsx');
+  } catch (e) {
+    throw new Error(`export-fixtures: cannot resolve tsx (run \`npm install\` at the repository root): ${e.message}`);
+  }
+  const script = fileURLToPath(new URL('./export-game-fixtures.mjs', import.meta.url));
+  execFileSync(process.execPath, ['--import', tsx, script, outDir], { stdio: 'inherit' });
+}
