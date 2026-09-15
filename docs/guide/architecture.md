@@ -107,7 +107,7 @@ import '@maprama/engine-native';
 | 항목 | M2a 상태 |
 | --- | --- |
 | 렌더러 | 공식 prebuilt MapLibre Native SDK (iOS CocoaPods `MapLibre` 6.30, Android `org.maplibre.gl:android-sdk` 13.6.1)의 스타일 레이어. 지붕·외벽·외곽선은 M2c에서 SDK의 커스텀 렌더 레이어로 추가하고, 포크는 그 길이 막힐 때만 쓰는 대안 |
-| 월드 | `data`·`url` WorldData 렌더: 배경, 수면·공원 면, 등급별 도로 선, POI·역 원, 높이를 반영한 3D 건물(`fill-extrusion`). `procedural`은 `unsupported` 치명 오류 (M2b) |
+| 월드 | `data`·`url` WorldData 렌더: 배경, 수면·공원 면, 등급별 도로 선, POI·역 원, 높이를 반영한 3D 건물(`fill-extrusion`). `procedural`은 M2b에서 C++ 코어가 engine-web 생성기 포팅으로 같은 시드의 같은 월드를 만들어 같은 경로로 렌더 |
 | 테마 | 프리셋과 옵션을 웹 엔진과 같은 규칙으로 해석 (C++ `ThemeResolver`, 프로토콜 데이터에서 생성하고 적합성 테스트). 시간대는 스타일 조명 + 색 틴트. `setTheme`은 페인트 속성과 조명만 바꿔 바로 적용. 시네마틱 그레이딩·외곽선은 M2c |
 | 건물 스타일 | `setBuildingStyle`의 `color`와 `state: 'captured'` 강조, `null`로 초기화. 없는 건물은 `unknown_building` 오류. 지붕·외벽·장식·매스·모델 교체는 M2c |
 | 카메라 | `setCamera` (병합, `distance`가 `zoom`보다 우선, `animate`), 팬·핀치 줌·회전·피치(0–60°) 제스처. 거리 한계는 웹 엔진과 같은 14–150 월드 단위 |
@@ -168,7 +168,7 @@ M2c에서 공식 SDK의 커스텀 렌더 레이어(iOS `MLNCustomStyleLayer`는 
 | 봉투 코덱 + 검증 | `decodeCommand` / `encodeEvent` | v1 | **M0** (적합성 테스트) |
 | 투영 | `createProjection` | v1 | **M0** |
 | WorldData `data` 로드 | `init.world` | v1 | **M0** 저장, **M1** 렌더 |
-| WorldData `url` / `procedural` | `init.world` | v1 | `url` **M1**, `procedural` M2b |
+| WorldData `url` / `procedural` | `init.world` | v1 | `url` **M1**, `procedural` **M2b** (생성기 C++ 포팅 + 적합성 픽스처) |
 | 카메라 + 제스처 | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow`는 M3) |
 | 구독 | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`, 나머지 토픽 M3 |
 | 건물: 돌출, 외벽, 지붕, 매스 | `setTheme`, `setBuildingStyle` | v1 | **M2a** 돌출·테마 색·색/점령 덮어쓰기, M2c 외벽·지붕·매스·모델 교체 |
@@ -187,10 +187,10 @@ M2c에서 공식 SDK의 커스텀 렌더 레이어(iOS `MLNCustomStyleLayer`는 
 ### 마일스톤
 
 - **M0 기반** (완료): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
-- **M1 지도가 화면에** (완료): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷·`procedural` 월드는 뒤로 미룸
+- **M1 지도가 화면에** (완료): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷은 뒤로 미룸 (`procedural` 월드는 M2b에서 추가)
 - **M2 디오라마 룩**: 공식 SDK 위에서 세 단계로 나눠 진행
   - **M2a** (완료, 현재): `ThemeResolver`, `fill-extrusion` 3D 건물, 시간대 조명과 틴트, `setTheme` 페인트 패치, `setBuildingStyle`(색, 점령), 렌더된 피처 조회로 탭 판정, 지도 UI, 오버레이 앵커
-  - **M2b**: 코어가 움직이는 네이티브 뷰 풀 라벨(`labelsIndex`, `setLabels`, `setLabelContent`)과 `procedural` 월드(engine-web 생성기 C++ 포팅)
+  - **M2b**: 코어가 움직이는 네이티브 뷰 풀 라벨(`labelsIndex`, `setLabels`, `setLabelContent`)과 `procedural` 월드(engine-web 생성기 C++ 포팅, **완료**)
   - **M2c**: 커스텀 렌더 레이어로 지붕·외벽·외곽선·매스·모델 교체, ID 버퍼 픽킹, 시네마틱 그레이딩
   - **대안**: 커스텀 레이어로 안 될 때만 포크 + 패치 큐(`maprama` 레이어 타입, CI 산출물)와 `mbgl` 기반 `MapAdapter`
 - **M3 게임 시스템**: cgltf 스키닝, `CharacterSystem`과 위치 소스, `TravelPlanner`(A*, 지하철 확장), 드롭, 지오펜스, 나머지 이벤트

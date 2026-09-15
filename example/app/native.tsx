@@ -16,7 +16,17 @@ import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, useEventLog } from '../src/components/ui';
 import { SAMPLE_BUILDING, SEONGSU_WORLD, STATION, STATION_NAME, offsetMeters } from '../src/data/seongsu';
 
-const WORLD: WorldSource = { kind: 'data', world: SEONGSU_WORLD };
+// World sources (the web catalog's world screen is the reference): the bundled Seongsu data or a world the
+// C++ core generates with its port of engine-web's procedural generators (same seed -> same world).
+const SOURCES = ['data', 'town', 'grid'] as const;
+type SourceChoice = (typeof SOURCES)[number];
+const PROCEDURAL_SEED = 7;
+const WORLDS: Record<SourceChoice, WorldSource> = {
+  data: { kind: 'data', world: SEONGSU_WORLD },
+  town: { kind: 'procedural', layout: 'town', seed: PROCEDURAL_SEED },
+  grid: { kind: 'procedural', layout: 'grid', seed: PROCEDURAL_SEED },
+};
+const SOURCE_LABELS: Record<SourceChoice, string> = { data: 'data (Seongsu)', town: 'procedural town', grid: 'procedural grid' };
 const STATION_CARD = 'station-card';
 const CAPTURED_COLOR = '#FF8800';
 
@@ -33,10 +43,17 @@ const PRESETS: { id: string; title: string; camera: CameraSpec }[] = [
 const fixed = (value: number, digits: number) => value.toFixed(digits);
 
 export default function NativeEngineScreen() {
+  const [source, setSource] = useState<SourceChoice>('data');
+  // `world` is read at init: a new source remounts the screen, so the map, its subscriptions and readouts start fresh.
+  return <NativeEngineWorld key={source} source={source} onSourceChange={setSource} />;
+}
+
+function NativeEngineWorld({ source, onSourceChange }: { source: SourceChoice; onSourceChange: (choice: SourceChoice) => void }) {
+  const real = source === 'data';
   const mapRef = useRef<MapramaViewRef>(null);
   const camera = useCameraState(mapRef, { throttleMs: 100 });
   const [projection, setProjection] = useState('project: not run yet');
-  const [preset, setPreset] = useState<PresetName>('realistic');
+  const [preset, setPreset] = useState<PresetName>(real ? 'realistic' : 'toy');
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>('day');
   const [picked, setPicked] = useState('picked: none');
   const [mapPress, setMapPress] = useState('map:press: none yet');
@@ -97,10 +114,11 @@ export default function NativeEngineScreen() {
         <DemoMap
           engine="native"
           mapRef={mapRef}
-          world={WORLD}
+          world={WORLDS[source]}
           theme={{ base: preset, timeOfDay }}
           ui={{ zoomButtons: true }}
-          camera={{ center: STATION, pitch: 45, distance: 400 }}
+          // Procedural worlds keep the default framing (the generator's start point, like engine-web).
+          camera={real ? { center: STATION, pitch: 45, distance: 400 } : { pitch: 45, distance: 400 }}
           onReady={(e) => pushLog(`ready: ${e.engine.name} ${e.engine.version} (${e.engine.kind})`)}
           onError={(e) => pushLog(`error ${e.code}: ${e.message}`)}
           onPress={(e) => {
@@ -112,14 +130,16 @@ export default function NativeEngineScreen() {
             pushLog(`building:press ${e.buildingId}`);
           }}
         >
-          <MapOverlay id={STATION_CARD} coordinate={STATION} anchor="bottom" offset={{ x: 0, y: -10 }} pointerEvents="none">
-            <View style={styles.card}>
-              <Text testID="native-overlay-card" style={styles.cardTitle}>
-                {STATION_NAME} Station
-              </Text>
-              <Text style={styles.cardText}>MapOverlay · native engine</Text>
-            </View>
-          </MapOverlay>
+          {real ? (
+            <MapOverlay id={STATION_CARD} coordinate={STATION} anchor="bottom" offset={{ x: 0, y: -10 }} pointerEvents="none">
+              <View style={styles.card}>
+                <Text testID="native-overlay-card" style={styles.cardTitle}>
+                  {STATION_NAME} Station
+                </Text>
+                <Text style={styles.cardText}>MapOverlay · native engine</Text>
+              </View>
+            </MapOverlay>
+          ) : null}
         </DemoMap>
       }
     >
@@ -157,13 +177,14 @@ export default function NativeEngineScreen() {
           <Button
             testID="native-pick-building"
             title={`Pick sample building${SAMPLE_BUILDING ? ` (${SAMPLE_BUILDING.name})` : ''}`}
-            disabled={!SAMPLE_BUILDING}
+            disabled={!SAMPLE_BUILDING || !real}
             onPress={pickBuilding}
           />
-          <Button testID="native-reset-building" title="Reset style" onPress={resetBuilding} />
+          <Button testID="native-reset-building" title="Reset style" disabled={!real} onPress={resetBuilding} />
           <Button
             testID="native-station-view"
             title="Station view"
+            disabled={!real}
             onPress={() => {
               mapRef.current?.setCamera({ center: STATION, distance: 300, pitch: 50, bearing: 0, animate: true });
               pushLog('setCamera: station view');
@@ -179,6 +200,14 @@ export default function NativeEngineScreen() {
         <Chips label="Preset" options={PRESET_NAMES} value={preset} onChange={setPreset} testIDPrefix="native-theme" />
         <Chips label="Time of day" options={TIMES_OF_DAY} value={timeOfDay} onChange={setTimeOfDay} testIDPrefix="native-time" />
         <Readout testID="native-theme-state">{`theme: ${preset} · ${timeOfDay}`}</Readout>
+      </Section>
+      <Section title="World source (init.world)">
+        <Chips options={SOURCES} value={source} onChange={onSourceChange} testIDPrefix="native-world" labels={SOURCE_LABELS} />
+        <Readout testID="native-world-state">
+          {real
+            ? `world: data (Seongsu OSM sample, ${SEONGSU_WORLD.buildings.length} buildings)`
+            : `world: procedural ${source}, seed ${PROCEDURAL_SEED} (generated by the C++ core)`}
+        </Readout>
       </Section>
       <Section title="Events">
         <EventLog lines={log} testID="native-log" />

@@ -118,8 +118,19 @@ class MapSession {
     json::Value initMsg;
   };
 
-  void loadWorldValue(const json::Value& worldData, const json::Value& initMsg, const std::string& url);
-  void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg);
+  /// What a generated (`procedural`) world carries beyond WorldData (DESIGN.md §6.8).
+  struct WorldExtras {
+    /// engine-web `world.start`: the default camera target (WorldData worlds use the plaza / bounds centre).
+    std::optional<WorldPoint> start;
+    /// Palette index per `WorldData::buildings` entry (engine-web keeps the generator's `ci`).
+    std::vector<std::uint32_t> palette;
+  };
+
+  /// `init` with `world.kind = "procedural"`: generate (ProceduralWorld.hpp), convert to WorldData, load.
+  void loadProceduralWorld(const json::Value& source, const json::Value& initMsg);
+  void loadWorldValue(const json::Value& worldData, const json::Value& initMsg, const std::string& url,
+                      const WorldExtras& extras = {});
+  void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg, const WorldExtras& extras);
   void setThemeState(const json::Value& themeSpec);
   void setUiState(const json::Value& uiSpec);
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.

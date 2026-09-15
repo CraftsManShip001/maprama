@@ -81,10 +81,12 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
   const Value fixture = maprama::test::loadFixture(ctx, "decode-command.json");
   std::set<std::string> exercised;
   std::uint64_t seq = 10;
+  std::string dataInit;  // the `init` sample with the inline world (building "b1")
   for (const Value& c : fixture.find("cases")->items()) {
     if (!c.find("ok")->asBool()) continue;
     const std::string& name = c.find("name")->asString();
     if (name.find(": valid") == std::string::npos) continue;
+    if (name.rfind("init: valid", 0) == 0) dataInit = c.find("input")->asString();
     const std::string& type = c.find("type")->asString();
     exercised.insert(type);
 
@@ -111,17 +113,22 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
         }
       }
       ctx.check(ok, "[" + name + "] request -> " + expectedCode + " response");
-    } else if (name.rfind("init_url", 0) == 0 || name.rfind("init_procedural", 0) == 0) {
-      // url worlds are fetched by the platform adapter (none attached here); procedural worlds are not in M1.
-      const bool url = name.rfind("init_url", 0) == 0;
+    } else if (name.rfind("init_url", 0) == 0) {
+      // url worlds are fetched by the platform adapter (none attached here).
       bool ok = newEvents == 1;
       if (ok) {
         Value e = sink->eventMsg(eventsBefore);
         ok = e.find("type")->asString() == "error" && e.find("fatal")->asBool() &&
-             e.find("code")->asString() == (url ? "world_load_failed" : "unsupported");
+             e.find("code")->asString() == "world_load_failed";
       }
-      ctx.check(ok, "[" + name + "] -> fatal " + (url ? std::string("world_load_failed") : std::string("unsupported")) +
-                        " error");
+      ctx.check(ok, "[" + name + "] -> fatal world_load_failed error");
+    } else if (name.rfind("init_procedural", 0) == 0) {
+      // M2b: the core generates the world (no event without subscriptions); the inline-data world is then
+      // restored because the commands that follow target its building "b1".
+      ctx.check(newEvents == 0 && engine->worldStore().loaded() &&
+                    engine->worldStore().world()->name == "Procedural town",
+                "[" + name + "] generates and loads the procedural world without events");
+      if (!dataInit.empty()) engine->postMessage(dataInit);
     } else if (type == "setCamera" || (type == "unsubscribe" && topic && topic->asString() == "camera:change")) {
       // Handled by the M1 session: no warning, and no event without a camera:change subscription.
       ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");

@@ -57,7 +57,8 @@ for (const required of [
   'response:error:not_ready',
   'error:invalid_message',
   'error:world_load_failed',
-  'error:unsupported',
+  // 'error:unsupported' is gone since M2b: procedural worlds were its last source (decodeCommand rejects
+  // every other world kind).
   'error:unknown_building',
   'error:not_ready',
 ]) {
