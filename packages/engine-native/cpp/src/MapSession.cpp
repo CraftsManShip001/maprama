@@ -584,6 +584,13 @@ void MapSession::setLabelContent(const Value& entries) {
   pump();
 }
 
+void MapSession::setNameTags(std::vector<NameTag> tags) {
+  if (tags.empty() && labels_.nameTags().empty()) return;
+  if (labels_.setNameTags(std::move(tags))) requestLabelSizes();
+  tagsDirty_ = true;
+  pumpLabels();
+}
+
 void MapSession::setUiState(const Value& uiSpec) {
   // engine-web replaces the whole ui object (`this.ui = {...cmd.ui}`): absent fields are off.
   ui_ = MapUiSpec{};
@@ -878,8 +885,11 @@ void MapSession::requestLabelSizes() {
 void MapSession::pumpLabels() {
   // Synchronous on every change (camera reports arrive once per rendered frame), so the cards follow the
   // map without a projection round trip; the frame is only sent when it differs from the last one.
-  if (!labelsDirty_ || !viewReady()) return;
+  if (!(labelsDirty_ || tagsDirty_) || !viewReady()) return;
+  const auto started = std::chrono::steady_clock::now();
+  const bool full = labelsDirty_ || !worldReady_;
   labelsDirty_ = false;
+  tagsDirty_ = false;
   LabelFrame frame;
   if (worldReady_) {
     const WorldData& w = *world_.world();
@@ -893,12 +903,44 @@ void MapSession::pumpLabels() {
     in.target = world_.projection()->toWorld(state_.center);
     in.night = theme_.time.lights > 0.8;  // engine-web `params.lights > 0.8`
     in.groundY = labelGroundY_;
-    frame = labels_.layout(in);
+    in.zoomOut = zoomOutFactor(theme_.zoomOut, in.distanceUnits);
+    if (full) labelOnly_ = labels_.layout(in);
+    frame = labelOnly_;
+    std::vector<LabelCard> tags = labels_.layoutTags(in);  // after the labels: drawn on top (engine-web DOM order)
+    frame.cards.insert(frame.cards.end(), std::make_move_iterator(tags.begin()), std::make_move_iterator(tags.end()));
+  } else {
+    labelOnly_ = LabelFrame();
   }
+  recordLabelPass(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(), !full);
   if (labelFrameSent_ && sameLabelFrame(frame, labelFrame_)) return;
   labelFrame_ = std::move(frame);
   labelFrameSent_ = true;
   adapter_->setLabelFrame(labelFrame_);
+}
+
+void MapSession::recordLabelPass(double ms, bool tagsOnly) {
+  for (LabelPlacementStats* st : {&labelStats_, &labelWindow_}) {
+    ++st->passes;
+    if (tagsOnly) ++st->tagPasses;
+    st->totalMs += ms;
+    st->maxMs = std::max(st->maxMs, ms);
+  }
+  // Every 5 s of activity: the per-pass cost on the thread that placed them (the platform logs it; DESIGN.md §8).
+  const double now = clock_();
+  if (labelWindowStartMs_ < 0) labelWindowStartMs_ = now;
+  if (now - labelWindowStartMs_ < 5000.0) return;
+  const auto fixed = [](double v, int digits) {
+    std::string out = std::to_string(v);
+    const std::size_t dot = out.find('.');
+    return dot == std::string::npos ? out : out.substr(0, dot + 1 + static_cast<std::size_t>(digits));
+  };
+  const LabelPlacementStats& w = labelWindow_;
+  log(LogLevel::Info, "engine-native: label placement " + std::to_string(w.passes) + " passes (" + std::to_string(w.tagPasses) +
+                          " name-tag only) in " + fixed((now - labelWindowStartMs_) / 1000.0, 1) + " s: avg " +
+                          fixed(w.totalMs / static_cast<double>(w.passes), 3) + " ms, max " + fixed(w.maxMs, 3) + " ms (" +
+                          std::to_string(labelFrame_.cards.size()) + " cards)");
+  labelWindow_ = LabelPlacementStats();
+  labelWindowStartMs_ = now;
 }
 
 void MapSession::pumpOverlay(double now, double* nextDelay) {

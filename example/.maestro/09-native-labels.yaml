@@ -1,10 +1,12 @@
-# Native engine (M2b): labels drawn as native views from the core's placement. The station's subway POI gets
-# a holo card (accessibility label "name, type"), labelsIndex reports the Seongsu labels, custom content
-# (a content function -> setLabelContent) replaces the card text, the app style shows labels, and
-# `enabled: false` hides them all.
+# Native engine labels (M2b): labels drawn as native views from the core's placement. On the Seongsu data the
+# station's subway POI gets a holo card (accessibility label "name, type"), labelsIndex reports the Seongsu labels,
+# a label content function (-> setLabelContent) replaces the card text, the app style shows labels and
+# `enabled: false` hides them all. The procedural town (seed 7) reports engine-web's labels of the generated
+# world and shows holo cards; the M3a screen shows the characters' name tags (accessibility id
+# `maprama-label-tag:<character id>`).
 # The control panel is scrolled by short, slow swipes inside it (a swipe at the screen centre pans the map).
 appId: dev.maprama.catalog
-name: Native engine M2b labels (holo, custom content, app style, off)
+name: Native engine labels (holo, custom content, app style, off, procedural town, name tags)
 tags:
   - native
 ---
@@ -24,7 +26,7 @@ tags:
     timeout: 20000
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: screenshots/native-m2b-holo
+- takeScreenshot: screenshots/native-labels-holo
 - repeat:
     while:
       notVisible:
@@ -53,7 +55,7 @@ tags:
     visible:
       text: "성수 ★, 지하철 · custom"
     timeout: 20000
-- takeScreenshot: screenshots/native-m2b-custom
+- takeScreenshot: screenshots/native-labels-custom
 # App style (map-app labels with POI badges and road names along the roads).
 - tapOn:
     id: "native-labels-content-nameAndType"
@@ -74,7 +76,7 @@ tags:
     text: "성수 ★.*"
 - waitForAnimationToEnd:
     timeout: 3000
-- takeScreenshot: screenshots/native-m2b-app
+- takeScreenshot: screenshots/native-labels-app
 # Labels off: every card is gone.
 - tapOn:
     id: "native-labels-enabled"
@@ -88,5 +90,71 @@ tags:
     notVisible:
       id: "maprama-label-.*"
     timeout: 20000
+- assertNotVisible:
+    text: "engine error.*"
+# Procedural town (seed 7): the screen remounts with the generated world and default labels (holo, on); the core
+# emits engine-web's labelsIndex of that world (87 labels) and places holo cards at the start framing.
+- repeat:
+    while:
+      notVisible:
+        id: "native-world-town"
+    times: 20
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- tapOn:
+    id: "native-world-town"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "engine-status"
+      text: "engine ready"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "maprama-label-.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-labels-town
+- repeat:
+    while:
+      notVisible:
+        id: "native-labels-index"
+    times: 20
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- extendedWaitUntil:
+    visible:
+      id: "native-labels-index"
+      text: "labelsIndex: 87 labels \\(12 POIs, 75 roads / districts\\)"
+    timeout: 20000
+- assertNotVisible:
+    text: "engine error.*"
+# Name tags (M3a screen): the player "Traveller" stands at the start (32 world units from the camera, within the
+# 95-unit tag range); its tag is a label view above the character.
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native-game
+- extendedWaitUntil:
+    visible:
+      id: "native-game-walker"
+      text: "walker: [0-9].*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "maprama-label-tag:me"
+    timeout: 20000
+- assertVisible:
+    text: "Traveller"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-labels-name-tags
 - assertNotVisible:
     text: "engine error.*"

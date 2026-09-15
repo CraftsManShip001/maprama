@@ -404,7 +404,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
       const auto n = static_cast<jsize>(items.size());
       jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
       std::vector<jint> ints;
-      ints.reserve(items.size() * 4);
+      ints.reserve(items.size() * 5);
       for (jsize i = 0; i < n; ++i) packContent(env, strings, i, ints, items[static_cast<std::size_t>(i)]);
       jintArray intArray = env->NewIntArray(static_cast<jsize>(ints.size()));
       env->SetIntArrayRegion(intArray, 0, static_cast<jsize>(ints.size()), ints.data());
@@ -421,7 +421,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
       jobjectArray keys = env->NewObjectArray(n, stringClass_, nullptr);
       jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
       std::vector<jint> ints;
-      ints.reserve(frame.cards.size() * 4);
+      ints.reserve(frame.cards.size() * 5);
       std::vector<jdouble> numbers;
       numbers.reserve(frame.cards.size() * 10);
       for (jsize i = 0; i < n; ++i) {
@@ -452,11 +452,13 @@ class JniMapAdapter final : public maprama::MapAdapter {
     setString(env, strings, index * 3, c.title);
     setString(env, strings, index * 3 + 1, c.subtitle);
     setString(env, strings, index * 3 + 2, c.accessibilityLabel);
-    const jint flags = (c.water ? 1 : 0) | (c.arterial ? 2 : 0) | (c.showIcon ? 4 : 0) | (c.showSubtitle ? 8 : 0) | (c.custom ? 16 : 0);
+    const jint flags = (c.water ? 1 : 0) | (c.arterial ? 2 : 0) | (c.showIcon ? 4 : 0) | (c.showSubtitle ? 8 : 0) |
+                       (c.custom ? 16 : 0) | (c.player ? 32 : 0);
     ints.push_back(static_cast<jint>(c.visual));
     ints.push_back(static_cast<jint>(c.kind));
     ints.push_back(flags);
     ints.push_back(static_cast<jint>(c.icon));
+    ints.push_back(static_cast<jint>(c.color & 0xFFFFFFu));
   }
 
   template <class F>

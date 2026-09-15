@@ -18,8 +18,8 @@
  *                        game logic (M3 core) from engine-web's TypeScript sources, written by
  *                        scripts/export-game-fixtures.mjs (run through tsx, see the last section)
  * - labels.json          engine-web's label rules (src/labels/index.ts): label entries + labelsIndex payloads of
- *                        the sample worlds (Seongsu included), content modes, HUD exclusions, holo placement,
- *                        visibility and clamping samples (DESIGN.md §6.5)
+ *                        the sample worlds (Seongsu included) and of generated town / grid worlds, content
+ *                        modes, HUD exclusions, holo placement, visibility and clamping samples (DESIGN.md §6.5)
  *
  * Run `npm run build -w @maprama/protocol` and `npm run build -w @maprama/engine-web` first (the root
  * `npm run build` does both).
@@ -737,6 +737,14 @@ const labelWorlds = [
 if (existsSync(seongsuPath)) {
   labelWorlds.push(labelWorld('tools/osm/samples/seongsu.world.json', JSON.parse(readFileSync(seongsuPath, 'utf8')), seongsuPath));
 }
+
+/** engine-web's label entries of a generated world (`init.world.kind = "procedural"`): districts, road anchors, POIs. */
+function labelProcedural(layout, seed) {
+  const model = (layout === 'town' ? W.buildTownWorld : W.buildGridWorld)(seed);
+  const entries = WL.buildLabelEntries(model, W.projectionFor(model));
+  return { name: `procedural ${layout} seed ${seed}`, procedural: { layout, seed }, entries, infos: entries.map(WL.toLabelInfo) };
+}
+labelWorlds.push(labelProcedural('town', 42), labelProcedural('town', 7), labelProcedural('grid', 7));
 
 const hostContent = {
   'poi:poi-cafe': { title: '오늘의 카페', subtitle: '영업 중 · 22시까지', icon: 'music' },

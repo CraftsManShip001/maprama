@@ -114,7 +114,7 @@ import '@maprama/engine-native';
 | 이벤트 | `ready`, `camera:change` (구독 + `throttleMs`), `project`/`unproject`·`snapToRoad`/`route` 응답, `map:press`·`building:press` (렌더된 피처 조회), `overlay:positions` (화면이 바뀌는 동안 16 ms 프레임당 최대 한 번), `character:position`·`travel:*`·`drop:collect`·`geofence:*` |
 | 지도 UI | `setUi`: 축척 막대, 줌 버튼 + 나침반, 출처 표시, 위치 퍽(플레이어 아래 점 + 정확도 원) |
 | 게임 시스템 (M3a) | C++ `GameSession`이 engine-web과 같은 규칙으로 캐릭터(병합·`null` 초기화·플레이어 1명), 위치 소스(`simulated` 데모 루프, `external` `pushLocation`, `device`는 iOS CoreLocation / Android `LocationManager` — 권한 요청은 앱 몫, 없으면 `location_unavailable`), 이동(`travel`/`cancelTravel`, `timeScale`, `travel:progress` 스로틀), 드롭 수집(`drop:collect`), 지오펜스 진입/이탈을 처리합니다. 무언가 움직이거나 3D 모델이 화면에 있는 동안(대기 클립·드롭 흔들림) `scheduleFrame`으로 16 ms마다 틱을 돌리고, 바뀐 GeoJSON 소스만 `setSourceData`로 보냅니다 |
-| 게임 시각화 (M3a) | MapLibre 스타일 레이어: 플레이어 경로 선(모드별 색) + 목적지 핀, 지오펜스 채움(7 %) + 링, 위치 퍽. 지면 레이어(지오펜스·경로·퍽 정확도 원)는 3D 건물과 커스텀 레이어 아래, 목적지 핀·퍽 점은 위. 이름표는 M2b 라벨 뷰 풀 |
+| 게임 시각화 (M3a) | MapLibre 스타일 레이어: 플레이어 경로 선(모드별 색) + 목적지 핀, 지오펜스 채움(7 %) + 링, 위치 퍽. 지면 레이어(지오펜스·경로·퍽 정확도 원)는 3D 건물과 커스텀 레이어 아래, 목적지 핀·퍽 점은 위. 이름표는 M2b 라벨 뷰(캐릭터를 따라가는 네이티브 카드) |
 | 3D 모델 (M3b) | 캐릭터·탈것·드롭이 커스텀 레이어의 두 번째 패스에서 fill-extrusion 벽과 깊이를 공유하는 3D 모델로 그려집니다(건물 뒤에 가려짐). glTF 2.0 / GLB는 코어가 cgltf(v1.15, MIT)로 워커 스레드에서 읽고(`data:` URI, 그 밖의 URL은 플랫폼 `fetchBinary`, 외부 버퍼·이미지 포함), 기본색 텍스처는 ImageIO / BitmapFactory로 디코딩. 노드 애니메이션과 스킨은 하나의 조인트 팔레트(최대 64, 영향 4개)로 GPU 스키닝, 클립 `idle/walk/run/ride/wave` 매칭·케이던스는 engine-web `chooseAnimation`/`clipTimeScale` 포팅, 전환은 150 ms 크로스페이드(three.js `AnimationMixer`와 적합성 테스트). 모델이 없거나 로드 실패(`model_load_failed`, Draco·meshopt 압축 포함)면 engine-web의 절차적 몸체, 자전거·자동차·비행기·지하철 탈것, 코인·보석·CD·LP·음표·glTF 드롭(흔들림·회전·수집 팝·희귀도 빔·링). 외곽선·실루엣·음표 스프라이트는 아직 없음 |
 | 그 밖 | 라벨(`setLabels`, `setLabelContent`, `labelsIndex`)은 M2b |
 
@@ -177,11 +177,11 @@ M2c에서 공식 SDK의 커스텀 렌더 레이어(iOS `MLNCustomStyleLayer`는 
 | 구독 | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`, 나머지 토픽 **M3a** |
 | 건물: 돌출, 외벽, 지붕, 매스 | `setTheme`, `setBuildingStyle` | v1 | **M2a** 돌출·테마 색·색/점령 덮어쓰기, **M2c** 박공·돔·평지붕, 창문·상점 외벽, 외벽 디테일, 점령 깃발(커스텀 레이어), M4 다양한 매스·장식·모델 교체 |
 | 테마 + 시간대 + 시네마틱 | `setTheme` | v1 | **M2a** 해석·색·조명·시간대 틴트, **M2c** 외곽선·밤 창문 불빛, M4 시네마틱 그레이딩 |
-| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
+| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | **M2b** 코어 배치 + 네이티브 뷰(`holo`·`app`·`minimal`·`clean`·`sticker`), 절차적 월드 라벨, engine-web 줌 아웃 규칙; `ground`/`sign` 3D 라벨은 앱·스티커 뷰로 표시 |
 | 지도 UI | `setUi` | v1 | **M2a** (위치 퍽 **M3a**) |
 | 탭 | `map:press`, `building:press` | v1 | **M2a** |
 | 오버레이 앵커 | `setOverlayAnchors`, `overlay:positions` | v1 | **M2a** |
-| 캐릭터 + 위치 소스 | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** 모든 위치 소스·카메라 추적, **M3b** glTF 캐릭터(GPU 스키닝, 크로스페이드)·절차적 몸체·탈것·`model_load_failed`, M2b 이름표 |
+| 캐릭터 + 위치 소스 | `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `character:position` | v1 | **M3a** 모든 위치 소스·카메라 추적, **M3b** glTF 캐릭터(GPU 스키닝, 크로스페이드)·절차적 몸체·탈것·`model_load_failed`, **M2b** 이름표(라벨 뷰, engine-web 위치 규칙) |
 | 이동 + 경로 | `travel`, `cancelTravel`, `travel:*`, `snapToRoad`, `route` | v1 | **M3a** (경로 선 + 핀 레이어) |
 | 드롭 | `setDropLayer`, `removeDropLayer`, `drop:collect` | v1 | **M3a** 수집 판정, **M3b** 3D 드롭 모델(인스턴싱, 흔들림·회전·수집 팝, 빔·링), 음표 스프라이트는 아직 |
 | 지오펜스 | `setGeofences`, `geofence:*` | v1 | **M3a** (채움 + 링, 펄스 없음) |
@@ -194,11 +194,11 @@ M2c에서 공식 SDK의 커스텀 렌더 레이어(iOS `MLNCustomStyleLayer`는 
 - **M1 지도가 화면에** (완료): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷은 뒤로 미룸 (`procedural` 월드는 M2b에서 추가)
 - **M2 디오라마 룩**: 공식 SDK 위에서 세 단계로 나눠 진행
   - **M2a** (완료): `ThemeResolver`, `fill-extrusion` 3D 건물, 시간대 조명과 틴트, `setTheme` 페인트 패치, `setBuildingStyle`(색, 점령), 렌더된 피처 조회로 탭 판정, 지도 UI, 오버레이 앵커
-  - **M2b**: 코어가 움직이는 네이티브 뷰 풀 라벨(`labelsIndex`, `setLabels`, `setLabelContent`)과 `procedural` 월드(engine-web 생성기 C++ 포팅, **완료**)
+  - **M2b** (완료): 코어가 선택·배치하고 네이티브 뷰 풀이 그리는 라벨(`labelsIndex`, `setLabels`, `setLabelContent`, 캐릭터 이름표, engine-web 줌 아웃 규칙)과 `procedural` 월드(engine-web 생성기 C++ 포팅)
   - **M2c** (완료): 커스텀 렌더 레이어(iOS Metal, Android GL ES 3)로 지붕·외벽·디테일·외곽선·점령 깃발. 다양한 매스·모델 교체·ID 버퍼 픽킹·시네마틱 그레이딩은 M4
   - **대안**: 커스텀 레이어로 안 될 때만 포크 + 패치 큐(`maprama` 레이어 타입, CI 산출물)와 `mbgl` 기반 `MapAdapter`
 - **M3 게임 시스템**
   - **M3-core** (완료): engine-web 게임 로직의 순수 C++ 포팅 — 평면 도로 그래프 위 다익스트라 경로(지하철은 양 끝에서 가장 가까운 역 사이 구간, 별도 역 그래프 없음), 위치 스무딩, 드롭 수집, 지오펜스 판정. 픽스처 적합성 테스트
   - **M3a** (완료): `GameSession`으로 모든 M3 명령·이벤트·요청을 engine-web과 같은 의미로 연결, GeoJSON 스타일 레이어 시각화, 기기 위치 피드, 카메라 추적
-  - **M3b** (완료, 현재): 커스텀 레이어의 두 번째 패스로 glTF 캐릭터(cgltf, GPU 스키닝, 150 ms 크로스페이드)·절차적 몸체·탈것·3D 드롭 모델, 건물과 깊이 공유. 이름표는 M2b 라벨 뷰 풀
+  - **M3b** (완료, 현재): 커스텀 레이어의 두 번째 패스로 glTF 캐릭터(cgltf, GPU 스키닝, 150 ms 크로스페이드)·절차적 몸체·탈것·3D 드롭 모델, 건물과 깊이 공유. 이름표는 M2b 라벨 뷰(캐릭터를 따라가는 네이티브 카드)
 - **M4 동등성과 성능**: 줌아웃 게임 뷰, [성능 예산](./performance#v2-네이티브-엔진-예산) 기기 측정, RN 예제 앱으로 웹·네이티브 나란히 매트릭스 전부 통과, `engine="native"` 베타

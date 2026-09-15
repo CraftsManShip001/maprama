@@ -14,6 +14,7 @@
 #include "maprama/LabelIcons.hpp"
 #include "maprama/LabelSystem.hpp"
 #include "maprama/MapLook.hpp"
+#include "maprama/ProceduralWorld.hpp"
 #include "maprama/WorldStore.hpp"
 #include "harness.hpp"
 #include "map_harness.hpp"
@@ -32,6 +33,14 @@ bool near(double a, double b, double tol = 1e-9) { return std::fabs(a - b) <= to
 
 std::unique_ptr<mp::WorldStore> loadLabelWorld(const Value& worldCase) {
   auto store = mp::createWorldStore();
+  if (const Value* procedural = worldCase.find("procedural")) {
+    // A generated world, loaded the way `init {world: {kind: "procedural"}}` loads it (MapSession).
+    const auto layout = mp::parseEnum<mp::ProceduralLayout>(procedural->find("layout")->asString());
+    const mp::ProceduralWorld world = mp::buildProceduralWorld(*layout, procedural->find("seed")->asNumber());
+    mp::Result<mp::WorldLoadReport> r = store->load(mp::proceduralWorldData(world));
+    if (!r.ok()) throw std::runtime_error("procedural label world failed to load: " + r.error);
+    return store;
+  }
   const Value* inlineWorld = worldCase.find("world");
   mp::Result<mp::WorldLoadReport> r = inlineWorld != nullptr
                                           ? store->load(*inlineWorld)
@@ -480,6 +489,215 @@ MAPRAMA_TEST(labels_session_flow) {
   const std::size_t before2 = h.sink->events.size();
   h.send(initMsg(dataWorld(ctx)));
   ctx.check(countEvents(h, "labelsIndex", before2) == 1, "every world load emits labelsIndex");
+  ctx.check(h.sink->errors() == 0, "no error logs");
+  appendEmitted(ctx, *h.sink);
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Procedural worlds, name tags and the zoom-out rules
+// ---------------------------------------------------------------------------------------------------------
+
+MAPRAMA_TEST(procedural_world_labels_match_engine_web) {
+  // labels_index_matches_engine_web compares every entry of the generated worlds; here the session path:
+  // `init {world: {kind: "procedural"}}` emits the same labelsIndex and places holo cards.
+  const Value fixture = maprama::test::loadFixture(ctx, "labels.json");
+  std::size_t cases = 0;
+  for (const Value& wc : fixture.find("worlds")->items()) {
+    const Value* procedural = wc.find("procedural");
+    if (procedural == nullptr) continue;
+    ++cases;
+    const std::string name = wc.find("name")->asString();
+    const auto& infos = wc.find("infos")->items();
+    std::size_t districts = 0, pois = 0;
+    for (const Value& info : infos) {
+      districts += str(info.find("kind")) == "district" ? 1 : 0;
+      pois += str(info.find("kind")) == "poi" ? 1 : 0;
+    }
+    ctx.check(districts > 0 && pois > 0, "[" + name + "] engine-web labels districts and POIs (" + std::to_string(districts) + ", " +
+                                             std::to_string(pois) + ")");
+    Harness h;
+    std::size_t answered = 0;
+    h.send(initMsg(Value::object({{"kind", "procedural"}, {"layout", procedural->find("layout")->asString()}, {"seed", procedural->find("seed")->asNumber()}})));
+    const auto index = h.sink->eventsOfType("labelsIndex");
+    bool same = index.size() == 1 && index[0].find("labels")->items().size() == infos.size();
+    for (std::size_t i = 0; same && i < infos.size(); ++i) same = nearJson(index[0].find("labels")->items()[i], infos[i]);
+    ctx.check(same, "[" + name + "] init emits engine-web's labelsIndex (" + std::to_string(infos.size()) + " labels)");
+    answerMeasures(h, answered);
+    // Over the first district (the default framing targets the generator's start, which may have no label nearby).
+    for (const Value& info : infos) {
+      if (str(info.find("kind")) != "district") continue;
+      const Value* ll = info.find("lngLat");
+      h.send(setCameraMsg(Value::object({{"center", lngLat(num(ll->find("lng")), num(ll->find("lat")))},
+                                         {"distance", 60 * h.engine->worldStore().world()->unitMeters},
+                                         {"pitch", 45}})));
+      break;
+    }
+    answerMeasures(h, answered);
+    bool district = false;
+    if (!h.adapter->labelFrames.empty()) {
+      for (const mp::LabelCard& c : h.adapter->labelFrames.back().cards) district = district || c.content.kind == mp::LabelKind::District;
+    }
+    ctx.check(district, "[" + name + "] a district holo card placed over the district (" +
+                            std::to_string(h.adapter->labelFrames.empty() ? 0 : h.adapter->labelFrames.back().cards.size()) + " cards)");
+    ctx.check(h.sink->errors() == 0, "[" + name + "] no error logs");
+    appendEmitted(ctx, *h.sink);
+  }
+  ctx.check(cases == 3, "labels.json has the generated town / grid worlds");
+}
+
+MAPRAMA_TEST(name_tag_anchor_and_zoom_out_factor_match_engine_web) {
+  // engine-web characters.test.ts `nameTagAnchor` cases.
+  const auto same = [](const mp::NameTagOffset& a, double dx, double dy, double dz) {
+    return near(a.dx, dx, 1e-9) && near(a.dy, dy, 1e-9) && near(a.dz, dz, 1e-9);
+  };
+  constexpr double kPi = 3.14159265358979323846;
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Walk, 1.2), 0, 2.3, 0), "walk: 2.3 above the root");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Bike, 1.2), 0, 2.3, 0), "bike: 2.3 above the root");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Car, 1.2), 0, 2.0, 0), "car: just above the roof (2.0)");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Walk, 0, 2), 0, 4.6, 0), "scaled by the character scale");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Subway, 0), 0, 1.25, -2.2), "subway facing +z: over the middle car behind");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Subway, kPi / 2), -2.2, 1.25, 0), "subway facing +x");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Subway, 0, 1, 0), 0, 2.3, 0), "subway before the train popped in: on the character");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Plane, 0), 0, 1.69 * 0.9 + 0.3, 0), "plane: just above the tail fin");
+  ctx.check(same(mp::nameTagAnchor(mp::TravelMode::Plane, 0, 1, 0.5), 0, 2.3, 0), "plane below 0.55 pop-in: on the character");
+  // engine-web zoom-out.ts `zoomOutTarget`: smooth01(clamp((d - 55) / 55, 0, 1)), 0 for "none".
+  ctx.check(mp::zoomOutFactor(mp::ZoomOutBehavior::None, 200) == 0.0, "zoomOut none: 0");
+  ctx.check(mp::zoomOutFactor(mp::ZoomOutBehavior::KeepGameView, 55) == 0.0, "0 at 55 units");
+  ctx.check(near(mp::zoomOutFactor(mp::ZoomOutBehavior::KeepGameView, 82.5), 0.5), "0.5 halfway (82.5 units)");
+  ctx.check(mp::zoomOutFactor(mp::ZoomOutBehavior::MapColors, 110) == 1.0 && mp::zoomOutFactor(mp::ZoomOutBehavior::MapColors, 400) == 1.0,
+            "1 from 110 units");
+  const double x = 15.0 / 55.0;
+  ctx.check(near(mp::zoomOutFactor(mp::ZoomOutBehavior::KeepGameView, 70), x * x * (3 - 2 * x)), "smoothstep in between");
+}
+
+namespace {
+
+const mp::LabelCard* findCard(const mp::LabelFrame& frame, const std::string& id) {
+  for (const mp::LabelCard& c : frame.cards) {
+    if (c.id == id) return &c;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+MAPRAMA_TEST(name_tags_session_flow) {
+  Harness h;
+  std::size_t answered = 0;
+  h.send(initMsg(dataWorld(ctx)));
+  answerMeasures(h, answered);
+  const mp::WorldData& world = *h.engine->worldStore().world();
+  const mp::Projection& proj = *h.engine->worldStore().projection();
+  const double unit = world.unitMeters;
+  const mp::WorldPoint base = world.plaza ? *world.plaza : mp::WorldPoint{0, 0};
+  const mp::LngLat at = proj.toLngLat(base);
+  const mp::LngLat npcAt = proj.toLngLat(mp::WorldPoint{base.x + 4, base.z});
+  const auto camera = [&](double units) {
+    h.send(setCameraMsg(Value::object({{"center", lngLat(at.lng, at.lat)}, {"distance", units * unit}, {"pitch", 45}, {"bearing", 0}})));
+  };
+  camera(40);
+  h.send(Value::object({{"type", "upsertCharacters"},
+                        {"characters", Value::array({Value::object({{"id", "me"},
+                                                                   {"isPlayer", true},
+                                                                   {"name", "Traveller"},
+                                                                   {"color", "#E0457B"},
+                                                                   {"showNameTag", true},
+                                                                   {"position", lngLat(at.lng, at.lat)}}),
+                                                     Value::object({{"id", "npc"}, {"showNameTag", true}, {"position", lngLat(npcAt.lng, npcAt.lat)}}),
+                                                     Value::object({{"id", "quiet"}, {"name", "No tag"}, {"position", lngLat(npcAt.lng, npcAt.lat)}})})}}));
+  h.run(48);
+  ctx.check(h.sink->countLogs("showNameTag", mp::LogLevel::Warn) == 0, "showNameTag is no longer warn-logged");
+  answerMeasures(h, answered);
+  h.run(32);
+  const mp::LabelFrame frame = h.adapter->labelFrames.back();
+  const mp::LabelCard* me = findCard(frame, "tag:me");
+  const mp::LabelCard* npc = findCard(frame, "tag:npc");
+  if (!ctx.check(me != nullptr && npc != nullptr, "tags of both showNameTag characters placed")) return;
+  ctx.check(findCard(frame, "tag:quiet") == nullptr, "no tag without showNameTag");
+  ctx.check(me->content.visual == mp::LabelVisual::NameTag && me->content.title == "Traveller" && me->content.player &&
+                me->content.color == 0xE0457Bu && me->content.accessibilityLabel == "Traveller",
+            "the player's tag: its name, filled with its colour");
+  ctx.check(npc->content.title == "npc" && !npc->content.player, "a tag without a name shows the id (white NPC tag)");
+  // The character stands at the view centre: the tag hangs above it (anchor 2.3 units up, CSS translate(-50%, -100%)).
+  ctx.check(near(me->x, 195, 1e-6) && me->y + me->height / 2 < 250 && me->y + me->height / 2 > 150,
+            "the player's tag sits just above the character (bottom at y " + std::to_string(me->y + me->height / 2) + ")");
+  ctx.check(&frame.cards.back() == npc || &frame.cards.back() == me, "tags come after the labels (drawn on top)");
+
+  // Tags are character features: shown with labels off, and they follow the character every tick.
+  h.send(Value::object({{"type", "setLabels"}, {"labels", Value::object({{"enabled", false}})}}));
+  h.run(32);
+  ctx.check(h.adapter->labelFrames.back().cards.size() == 2, "labels off: only the two name tags remain");
+  const double meY = findCard(h.adapter->labelFrames.back(), "tag:me")->y;
+  // Every game tick re-places only the tags (the label layout is reused); the cost is logged every 5 s.
+  h.run(5200);
+  ctx.check(h.sink->countLogs("name-tag only", mp::LogLevel::Info) >= 1, "label placement cost logged with name-tag-only passes");
+
+  // engine-web `updateTags`: hidden 95+ world units from the camera …
+  camera(90);
+  ctx.check(findCard(h.adapter->labelFrames.back(), "tag:me") != nullptr, "90 units away (zoomOut none): shown");
+  camera(100);
+  ctx.check(findCard(h.adapter->labelFrames.back(), "tag:me") == nullptr, "100 units away: hidden");
+  // … and from a 0.6 zoom-out factor on (keepGameView: 0.7 at 90 units).
+  h.send(Value::object({{"type", "setTheme"}, {"theme", Value::object({{"zoomOut", "keepGameView"}})}}));
+  camera(90);
+  ctx.check(findCard(h.adapter->labelFrames.back(), "tag:me") == nullptr, "keepGameView at 90 units (factor 0.7): hidden");
+  camera(60);
+  answerMeasures(h, answered);
+  ctx.check(findCard(h.adapter->labelFrames.back(), "tag:me") != nullptr, "keepGameView at 60 units (factor 0.02): shown");
+  camera(40);
+  ctx.check(near(findCard(h.adapter->labelFrames.back(), "tag:me")->y, meY, 1e-6), "back at 40 units: the same place");
+
+  // showNameTag: false / removal clear the tags.
+  h.send(Value::object({{"type", "upsertCharacters"}, {"characters", Value::array({Value::object({{"id", "npc"}, {"showNameTag", false}})})}}));
+  h.run(32);
+  ctx.check(findCard(h.adapter->labelFrames.back(), "tag:npc") == nullptr && findCard(h.adapter->labelFrames.back(), "tag:me") != nullptr,
+            "showNameTag: false removes that tag only");
+  h.send(Value::object({{"type", "removeCharacters"}, {"ids", Value::array({"me", "npc", "quiet"})}}));
+  h.run(64);
+  ctx.check(h.adapter->labelFrames.back().cards.empty(), "removing the characters clears the tags");
+  ctx.check(h.sink->errors() == 0, "no error logs");
+  appendEmitted(ctx, *h.sink);
+}
+
+MAPRAMA_TEST(zoom_out_rules_for_district_labels) {
+  // engine-web dom-styles.ts: app-style district labels show from a 0.2 zoom-out factor (else beyond 42 units) and
+  // their opacity is min(1, 0.45 + zoomOut). A generated town has districts.
+  Harness h;
+  std::size_t answered = 0;
+  h.send(initMsg(Value::object({{"kind", "procedural"}, {"layout", "town"}, {"seed", 42}}), std::nullopt,
+                 Value::object({{"zoomOut", "keepGameView"}})));
+  h.send(Value::object({{"type", "setLabels"}, {"labels", Value::object({{"style", "app"}})}}));
+  answerMeasures(h, answered);
+  const double unit = h.engine->worldStore().world()->unitMeters;
+  // Over the first district of the labelsIndex (the default framing targets the generator's start).
+  Value center;
+  const std::vector<Value> index = h.sink->eventsOfType("labelsIndex");  // kept alive while iterating
+  if (!ctx.check(!index.empty(), "init emits labelsIndex")) return;
+  for (const Value& info : index.at(0).find("labels")->items()) {
+    if (str(info.find("kind")) == "district") {
+      center = *info.find("lngLat");
+      break;
+    }
+  }
+  if (!ctx.check(center.isObject(), "the generated town has a district label")) return;
+  const auto districtOpacity = [&](double units) -> std::optional<double> {
+    h.send(setCameraMsg(Value::object({{"center", center}, {"distance", units * unit}, {"pitch", 0}})));
+    answerMeasures(h, answered);
+    for (const mp::LabelCard& c : h.adapter->labelFrames.back().cards) {
+      if (c.content.kind == mp::LabelKind::District) return c.opacity;
+    }
+    return std::nullopt;
+  };
+  const std::optional<double> close = districtOpacity(30);
+  ctx.check(!close.has_value(), "30 units, factor 0: no district label (dist ≤ 42)");
+  const std::optional<double> mid = districtOpacity(70);
+  ctx.check(mid.has_value() && near(*mid, 0.45 + mp::zoomOutFactor(mp::ZoomOutBehavior::KeepGameView, 70), 1e-9),
+            "70 units: district opacity 0.45 + zoomOut (" + std::to_string(mid.value_or(-1)) + ")");
+  const std::optional<double> far = districtOpacity(120);
+  ctx.check(far.has_value() && *far == 1.0, "120 units (factor 1): district labels fully opaque");
+  h.send(Value::object({{"type", "setTheme"}, {"theme", Value::object()}}));
+  const std::optional<double> none = districtOpacity(120);
+  ctx.check(none.has_value() && *none == 0.45, "zoomOut none: district labels stay at 0.45");
   ctx.check(h.sink->errors() == 0, "no error logs");
   appendEmitted(ctx, *h.sink);
 }

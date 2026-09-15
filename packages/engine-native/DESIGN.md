@@ -598,7 +598,8 @@ cards, collision culling). The split keeps the adapters thin:
   view, camera `0.5·height / tan(fov/2)` dp from the centre; heights at the centre's ground scale), so holo
   cards float `HOLO_HEIGHT` world units above the ground (district 7, POI 3.6, road 2.8) exactly like
   engine-web. Conformance: `labels.json` is exported from engine-web's own `src/labels/*.ts` (transpiled by
-  `scripts/web-labels.mjs`, engine-web unchanged): entries + `labelsIndex` of four worlds (Seongsu: 78),
+  `scripts/web-labels.mjs`, engine-web unchanged): entries + `labelsIndex` of seven worlds (Seongsu: 78; the
+  generated town seeds 42 / 7: 87 each, grid seed 7: 47),
   every content mode, HUD boxes, 60 random holo placement sets, and the visibility / clamp / rotation /
   upright / tile rules [V: `label_tests.cpp`].
 - **Platform (`ios/MapramaLabelLayer.mm`, `android/…/MapramaLabelLayer.kt`).** Draws the frame's cards with
@@ -614,8 +615,25 @@ cards, collision culling). The split keeps the adapters thin:
   (`currentColor`, accent `var(--c)`, white), plus `ICON_COLORS` and the default subtitles, into
   `cpp/src/LabelIcons.cpp`; `npm test` fails when it drifts from engine-web. Both platforms replay the shapes
   into `CGPath` / `android.graphics.Path` (crisp at any scale, tinted per tile) — no PNGs.
-- **Deferred.** `ground` and `sign` 3D labels (drawn as `app` / `sticker` views until the custom layer, M2c),
-  labels occluded by buildings (views are never depth-tested), the `zoomOut` fade of district labels (M4).
+- **Procedural worlds.** Generated worlds go through the WorldData path (§6.8), so their districts, named roads and
+  POIs are labelled by the same `buildLabelEntries`; the index is fixture-compared with engine-web's own
+  `buildLabelEntries` of `buildTownWorld` / `buildGridWorld` (town 42 / 7, grid 7), and holo ground dots sit at
+  engine-web's `groundYFor(kind)` (0.05 on the grid, 0.09 elsewhere) [V: `label_tests.cpp`].
+- **Character name tags.** `GameSession` sends every tick the anchors of the `showNameTag` characters
+  (`MapSession::setNameTags`): engine-web's `nameTagAnchor` (2.3 · scale above the root, 2.0 in a car, over the
+  plane's tail fin and the subway ghost train's middle car once the vehicle has popped in past 0.55), the text
+  (`name`, else the id) and the player's colour. The label system projects them with the labels: hidden 95+ world
+  units from the camera eye, from a 0.6 zoom-out factor on and over a HUD zone (engine-web `updateTags`); cards
+  `tag:<id>` after the labels (drawn on top), shown whatever the label style (also with labels off), accessibility
+  label = the name. Look = engine-web `.mpr-tag` (white pill with a 1.5 dp ink border, the player's filled with its
+  colour, default #2F5BEA; system rounded bold instead of Jua). A game tick re-places only the tags: the label
+  layout of the last camera change is reused.
+- **Zoom-out rules.** The zoom-out factor is engine-web's `zoomOutTarget` (`smooth01((d − 55) / 55)` of the camera
+  distance in world units, 0 for `zoomOut: "none"`), used without engine-web's `dt · 6` easing (the distance itself
+  moves smoothly): app-style district labels show from 0.2 and fade in (`min(1, 0.45 + zoomOut)`), name tags
+  hide from 0.6. Holo labels have no zoom-out rule in engine-web.
+- **Not done.** `ground` and `sign` 3D labels (drawn as `app` / `sticker` views), labels occluded by buildings
+  (views are never depth-tested).
 
 ### 6.6 Theme application
 
@@ -955,6 +973,7 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | Camera report / viewport / theme / ui change | Labels re-placed synchronously; `setLabelFrame` only when the placement changed |
 | World load, `setTheme`, `setBuildingStyle`, adapter attach | `MapAdapter::setBuildingLayer(data)` after the style, only when the layer content changed |
 | Game tick with characters or drops on screen | `MapAdapter::setModelLayer(frame)`: palettes, instances and draws of every body, vehicle and drop item (one empty frame when the last disappears) |
+| Game tick with `showNameTag` characters | Name tags (`nameTagAnchor`) placed with the labels in the next `setLabelFrame` (cards `tag:<id>`); hidden 95+ units from the camera, from a 0.6 zoom-out factor on, over a HUD zone; one empty update clears them |
 | `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` draws the puck under the player |
 | `upsertCharacters` / `removeCharacters` | Characters created / merged / removed (kept until a world loads); > 1 player → `error {invalid_character, "upsertCharacters: at most one character can be the player (got a, b)"}`; removal cancels trips; `model` loads the glTF (shared by URI, parsed off the lock) and shows it skinned, else the procedural body; a failed load → `error {model_load_failed, "character <id>: failed to load <uri>: <reason>", fatal: false}` |
 | `setLocationSource` / `pushLocation` / device fixes | `simulated` demo loop, `external` fixes, `device` platform feed (`error {location_unavailable, "device geolocation failed: …"}`); smoothed fixes drive `follow: "location"` characters along the roads |

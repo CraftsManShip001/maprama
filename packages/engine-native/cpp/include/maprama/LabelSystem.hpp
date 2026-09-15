@@ -9,6 +9,11 @@
 // transform) so the whole placement runs synchronously on every camera report, and hands the platform
 // a `LabelFrame` of positioned cards that it draws as recycled native views (`MapAdapter::setLabelFrame`).
 // Card sizes come from the platform (`MapAdapter::measureLabels`), cached by content key.
+//
+// Character name tags (engine-web `CharacterManager.updateTags`) are cards of the same frame: the game session
+// hands over each tagged character's anchor (`nameTagAnchor`) every tick, and the layout projects them with
+// the labels (visible within 95 world units of the camera, below a 0.6 zoom-out factor, outside the HUD zones).
+// The zoom-out factor is engine-web's `zoomOutTarget` (0 below 55 world units, 1 at 110+, 0 for `none`).
 #pragma once
 
 #include <cstddef>
@@ -83,6 +88,11 @@ struct ResolvedLabels {
 };
 
 ResolvedLabels resolveLabels(const LabelsSpec& spec);
+/// engine-web `zoomOutTarget`: the zoom-out factor at a camera distance (world units), smoothstepped from 55 to 110
+/// units; 0 for `zoomOut: "none"`. engine-web eases its factor towards this target (`dt · 6`); the core uses the
+/// target itself (the camera distance already moves smoothly).
+double zoomOutFactor(ZoomOutBehavior behavior, double distanceUnits);
+
 /// A decoded `LabelsSpec` object (`checkLabelsSpec` passed).
 LabelsSpec parseLabelsSpec(const json::Value& spec);
 /// `setLabelContent.entries` (`Record<string, LabelContent>`).
@@ -178,6 +188,47 @@ LabelVisual labelVisualFor(LabelStyle style);
 LabelStyle domStyleFor(LabelVisual visual);
 
 // ---------------------------------------------------------------------------------------------------------
+// Character name tags (engine-web `characters.ts`)
+// ---------------------------------------------------------------------------------------------------------
+
+/// Name tag anchor relative to the character root (world units).
+struct NameTagOffset {
+  double dx = 0.0;
+  double dy = 0.0;
+  double dz = 0.0;
+};
+
+/// engine-web `nameTagAnchor`: above the head when walking (2.3 · scale; car 2.0), just above the plane while flying
+/// and above the subway ghost train's middle car (which trails behind the character) once the vehicle has popped
+/// in (`vehicleScale` > 0.55, the vehicle's 0..1 pop-in progress).
+NameTagOffset nameTagAnchor(TravelMode mode, double yaw, double scale = 1.0, double vehicleScale = 1.0);
+
+/// Tags farther than this from the camera (world units), or at a zoom-out factor from this on, are hidden.
+inline constexpr double kNameTagMaxDistance = 95.0;
+inline constexpr double kNameTagMaxZoomOut = 0.6;
+/// engine-web `.mpr-tag.me` default fill.
+inline constexpr std::uint32_t kPlayerTagColor = 0x2F5BEA;
+
+/// One tagged character (what the game session sends every tick).
+struct NameTag {
+  std::string characterId;
+  /// `spec.name`, else the id.
+  std::string text;
+  bool player = false;
+  /// Player tag fill (`spec.color` of the player, else `kPlayerTagColor`).
+  std::uint32_t color = kPlayerTagColor;
+  /// The anchor (character root + `nameTagAnchor`): position and height above the ground plane (world units).
+  LngLat anchor;
+  double anchorY = 0.0;
+  /// The character root in world units (camera distance rule).
+  WorldPoint root;
+  double rootY = 0.0;
+};
+
+/// Card content of a tag (`LabelVisual::NameTag`).
+LabelCardContent nameTagContent(const NameTag& tag);
+
+// ---------------------------------------------------------------------------------------------------------
 // Screen projection
 // ---------------------------------------------------------------------------------------------------------
 
@@ -226,8 +277,11 @@ struct LabelLayoutInput {
   WorldPoint target;
   double unitMeters = kDefaultUnitMeters;
   bool night = false;
-  /// engine-web `groundYFor(world.kind)` (world units): the holo ground dot height.
+  /// engine-web `groundYFor(world.kind)` (world units): the holo ground dot height (and the orbit target height).
   double groundY = kLabelGroundY;
+  /// `zoomOutFactor(theme.zoomOut, distanceUnits)`: district labels of the app styles show and brighten with it,
+  /// name tags hide from 0.6.
+  double zoomOut = 0.0;
 };
 
 class LabelSystem {
@@ -255,8 +309,15 @@ class LabelSystem {
   void resetRequests();
   std::optional<LabelSize> sizeOf(const std::string& key) const;
 
-  /// Placement for one camera: the cards to show (none while disabled, or before sizes are known).
+  /// Placement for one camera: the label cards to show (none while disabled, or before sizes are known). Name
+  /// tags are not included (`layoutTags`).
   LabelFrame layout(const LabelLayoutInput& input) const;
+
+  /// Replaces the tagged characters; returns true when a tag needs a card size that is not known yet.
+  bool setNameTags(std::vector<NameTag> tags);
+  const std::vector<NameTag>& nameTags() const { return tags_; }
+  /// The name tag cards for one camera (ids `tag:<character id>`, after the labels: drawn on top).
+  std::vector<LabelCard> layoutTags(const LabelLayoutInput& input) const;
 
  private:
   void rebuildContents();
@@ -272,6 +333,8 @@ class LabelSystem {
   ResolvedLabels spec_;
   std::map<std::string, LabelContent> content_;
   std::vector<LabelCardContent> contents_;
+  std::vector<NameTag> tags_;
+  std::vector<LabelCardContent> tagContents_;
   std::unordered_map<std::string, LabelSize> sizes_;
   std::set<std::string> requested_;
 };

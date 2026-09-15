@@ -178,6 +178,8 @@ class GameSession final : public MapSessionHooks, private ModelLibrary::Listener
   void emitProgress(double nowMs);
   void flushVisuals(double nowMs);
   void sendModelFrame(double nowMs);
+  /// Name tags of the `showNameTag` characters to the map session's label layer (M2b).
+  void sendNameTags();
   /// engine-web `Character.setModel`: shows / loads `uri` (nullopt: the procedural body).
   void setModel(Character& ch, const std::optional<std::string>& uri);
   DropVisual makeDropVisual(const DropState& drop);
@@ -238,6 +240,8 @@ class GameSession final : public MapSessionHooks, private ModelLibrary::Listener
   std::shared_ptr<const ModelLayerFrame> lastModelFrame_;
   std::uint64_t modelFrameVersion_ = 0;
   bool modelsShown_ = false;
+  /// Name tags were sent last time (an empty list clears them once).
+  bool tagsShown_ = false;
 
   std::vector<GeofenceSpec> geofenceSpecs_;
   GeofenceTracker fences_;

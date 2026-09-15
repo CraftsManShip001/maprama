@@ -309,7 +309,9 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   self.accessibilityLabel = ns(c.accessibilityLabel);
-  const CGSize size = c.visual == LabelVisual::Holo ? [self configureHolo:c tile:tile night:night] : [self configureApp:c night:night];
+  const CGSize size = c.visual == LabelVisual::Holo      ? [self configureHolo:c tile:tile night:night]
+                      : c.visual == LabelVisual::NameTag ? [self configureTag:c]
+                                                         : [self configureApp:c night:night];
   self.bounds = CGRectMake(0, 0, size.width, size.height);
   [CATransaction commit];
   return size;
@@ -401,6 +403,36 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   const CGFloat titleH = std::ceil(titleFont.pointSize * 1.18);
   _title.frame = CGRectMake(textX, textY, textW, titleH);
   _subtitle.frame = CGRectMake(textX, textY + titleH, textW, std::ceil(subFont.pointSize * 1.18));
+  return CGSizeMake(w, h);
+}
+
+/// Character name tag (engine-web `.mpr-tag`: 12 px display font, line-height 1, padding 4 7 3, radius 8, 1.5 px
+/// ink border; white with ink text, the player's tag filled with its colour (default #2F5BEA) and white text).
+- (CGSize)configureTag:(const LabelCardContent &)c {
+  UIFont *font = labelFont(12, UIFontWeightBold, NO, YES);
+  UIColor *ink = rgba(0x2A2540);
+  _title.attributedText = styled(ns(c.title), font, c.player ? UIColor.whiteColor : ink, 0);
+  _title.layer.shadowOpacity = 0;
+  _subtitle.hidden = YES;
+  const CGSize t = [_title sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
+  const CGFloat border = 1.5;
+  const CGFloat w = std::ceil(t.width) + 14 + 2 * border;
+  const CGFloat h = 12 + 7 + 2 * border;
+  _blur.hidden = YES;
+  _gradient.hidden = YES;
+  _innerRing.hidden = YES;
+  _accent.hidden = YES;
+  _tile.hidden = YES;
+  _body.frame = CGRectMake(0, 0, w, h);
+  _body.backgroundColor = c.player ? rgba(c.color) : UIColor.whiteColor;
+  _body.layer.cornerRadius = 8;
+  _body.layer.borderWidth = border;
+  _body.layer.borderColor = ink.CGColor;
+  self.layer.shadowOpacity = 0;
+  self.layer.shadowPath = nil;
+  // Text box: 12 dp tall (line-height 1) below the 4 dp top padding; the font's line box is centred on it.
+  const CGFloat line = std::ceil(font.lineHeight);
+  _title.frame = CGRectMake(border + 7, border + 4 + (12 - line) / 2, std::ceil(t.width), line);
   return CGSizeMake(w, h);
 }
 
@@ -595,6 +627,8 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   std::string key;
   LabelTile tile;
   BOOL night;
+  /// The card's look (holo cards have a ground dot and a leader line; name tags and app styles do not).
+  LabelVisual visual;
 }
 @end
 
@@ -640,7 +674,6 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   const BOOL motion = !UIAccessibilityIsReduceMotionEnabled();
-  const bool holo = frame.visual == LabelVisual::Holo;
   std::unordered_map<std::string, MapramaLabelRecord *> next;
   next.reserve(frame.cards.size());
   NSMutableArray<MapramaLabelRecord *> *appeared = [NSMutableArray array];
@@ -664,6 +697,8 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
       r->tile = frame.tile;
       r->night = frame.night;
     }
+    r->visual = c.content.visual;
+    const bool holo = r->visual == LabelVisual::Holo;
     r.card.hidden = NO;
     r.card.transform = CGAffineTransformIdentity;
     r.card.bounds = CGRectMake(0, 0, c.width, c.height);
@@ -690,7 +725,7 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   [CATransaction commit];
   // Pop-in (engine-web: dot, then line, then the card).
   for (MapramaLabelRecord *r in appeared) {
-    if (holo) {
+    if (r->visual == LabelVisual::Holo) {
       [r.dot startPulse:motion];
       if (!motion) continue;
       CABasicAnimation *grow = [CABasicAnimation animationWithKeyPath:@"transform.scale.x"];
@@ -714,7 +749,7 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
       pop.fillMode = kCAFillModeBackwards;
       pop.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.2:0.9:0.25:1.25];
       [r.card.layer addAnimation:pop forKey:@"pop"];
-    } else if (motion && frame.visual == LabelVisual::Clean) {
+    } else if (motion && r->visual == LabelVisual::Clean) {
       CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
       fade.fromValue = @0;
       fade.toValue = @1;

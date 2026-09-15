@@ -121,6 +121,16 @@ class MapSession {
   void setLabels(const json::Value& labelsSpec);
   /// `Record<string, LabelContent>` (replaces all host content).
   void setLabelContent(const json::Value& entries);
+  /// Character name tags from the game session (every tick while tagged characters exist; empty clears them).
+  void setNameTags(std::vector<NameTag> tags);
+  /// Label placement cost (diagnostics, DESIGN.md §8): passes, total / max milliseconds of `pumpLabels`.
+  struct LabelPlacementStats {
+    std::uint64_t passes = 0;
+    std::uint64_t tagPasses = 0;
+    double totalMs = 0.0;
+    double maxMs = 0.0;
+  };
+  const LabelPlacementStats& labelStats() const { return labelStats_; }
   void subscribeCamera(double throttleMs);
   void unsubscribeCamera();
   /// `project` / `unproject`; answered asynchronously through the adapter.
@@ -187,8 +197,9 @@ class MapSession {
   void setLabelsState(const json::Value& labelsSpec);
   /// Asks the platform for the sizes of label cards that are not measured yet.
   void requestLabelSizes();
-  /// Recomputes the label placement when something changed and sends it when it differs.
+  /// Recomputes the label placement (+ name tags) when something changed and sends it when it differs.
   void pumpLabels();
+  void recordLabelPass(double ms, bool tagsOnly);
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.
   void applyLook();
   /// Rebuilds the custom building layer; when its content changed, keeps it and (if `send`) hands it to the adapter.
@@ -263,6 +274,13 @@ class MapSession {
   LabelFrame labelFrame_;
   bool labelFrameSent_ = false;
   bool labelsDirty_ = true;
+  /// Only the name tags moved (game tick): the label cards of `labelOnly_` are reused.
+  bool tagsDirty_ = false;
+  /// The last label placement without the name tags.
+  LabelFrame labelOnly_;
+  LabelPlacementStats labelStats_;
+  LabelPlacementStats labelWindow_;
+  double labelWindowStartMs_ = -1.0;
   /// engine-web `groundYFor(world.kind)`: the holo ground dot height (0.05 on the procedural grid, else 0.09).
   double labelGroundY_ = kLabelGroundY;
 

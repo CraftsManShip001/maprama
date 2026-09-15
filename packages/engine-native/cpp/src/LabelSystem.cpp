@@ -51,7 +51,9 @@ std::string contentKey(const LabelCardContent& c) {
   key += c.showIcon ? 'i' : '-';
   key += c.showSubtitle ? 's' : '-';
   key += c.custom ? 'c' : '-';
+  key += c.player ? 'p' : '-';
   key += static_cast<char>('A' + static_cast<int>(c.icon));
+  if (c.player) key += std::to_string(c.color);
   key += sep;
   key += c.title;
   key += sep;
@@ -171,6 +173,12 @@ Value labelsIndexValue(const std::vector<LabelEntry>& entries) {
 // ---------------------------------------------------------------------------------------------------------
 // Spec and content
 // ---------------------------------------------------------------------------------------------------------
+
+double zoomOutFactor(ZoomOutBehavior behavior, double distanceUnits) {
+  if (behavior == ZoomOutBehavior::None || !std::isfinite(distanceUnits)) return 0.0;
+  const double x = std::clamp((distanceUnits - 55.0) / 55.0, 0.0, 1.0);
+  return x * x * (3.0 - 2.0 * x);  // engine-web `smooth01`
+}
 
 ResolvedLabels resolveLabels(const LabelsSpec& spec) {
   ResolvedLabels r;
@@ -373,9 +381,49 @@ LabelStyle domStyleFor(LabelVisual visual) {
       return LabelStyle::Sticker;
     case LabelVisual::Holo:
     case LabelVisual::App:
+    case LabelVisual::NameTag:
       break;
   }
   return LabelStyle::App;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Character name tags
+// ---------------------------------------------------------------------------------------------------------
+
+namespace {
+/// engine-web `vehicles.ts` / `characters.ts`: plane scale and tail-fin top, the tag gap over the plane, the subway
+/// ghost train's middle car (local z) and the tag height over it.
+constexpr double kPlaneScale = 0.9;
+constexpr double kPlaneTopY = 1.69;
+constexpr double kPlaneTagGap = 0.3;
+constexpr double kSubwayMiddleCarZ = -2.2;
+constexpr double kSubwayTagHeight = 1.25;
+}  // namespace
+
+NameTagOffset nameTagAnchor(TravelMode mode, double yaw, double scale, double vehicleScale) {
+  if (mode == TravelMode::Subway && vehicleScale > 0.55) {
+    const double back = kSubwayMiddleCarZ * vehicleScale * scale;
+    return NameTagOffset{std::sin(yaw) * back, kSubwayTagHeight * vehicleScale * scale, std::cos(yaw) * back};
+  }
+  if (mode == TravelMode::Plane && vehicleScale > 0.55) {
+    return NameTagOffset{0.0, (kPlaneTopY * kPlaneScale * vehicleScale + kPlaneTagGap) * scale, 0.0};
+  }
+  return NameTagOffset{0.0, (mode == TravelMode::Car ? 2.0 : 2.3) * scale, 0.0};
+}
+
+LabelCardContent nameTagContent(const NameTag& tag) {
+  LabelCardContent c;
+  c.visual = LabelVisual::NameTag;
+  c.kind = LabelKind::Poi;
+  c.title = tag.text;
+  c.showIcon = false;
+  c.showSubtitle = false;
+  c.player = tag.player;
+  c.color = tag.player ? tag.color : 0;
+  c.accessibilityLabel = tag.text;
+  c.key = contentKey(c);
+  return c;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -477,9 +525,11 @@ std::vector<LabelCardContent> LabelSystem::takeUnmeasured() {
     requested_.clear();
   }
   std::vector<LabelCardContent> out;
-  for (const LabelCardContent& c : contents_) {
-    if (sizes_.count(c.key) != 0 || !requested_.insert(c.key).second) continue;
-    out.push_back(c);
+  for (const std::vector<LabelCardContent>* list : {&contents_, &tagContents_}) {
+    for (const LabelCardContent& c : *list) {
+      if (sizes_.count(c.key) != 0 || !requested_.insert(c.key).second) continue;
+      out.push_back(c);
+    }
   }
   return out;
 }
@@ -515,6 +565,54 @@ LabelFrame LabelSystem::layout(const LabelLayoutInput& in) const {
     layoutApp(in, projector, exclusions, frame);
   }
   return frame;
+}
+
+bool LabelSystem::setNameTags(std::vector<NameTag> tags) {
+  tags_ = std::move(tags);
+  tagContents_.clear();
+  tagContents_.reserve(tags_.size());
+  bool unknown = false;
+  for (const NameTag& t : tags_) {
+    LabelCardContent c = nameTagContent(t);
+    unknown = unknown || (sizes_.count(c.key) == 0 && requested_.count(c.key) == 0);
+    tagContents_.push_back(std::move(c));
+  }
+  return unknown;
+}
+
+std::vector<LabelCard> LabelSystem::layoutTags(const LabelLayoutInput& in) const {
+  std::vector<LabelCard> out;
+  // engine-web `updateTags`: hidden from a 0.6 zoom-out factor on.
+  if (tags_.empty() || !(in.width > 0) || !(in.height > 0) || in.zoomOut >= kNameTagMaxZoomOut) return out;
+  const double W = in.width, H = in.height;
+  const MapProjector projector(in.pose, in.width, in.height);
+  const std::vector<LabelBox> exclusions = nativeHudExclusions(W, H, in.ui);
+  // The camera eye in world units (engine-web `CameraController.apply`: orbit around the target at the ground height).
+  const double pitch = in.pose.pitch * kPi / 180.0, bearing = in.pose.bearing * kPi / 180.0;
+  const double reach = in.distanceUnits * std::sin(pitch);
+  const double eyeX = in.target.x - std::sin(bearing) * reach;
+  const double eyeY = in.groundY + in.distanceUnits * std::cos(pitch);
+  const double eyeZ = in.target.z + std::cos(bearing) * reach;
+  for (std::size_t i = 0; i < tags_.size(); ++i) {
+    const NameTag& t = tags_[i];
+    if (std::hypot(eyeX - t.root.x, eyeY - t.rootY, eyeZ - t.root.z) >= kNameTagMaxDistance) continue;
+    const std::optional<LabelSize> size = sizeOf(tagContents_[i].key);
+    if (!size) continue;  // measured one main-thread hop later
+    const MapProjector::Point s = projector.project(t.anchor, t.anchorY * in.unitMeters);
+    if (!s.inFront || s.x < 0 || s.x > W || s.y < 0 || s.y > H) continue;  // engine-web `worldToScreen().visible`
+    // The tag hangs above its anchor (CSS `translate(-50%, -100%)`); over a HUD zone it is hidden.
+    const LabelBox box{s.x, s.y - size->height / 2, size->width / 2, size->height / 2};
+    if (anyOverlap(exclusions, box)) continue;
+    LabelCard card;
+    card.id = "tag:" + t.characterId;
+    card.content = tagContents_[i];
+    card.x = s.x;
+    card.y = s.y - size->height / 2;
+    card.width = size->width;
+    card.height = size->height;
+    out.push_back(std::move(card));
+  }
+  return out;
 }
 
 void LabelSystem::layoutHolo(const LabelLayoutInput& in, const MapProjector& projector,
@@ -581,7 +679,7 @@ void LabelSystem::layoutApp(const LabelLayoutInput& in, const MapProjector& proj
   std::vector<LabelBox> placed(exclusions);
   for (const std::size_t i : byPriority_) {
     const LabelEntry& e = entries_[i];
-    if (!domLabelVisible(style, e.kind, e.pri, dist, 0.0)) continue;
+    if (!domLabelVisible(style, e.kind, e.pri, dist, in.zoomOut)) continue;
     const std::optional<LabelSize> size = sizeOf(contents_[i].key);
     if (!size) continue;
     const MapProjector::Point s = projector.project(e.lngLat, kAppLabelY * in.unitMeters);
@@ -604,7 +702,7 @@ void LabelSystem::layoutApp(const LabelLayoutInput& in, const MapProjector& proj
     card.width = w;
     card.height = h;
     card.angle = angle;
-    card.opacity = e.kind == LabelKind::District ? 0.45 : 1.0;  // engine-web: min(1, 0.45 + zoomOut), zoomOut 0
+    card.opacity = e.kind == LabelKind::District ? std::min(1.0, 0.45 + in.zoomOut) : 1.0;  // engine-web dom-styles
     frame.cards.push_back(std::move(card));
   }
 }

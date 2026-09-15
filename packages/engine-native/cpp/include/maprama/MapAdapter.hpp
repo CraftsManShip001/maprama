@@ -108,7 +108,8 @@ struct MapUiState {
 
 /// Look a label card is drawn with. `ground` / `sign` (3D labels) are drawn as `App` / `Sticker` until the
 /// custom layer exists (M2c).
-enum class LabelVisual : std::uint8_t { Holo, App, Minimal, Clean, Sticker };
+/// `NameTag`: a character name tag (engine-web `.mpr-tag`), shown in every label style (also with labels off).
+enum class LabelVisual : std::uint8_t { Holo, App, Minimal, Clean, Sticker, NameTag };
 /// Icon tile of `Holo` cards (`HoloIconTile::Auto` resolved by the time of day: white by day, black at night).
 enum class LabelTile : std::uint8_t { White, Black, Color };
 
@@ -131,6 +132,10 @@ struct LabelCardContent {
   bool showSubtitle = true;
   /// Host-supplied content (`content: "custom"`): holo subtitles use the accent style.
   bool custom = false;
+  /// Name tags: the player's tag (filled with `color`, white text) instead of the white NPC tag.
+  bool player = false;
+  /// Name tags: fill colour of the player's tag (0xRRGGBB; engine-web `--tag`, default #2F5BEA).
+  std::uint32_t color = 0;
   /// Accessibility label: name + type (the shown subtitle, else the default one).
   std::string accessibilityLabel;
 };

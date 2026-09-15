@@ -75,7 +75,6 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
   }
 
   fun apply(frame: LabelFrameData) {
-    val holo = frame.visual == LabelConst.VISUAL_HOLO
     val animate = motion()
     val now = SystemClock.uptimeMillis()
     val ids = HashSet<String>(frame.cards.size * 2)
@@ -109,6 +108,8 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
         r.night = frame.night
       }
       val card = r.card
+      // Only holo cards have a ground dot and a leader line (name tags ride along in every style).
+      val holo = c.content.visual == LabelConst.VISUAL_HOLO
       card.visibility = View.VISIBLE
       card.pivotX = card.width / 2f
       card.pivotY = card.height / 2f
@@ -131,7 +132,7 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
           card.scaleY = 0.72f
           card.animate().alpha(c.opacity.toFloat()).scaleX(1f).scaleY(1f).setStartDelay(200).setDuration(280)
             .setInterpolator(overshoot).start()
-        } else if (animate && frame.visual == LabelConst.VISUAL_CLEAN) {
+        } else if (animate && c.content.visual == LabelConst.VISUAL_CLEAN) {
           card.alpha = 0f
           card.scaleX = 1f
           card.scaleY = 1f
@@ -204,6 +205,7 @@ internal object LabelConst {
   const val VISUAL_MINIMAL = 2
   const val VISUAL_CLEAN = 3
   const val VISUAL_STICKER = 4
+  const val VISUAL_NAME_TAG = 5
   const val TILE_WHITE = 0
   const val TILE_BLACK = 1
   const val TILE_COLOR = 2
@@ -212,13 +214,14 @@ internal object LabelConst {
   const val KIND_POI = 2
 }
 
-/** `maprama::LabelCardContent` (flags: 1 water, 2 arterial, 4 showIcon, 8 showSubtitle, 16 custom). */
+/** `maprama::LabelCardContent` (flags: 1 water, 2 arterial, 4 showIcon, 8 showSubtitle, 16 custom, 32 player; color 0xRRGGBB). */
 internal class LabelContentData(
   val key: String,
   val visual: Int,
   val kind: Int,
   val flags: Int,
   val icon: Int,
+  val color: Int,
   val title: String,
   val subtitle: String,
   val accessibilityLabel: String,
@@ -228,17 +231,19 @@ internal class LabelContentData(
   val showIcon get() = flags and 4 != 0
   val showSubtitle get() = flags and 8 != 0
   val custom get() = flags and 16 != 0
+  val player get() = flags and 32 != 0
 
   companion object {
-    /** Decodes JNI arrays: 3 strings (title, subtitle, accessibility label) and 4 ints (visual, kind, flags, icon) per item. */
+    /** Decodes JNI arrays: 3 strings (title, subtitle, accessibility label) and 5 ints (visual, kind, flags, icon, color) per item. */
     fun list(keys: Array<String>?, strings: Array<String>, ints: IntArray): List<LabelContentData> =
-      List(ints.size / 4) { i ->
+      List(ints.size / 5) { i ->
         LabelContentData(
           keys?.get(i) ?: "",
-          ints[i * 4],
-          ints[i * 4 + 1],
-          ints[i * 4 + 2],
-          ints[i * 4 + 3],
+          ints[i * 5],
+          ints[i * 5 + 1],
+          ints[i * 5 + 2],
+          ints[i * 5 + 3],
+          ints[i * 5 + 4],
           strings[i * 3],
           strings[i * 3 + 1],
           strings[i * 3 + 2],
@@ -386,6 +391,10 @@ internal class IconDrawingData(val color: Int, val size: Float, val roundCaps: B
 // ---------------------------------------------------------------------------------------------------------
 
 internal class LabelCardView(context: Context, private val density: Float) : View(context) {
+  private companion object {
+    const val TAG_BORDER = 1.5f
+  }
+
   private class Text(val sizeDp: Float, val weight: Int, val italic: Boolean, val color: Int, val kernEm: Float, val halo: Int? = null, val haloDp: Float = 0f)
 
   /** engine-web look of one app-style label (dom-styles.ts `.mpr-ml*`, `.ls-*`, `.night`). */
@@ -464,7 +473,11 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
     this.tile = tile
     this.night = night
     contentDescription = c.accessibilityLabel
-    if (c.visual == LabelConst.VISUAL_HOLO) layoutHolo(c) else layoutApp(c)
+    when (c.visual) {
+      LabelConst.VISUAL_HOLO -> layoutHolo(c)
+      LabelConst.VISUAL_NAME_TAG -> layoutTag(c)
+      else -> layoutApp(c)
+    }
     invalidate()
     return Pair(w, h)
   }
@@ -491,6 +504,32 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
     iconY = (h - iconSize) / 2
     textX = pad[3] + iconSize + gap
     titleTop = (h - textH) / 2
+    subTop = titleTop + titleH
+  }
+
+  /**
+   * Character name tag (engine-web `.mpr-tag`: 12 px display font, line-height 1, padding 4 7 3, radius 8, 1.5 px ink
+   * border; white with ink text, the player's tag filled with its colour and white text).
+   */
+  private fun layoutTag(c: LabelContentData) {
+    val ink = 0xFF2A2540.toInt()
+    look = AppLook(
+      Text(12f, 700, false, if (c.player) Color.WHITE else ink, 0f),
+      background = if (c.player) (0xFF000000.toInt() or c.color) else Color.WHITE,
+      border = ink,
+      borderDp = TAG_BORDER,
+      radiusDp = 8f,
+      pad = floatArrayOf(4f + TAG_BORDER, 7f + TAG_BORDER, 3f + TAG_BORDER, 7f + TAG_BORDER),
+    )
+    apply(titlePaint, look!!.title)
+    val textW = ceil(widthDp(titlePaint, c.title))
+    iconSize = 0f
+    titleH = 12f
+    subH = 0f
+    w = look!!.pad[3] + textW + look!!.pad[1]
+    h = look!!.pad[0] + titleH + look!!.pad[2]
+    textX = look!!.pad[3]
+    titleTop = look!!.pad[0]
     subTop = titleTop + titleH
   }
 
