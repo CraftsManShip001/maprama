@@ -43,6 +43,14 @@ interface MapramaMapHost {
   fun fetchText(token: Long, url: String)
 
   fun scheduleFrame(delayMs: Double)
+
+  /** Replaces a GeoJSON source's data (M3a game visuals), applied once the current style loaded; only the latest data per source matters. */
+  fun setSourceData(sourceId: String, geojson: String)
+
+  /** Starts the platform location feed (`setLocationSource {kind: "device"}`); fixes go to [MapramaJni.onDeviceLocation]. */
+  fun startLocationUpdates()
+
+  fun stopLocationUpdates()
 }
 
 /** JNI entry points of libmaprama_engine.so (`android/src/main/cpp/maprama_jni.cpp`). */
@@ -80,6 +88,23 @@ internal object MapramaJni {
   @JvmStatic external fun tap(handle: Long, x: Double, y: Double)
 
   @JvmStatic external fun zoomButton(handle: Long, zoomIn: Boolean)
+
+  /** A platform location fix; NaN = no accuracy / heading / speed. */
+  @JvmStatic external fun onDeviceLocation(
+    handle: Long,
+    lng: Double,
+    lat: Double,
+    accuracyMeters: Double,
+    headingDeg: Double,
+    speedMps: Double,
+    timestampMs: Double,
+  )
+
+  /** The location feed failed (e.g. `location permission not granted`). */
+  @JvmStatic external fun onDeviceLocationError(handle: Long, message: String)
+
+  /** A user pan gesture began (stops `setCamera.follow`). */
+  @JvmStatic external fun onUserPan(handle: Long)
 
   /** Returns false when no engine is registered under [engineId]. */
   @JvmStatic external fun postMessage(engineId: String, envelope: String): Boolean

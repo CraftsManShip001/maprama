@@ -9,6 +9,7 @@
 #include <android/log.h>
 #include <jni.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
@@ -175,6 +176,9 @@ class JniMapAdapter final : public maprama::MapAdapter {
     queryBuilding_ = env->GetMethodID(cls, "queryBuilding", "(JDD)V");
     fetchText_ = env->GetMethodID(cls, "fetchText", "(JLjava/lang/String;)V");
     scheduleFrame_ = env->GetMethodID(cls, "scheduleFrame", "(D)V");
+    setSourceData_ = env->GetMethodID(cls, "setSourceData", "(Ljava/lang/String;Ljava/lang/String;)V");
+    startLocationUpdates_ = env->GetMethodID(cls, "startLocationUpdates", "()V");
+    stopLocationUpdates_ = env->GetMethodID(cls, "stopLocationUpdates", "()V");
     env->DeleteLocalRef(cls);
     jclass stringClass = env->FindClass("java/lang/String");
     stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
@@ -289,6 +293,24 @@ class JniMapAdapter final : public maprama::MapAdapter {
     withEnv("scheduleFrame", [&](JNIEnv* env) { env->CallVoidMethod(host_, scheduleFrame_, delayMs); });
   }
 
+  void setSourceData(const std::string& sourceId, std::string geojson) override {
+    withEnv("setSourceData", [&](JNIEnv* env) {
+      jstring id = toJString(env, sourceId);
+      jstring data = toJString(env, geojson);
+      env->CallVoidMethod(host_, setSourceData_, id, data);
+      env->DeleteLocalRef(id);
+      env->DeleteLocalRef(data);
+    });
+  }
+
+  void startLocationUpdates() override {
+    withEnv("startLocationUpdates", [&](JNIEnv* env) { env->CallVoidMethod(host_, startLocationUpdates_); });
+  }
+
+  void stopLocationUpdates() override {
+    withEnv("stopLocationUpdates", [&](JNIEnv* env) { env->CallVoidMethod(host_, stopLocationUpdates_); });
+  }
+
  private:
   template <class F>
   void withEnv(const char* where, F&& call) {
@@ -318,6 +340,9 @@ class JniMapAdapter final : public maprama::MapAdapter {
   jmethodID queryBuilding_ = nullptr;
   jmethodID fetchText_ = nullptr;
   jmethodID scheduleFrame_ = nullptr;
+  jmethodID setSourceData_ = nullptr;
+  jmethodID startLocationUpdates_ = nullptr;
+  jmethodID stopLocationUpdates_ = nullptr;
 };
 
 /// What the Kotlin view holds as a `long` handle.
@@ -433,6 +458,30 @@ JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_tap(JNIEnv*, jcl
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_zoomButton(JNIEnv*, jclass, jlong handle, jboolean zoomIn) {
   if (handle != 0) fromHandle(handle)->engine->zoomButton(zoomIn == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onDeviceLocation(JNIEnv*, jclass, jlong handle, jdouble lng,
+                                                                                  jdouble lat, jdouble accuracyMeters,
+                                                                                  jdouble headingDeg, jdouble speedMps,
+                                                                                  jdouble timestampMs) {
+  if (handle == 0) return;
+  maprama::LocationFix fix;
+  fix.lng = lng;
+  fix.lat = lat;
+  if (!std::isnan(accuracyMeters)) fix.accuracyMeters = accuracyMeters;
+  if (!std::isnan(headingDeg)) fix.headingDeg = headingDeg;
+  if (!std::isnan(speedMps)) fix.speedMps = speedMps;
+  fix.timestamp = timestampMs;
+  fromHandle(handle)->engine->onDeviceLocation(fix);
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onDeviceLocationError(JNIEnv* env, jclass, jlong handle,
+                                                                                       jstring message) {
+  if (handle != 0) fromHandle(handle)->engine->onDeviceLocationError(toUtf8(env, message));
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onUserPan(JNIEnv*, jclass, jlong handle) {
+  if (handle != 0) fromHandle(handle)->engine->onUserPan();
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onTextFetched(JNIEnv* env, jclass, jlong handle, jlong token,
