@@ -158,7 +158,9 @@ MAPRAMA_TEST(map_look_colors_light_and_scale_bar) {
 
   // Unrendered options.
   const std::vector<std::string> unrendered = maprama::unrenderedThemeOptions(resolved(Value::object({{"base", "modern"}})));
-  ctx.check(unrendered.size() == 5, "modern: facade, outline, details, massing, cinematic unrendered (" + std::to_string(unrendered.size()) + ")");
+  // Facades, details and outlines are drawn by the M2c custom building layer; varied massing and grading are not.
+  ctx.check(unrendered.size() == 2, "modern: massing, cinematic unrendered (" + std::to_string(unrendered.size()) + ")");
+  ctx.check(maprama::unrenderedThemeOptions(resolved(Value::object({{"base", "toy"}}))).empty(), "toy (facades + outline) renders fully");
   ctx.check(maprama::unrenderedThemeOptions(resolved(Value::object({{"base", "minimal"}}))).empty(), "minimal renders fully");
 
   // Scale bar (engine-web scaleBarFor).
@@ -290,7 +292,7 @@ MAPRAMA_TEST(m2a_set_building_style) {
 
   h.send(buildingStyle(kSample, Value::object({{"state", "captured"}})));
   ctx.check(paintValue(h, "buildings", "fill-extrusion-color")
-                    .find(cssHex(maprama::buildingOverrideColor(day, ci, sampleIndex, maprama::BuildingOverride{std::nullopt, true}))) !=
+                    .find(cssHex(maprama::buildingOverrideColor(day, ci, sampleIndex, maprama::BuildingOverride{std::nullopt, true, std::nullopt, std::nullopt}))) !=
                 std::string::npos,
             "captured without color = theme color + glow");
   h.send(buildingStyle(kSample, Value::object({{"color", "#2F5BEA"}})));
@@ -302,7 +304,7 @@ MAPRAMA_TEST(m2a_set_building_style) {
   ctx.check(paintValue(h, "buildings", "fill-extrusion-color").find("\"#AABBCC\"") != std::string::npos ||
                 h.adapter->paints.size() > 0,
             "#RGB accepted");
-  ctx.check(h.sink->countLogs("setBuildingStyle.roof", maprama::LogLevel::Warn) == 1, "roof override warned once (M2c)");
+  ctx.check(h.sink->countLogs("setBuildingStyle.roof", maprama::LogLevel::Warn) == 0, "roof override applied, not warned (M2c)");
 
   // Overrides survive theme changes (re-tinted).
   h.send(setTheme(Value::object({{"timeOfDay", "night"}})));

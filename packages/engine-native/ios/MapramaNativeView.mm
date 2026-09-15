@@ -9,6 +9,7 @@
 #import <react/renderer/components/MapramaEngineNativeSpec/Props.h>
 #import <react/renderer/components/MapramaEngineNativeSpec/RCTComponentViewHelpers.h>
 
+#import "MapramaBuildingLayer.h"
 #import "MapramaEngineModule.h"
 
 #include <memory>
@@ -30,6 +31,7 @@ static NSString *const kBuildingsLayer = @"buildings";
 - (void)maprama_setPaintProperties:(const std::vector<maprama::PaintPropertyChange> &)changes;
 - (void)maprama_setLight:(const maprama::MapLight &)light;
 - (void)maprama_setUi:(const maprama::MapUiState &)ui;
+- (void)maprama_setBuildingLayer:(std::shared_ptr<const maprama::BuildingLayerData>)data;
 @end
 
 namespace {
@@ -154,6 +156,12 @@ class AppleMapAdapter final : public maprama::MapAdapter {
     const maprama::MapUiState copy = ui;
     onView(^(MapramaNativeView *view) {
       [view maprama_setUi:copy];
+    });
+  }
+
+  void setBuildingLayer(std::shared_ptr<const maprama::BuildingLayerData> data) override {
+    onView(^(MapramaNativeView *view) {
+      [view maprama_setBuildingLayer:data];
     });
   }
 
@@ -341,6 +349,9 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   /// Style patches wait until the style set by `maprama_setStyleJson:` finished loading.
   BOOL _styleLoaded;
   NSMutableArray<dispatch_block_t> *_styleOps;
+  // M2c custom building layer: the latest core data, drawn by a layer re-inserted into every loaded style.
+  std::shared_ptr<const maprama::BuildingLayerData> _buildingData;
+  MapramaBuildingLayer *_buildingLayer;
   // Map UI drawn from `MapUiState` (the core computes every value).
   maprama::MapUiState _ui;
   UIView *_scaleBar;
@@ -525,6 +536,27 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   }];
 }
 
+#pragma mark - Custom building layer (M2c)
+
+- (void)maprama_setBuildingLayer:(std::shared_ptr<const maprama::BuildingLayerData>)data {
+  _buildingData = std::move(data);
+  if (_buildingLayer != nil) [_buildingLayer setData:_buildingData];
+  [self installBuildingLayer];
+}
+
+/// Inserts the custom layer directly below the `buildings` fill-extrusion of the loaded style (once per style):
+/// both write and test depth, so the draw order only decides ties, and the same position works on every backend.
+- (void)installBuildingLayer {
+  MLNStyle *style = _mapView.style;
+  if (!_styleLoaded || style == nil || !_buildingData) return;
+  if (_buildingLayer != nil && [style layerWithIdentifier:MapramaBuildingLayerIdentifier] == _buildingLayer) return;
+  MLNStyleLayer *buildings = [style layerWithIdentifier:kBuildingsLayer];
+  if (buildings == nil) return;
+  _buildingLayer = [[MapramaBuildingLayer alloc] initWithIdentifier:MapramaBuildingLayerIdentifier];
+  [_buildingLayer setData:_buildingData];
+  [style insertLayer:_buildingLayer belowLayer:buildings];
+}
+
 #pragma mark - Map UI
 
 - (void)createOrnaments {
@@ -641,6 +673,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   NSArray<dispatch_block_t> *ops = [_styleOps copy];
   [_styleOps removeAllObjects];
   for (dispatch_block_t op in ops) op();
+  [self installBuildingLayer];
   [self reportCamera:mapView];
 }
 

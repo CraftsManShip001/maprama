@@ -135,8 +135,8 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
     } else if (type == "init" || type == "setTheme" || type == "setUi" || type == "setBuildingStyle" ||
                type == "setOverlayAnchors") {
       // Handled by the M2a session: no event (building "b1" exists; overlays need a map view, none here) and no
-      // "not implemented" warning. Accepted-but-unrendered options (facade / outline / massing looks, labels,
-      // location source, roof / decorations / replaceModel overrides, follow) are warn-logged once each.
+      // "not implemented" warning. Accepted-but-unrendered options (varied massing, grading, labels, location
+      // source, decorations / massing / replaceModel overrides, follow) are warn-logged once each.
       ctx.check(newEvents == 0, "[" + name + "] handled without events (got " + std::to_string(newEvents) + ")");
       bool notImplemented = false;
       for (std::size_t i = logsBefore; i < sink->logs.size(); ++i) {

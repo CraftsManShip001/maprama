@@ -1,0 +1,141 @@
+# Native engine (M2c): the custom building layer. The sample building is picked (captured flag), given a
+# gable then a dome roof and seen close up, its facade is switched off and on, then the urban preset (facade
+# details) and the toy preset (ink outlines, night window lights) are shown. An 8 s orbit renders a steady
+# stream of frames for the layer's frame statistics (logged by the platform layer).
+# The control panel is scrolled by short, slow swipes inside it (a swipe at the screen centre pans the map).
+appId: dev.maprama.catalog
+name: Native engine M2c roofs, facades, outlines and the captured flag
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native
+- extendedWaitUntil:
+    visible:
+      id: "native-camera"
+      text: "camera: [0-9].*"
+    timeout: 20000
+- repeat:
+    while:
+      notVisible:
+        id: "native-picked"
+    times: 16
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- tapOn:
+    id: "native-pick-building"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-picked"
+      text: "picked: w407169878 \\(captured, #FF8800\\)"
+    timeout: 20000
+- repeat:
+    while:
+      notVisible:
+        id: "native-roof-state"
+    times: 16
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- extendedWaitUntil:
+    visible:
+      id: "native-roof-state"
+      text: "roof: flat · facade: on · captured"
+    timeout: 20000
+# Gable roof, close up.
+- tapOn:
+    id: "native-roof-gable"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-roof-state"
+      text: "roof: gable · facade: on · captured"
+    timeout: 20000
+- tapOn:
+    id: "native-closeup"
+    waitToSettleTimeoutMs: 3000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2c-gable
+# Dome roof.
+- tapOn:
+    id: "native-roof-dome"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-roof-state"
+      text: "roof: dome · facade: on · captured"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2c-dome
+# Facade off and on again.
+- tapOn:
+    id: "native-facade-off"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-roof-state"
+      text: "roof: dome · facade: off · captured"
+    timeout: 20000
+- takeScreenshot: screenshots/native-m2c-facade-off
+- tapOn:
+    id: "native-facade-on"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-roof-state"
+      text: "roof: dome · facade: on · captured"
+    timeout: 20000
+# A steady stream of frames for the layer's frame statistics.
+- tapOn:
+    id: "native-orbit"
+    waitToSettleTimeoutMs: 1000
+- waitForAnimationToEnd:
+    timeout: 10000
+# Theme: urban (facade details, taller) at day, then toy (outlines) at night.
+- repeat:
+    while:
+      notVisible:
+        id: "native-theme-state"
+    times: 16
+    commands:
+      - swipe:
+          start: "50%, 90%"
+          end: "50%, 80%"
+          duration: 600
+- tapOn:
+    id: "native-theme-urban"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-theme-state"
+      text: "theme: urban · day"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/native-m2c-urban-details
+- tapOn:
+    id: "native-theme-toy"
+    waitToSettleTimeoutMs: 3000
+- tapOn:
+    id: "native-time-night"
+    waitToSettleTimeoutMs: 3000
+- extendedWaitUntil:
+    visible:
+      id: "native-theme-state"
+      text: "theme: toy · night"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertNotVisible:
+    text: "engine error.*"
+- takeScreenshot: screenshots/native-m2c-toy-night

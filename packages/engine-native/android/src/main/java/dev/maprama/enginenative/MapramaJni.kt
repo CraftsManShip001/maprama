@@ -43,6 +43,12 @@ interface MapramaMapHost {
   fun fetchText(token: Long, url: String)
 
   fun scheduleFrame(delayMs: Double)
+
+  /**
+   * M2c: the core sent new custom building layer data (kept natively for the render thread); make sure the
+   * layer is in the current style ([MapramaJni.createBuildingLayerHost]) and redraw.
+   */
+  fun buildingLayerChanged()
 }
 
 /** JNI entry points of libmaprama_engine.so (`android/src/main/cpp/maprama_jni.cpp`). */
@@ -80,6 +86,15 @@ internal object MapramaJni {
   @JvmStatic external fun tap(handle: Long, x: Double, y: Double)
 
   @JvmStatic external fun zoomButton(handle: Long, zoomIn: Boolean)
+
+  /**
+   * A new `mln::style::CustomLayerHost` drawing the engine's building layer data; pass it to
+   * `org.maplibre.android.style.layers.CustomLayer(id, host)`, which takes ownership. 0 without an engine.
+   */
+  @JvmStatic external fun createBuildingLayerHost(handle: Long): Long
+
+  /** Number of style layers drawn above the custom building layer (MapLibre GL depth-range probe). */
+  @JvmStatic external fun setBuildingLayersAbove(handle: Long, count: Int)
 
   /** Returns false when no engine is registered under [engineId]. */
   @JvmStatic external fun postMessage(engineId: String, envelope: String): Boolean

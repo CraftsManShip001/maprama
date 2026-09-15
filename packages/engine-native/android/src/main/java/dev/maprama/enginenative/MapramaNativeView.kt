@@ -30,6 +30,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CustomLayer
 import org.maplibre.android.style.layers.PaintPropertyValue
 import org.maplibre.android.style.light.Position
 
@@ -206,8 +207,30 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   // ---- MapramaMapHost (called from libmaprama_engine.so) -----------------------------------------
 
   override fun setStyleJson(json: String) = onMap { m ->
-    styleGeneration++
-    m.setStyle(Style.Builder().fromJson(json))
+    val generation = ++styleGeneration
+    m.setStyle(Style.Builder().fromJson(json)) { style -> if (!destroyed && generation == styleGeneration) installBuildingLayer(style) }
+  }
+
+  override fun buildingLayerChanged() = onStyle { style ->
+    installBuildingLayer(style)
+    map?.triggerRepaint()
+  }
+
+  /**
+   * M2c: puts the custom building layer (a native `CustomLayerHost` sharing the engine's latest building layer
+   * data) directly below the `buildings` fill-extrusion of [style], once per style, and reports how many layers
+   * are drawn above it (the GL backend's depth-range probe needs it, BuildingMesh.hpp).
+   */
+  private fun installBuildingLayer(style: Style) {
+    if (handle == 0L || style.getLayer(BUILDINGS_LAYER) == null) return
+    if (style.getLayer(BUILDING_LAYER) == null) {
+      val host = MapramaJni.createBuildingLayerHost(handle)
+      if (host == 0L) return
+      style.addLayerBelow(CustomLayer(BUILDING_LAYER, host), BUILDINGS_LAYER)
+    }
+    val ids = style.layers.map { it.id }
+    val index = ids.indexOf(BUILDING_LAYER)
+    if (index >= 0) MapramaJni.setBuildingLayersAbove(handle, ids.size - 1 - index)
   }
 
   override fun setPaintProperties(layers: Array<String>, properties: Array<String>, values: Array<String>) = onStyle { style ->
@@ -431,6 +454,8 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   companion object {
     private const val TAG = "MapramaEngine"
     private const val BUILDINGS_LAYER = "buildings"
+    /** The M2c custom building layer (same id as on iOS). */
+    private const val BUILDING_LAYER = "maprama-buildings-3d"
     private const val EMPTY_STYLE =
       """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#E4DFD6"}}]}"""
 

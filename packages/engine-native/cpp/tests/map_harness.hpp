@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "maprama/BuildingMesh.hpp"
 #include "maprama/Engine.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/protocol.hpp"
@@ -58,6 +59,7 @@ class FakeAdapter final : public MapAdapter {
   void setPaintProperties(const std::vector<PaintPropertyChange>& changes) override { paints.push_back(changes); }
   void setLight(const MapLight& light) override { lights.push_back(light); }
   void setUi(const MapUiState& ui) override { uis.push_back(ui); }
+  void setBuildingLayer(std::shared_ptr<const BuildingLayerData> data) override { buildingLayers.push_back(std::move(data)); }
   void setCameraLimits(const MapCameraLimits& l) override { limits.push_back(l); }
   void moveCamera(const MapCameraPose& pose, double durationMs) override { moves.emplace_back(pose, durationMs); }
   void project(std::uint64_t token, const LngLat& coordinate) override { projects.emplace_back(token, coordinate); }
@@ -82,6 +84,7 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::vector<PaintPropertyChange>> paints;
   std::vector<MapLight> lights;
   std::vector<MapUiState> uis;
+  std::vector<std::shared_ptr<const BuildingLayerData>> buildingLayers;
   std::vector<MapCameraLimits> limits;
   std::vector<std::pair<MapCameraPose, double>> moves;
   std::vector<std::pair<std::uint64_t, LngLat>> projects;

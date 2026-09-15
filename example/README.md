@@ -117,6 +117,7 @@ until the badge `testID="engine-status"` reads `engine ready`.
 | `04-labels-holo.yaml` | Switches labels to `holo`, then to the custom content function and refreshes it. |
 | `05-native-m1.yaml` | `engine="native"`: camera presets update the `camera:change` readout; a project/unproject round trip answers. |
 | `06-native-m2a.yaml` | `engine="native"` M2a: 3D buildings with the station `MapOverlay` card and the visible OSM attribution; `overlay:positions` readout; the sample building styled `captured` + `#FF8800` and pressed on the map (`building:press`); toy / dusk theme; back to the station (the card follows the camera). The control panel is scrolled by swiping on it, since a swipe at the screen centre pans the map. |
+| `07-native-m2c.yaml` | `engine="native"` M2c custom building layer: the picked sample building gets a gable then a dome roof (close-up from above, captured flag on the roof), its facade is switched off and on, an 8 s orbit feeds the layer's frame statistics, then the urban preset (facade details) and toy / night (ink outlines, lit windows). Screenshots of each step. |
 
 ```sh
 cd example

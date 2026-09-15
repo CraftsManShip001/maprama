@@ -160,6 +160,7 @@ void MapSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   pendingTaps_.clear();
   if (!adapter_) return;
   adapter_->setStyleJson(styleJson());
+  if (buildingLayer_) adapter_->setBuildingLayer(buildingLayer_);
   uiSentValid_ = false;
   pushUi();
   pushLimits();
@@ -412,6 +413,8 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   light_ = look_.light;
   styleDirty_ = true;
   worldReady_ = true;
+  buildingLayer_.reset();
+  updateBuildingLayer(false);
 
   // engine-web `loadWorld`: target the world start (plaza, else bounds centre) with DEFAULT_ORBIT.
   WorldPoint start{(world.bounds.minX + world.bounds.maxX) / 2.0, (world.bounds.minZ + world.bounds.maxZ) / 2.0};
@@ -424,6 +427,7 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
 
   if (adapter_) {
     adapter_->setStyleJson(styleJson());
+    if (buildingLayer_) adapter_->setBuildingLayer(buildingLayer_);
     pushLimits();
   }
   sendState();
@@ -478,8 +482,7 @@ void MapSession::setThemeState(const Value& themeSpec) {
   theme_ = themes_.resolve(themeSpec);
   look_ = mapLookFor(theme_);
   for (const std::string& option : unrenderedThemeOptions(theme_)) {
-    warnOnce("theme:" + option, "engine-native: theme option " + option +
-                                    " is accepted but not rendered yet (custom building layer, M2c)");
+    warnOnce("theme:" + option, "engine-native: theme option " + option + " is accepted but not rendered yet");
   }
 }
 
@@ -516,11 +519,18 @@ void MapSession::setBuildingStyle(const std::string& buildingId, const Value& st
     BuildingOverride o;
     if (const Value* c = member(style, "color"); c != nullptr && c->isString()) o.color = parseCssHex(c->asString());
     if (const Value* s = member(style, "state"); s != nullptr && s->isString()) o.captured = s->asString() == "captured";
-    for (const char* field : {"roof", "facade", "decorations", "massing", "replaceModel"}) {
+    if (const Value* r = member(style, "roof"); r != nullptr && r->isString()) {
+      const auto& names = EnumNames<RoofShape>::values;
+      for (std::size_t i = 0; i < names.size(); ++i) {
+        if (names[i] == r->asString()) o.roof = static_cast<RoofShape>(i);
+      }
+    }
+    if (const Value* f = member(style, "facade"); f != nullptr && f->isBoolean()) o.facade = f->asBool();
+    for (const char* field : {"decorations", "massing", "replaceModel"}) {
       if (member(style, field) != nullptr) {
         warnOnce(std::string("setBuildingStyle.") + field,
                  std::string("engine-native: setBuildingStyle.") + field +
-                     " is accepted but not rendered yet (custom building layer, M2c); color and state are applied");
+                     " is accepted but not rendered yet; color, state, roof and facade are applied");
       }
     }
     buildingStyles_[buildingId] = o;
@@ -606,6 +616,8 @@ void MapSession::applyLook() {
       light_ = light;
       styleDirty_ = true;
       adapter_->setStyleJson(styleJson());
+      if (buildingLayer_) adapter_->setBuildingLayer(buildingLayer_);
+      updateBuildingLayer(true);
       return;
     }
     if (!changes.empty()) adapter_->setPaintProperties(changes);
@@ -614,6 +626,16 @@ void MapSession::applyLook() {
   layers_ = std::move(next);
   light_ = light;
   styleDirty_ = true;
+  updateBuildingLayer(true);
+}
+
+void MapSession::updateBuildingLayer(bool send) {
+  if (!worldReady_) return;
+  BuildingLayerData next = buildBuildingLayer(*world_.world(), *world_.projection(), rendered_, theme_, look_, buildingStyles_);
+  if (buildingLayer_ && buildingLayer_->sameContent(next)) return;
+  next.version = ++buildingLayerVersion_;
+  buildingLayer_ = std::make_shared<const BuildingLayerData>(std::move(next));
+  if (send && adapter_) adapter_->setBuildingLayer(buildingLayer_);
 }
 
 // ---------------------------------------------------------------------------------------------------

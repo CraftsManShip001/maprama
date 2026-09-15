@@ -75,8 +75,10 @@ repositories {
 
 dependencies {
   implementation "com.facebook.react:react-android"
-  // Official prebuilt SDK (MapView / MapLibreMap). The patched-fork AAR replaces it at M2 (DESIGN.md §10).
-  implementation "org.maplibre.gl:android-sdk:13.6.1"
+  // Official prebuilt SDK (MapView / MapLibreMap), OpenGL ES variant (M2c): the default `android-sdk` 13.6.1
+  // artifact renders with Vulkan, and the custom building layer is a GL ES 3 `CustomLayerHost` (DESIGN.md §6.1).
+  // Same Java/Kotlin API; only the native backend differs.
+  implementation "org.maplibre.gl:android-sdk-opengl:13.6.1"
 }
 
 react {

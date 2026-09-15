@@ -1,15 +1,17 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M2a (diorama look, part 1)** on top of M1 (map on screen). This package contains:
+Status: **M2c (diorama look, part 2: custom building layer)** on top of M2a and M1 (map on screen). This
+package contains:
 
 - this design;
 - the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, `ThemeResolver`, the dispatcher, and the
   map session (world → MapLibre style with 3D buildings in theme colours, camera, `camera:change`,
   `project`/`unproject`, `setTheme`, `setBuildingStyle`, presses, map UI, overlay anchors) behind the
-  `MapAdapter` interface (§2.1), with its conformance and behaviour tests;
+  `MapAdapter` interface (§2.1), the M2c building meshes (roofs, facade windows and details, outlines,
+  captured flag; `BuildingMesh`, §6.2), with their conformance and behaviour tests;
 - the React Native library: codegen specs, the `native` engine host (`src/`), the iOS Fabric view +
-  TurboModule (`ios/`, `MapramaEngineNative.podspec`) and the Android ones (`android/`), both on the
-  official prebuilt MapLibre Native SDKs;
+  TurboModule + Metal custom layer (`ios/`, `MapramaEngineNative.podspec`) and the Android ones with a GL ES 3
+  custom layer (`android/`), all on the official prebuilt MapLibre Native SDKs (no fork, §6.1);
 - the MapLibre Native patch-queue tooling (kept for the fork fallback, §10).
 
 v1 ships `@maprama/engine-web`. The native engine speaks exactly the same `@maprama/protocol` messages, so
@@ -28,7 +30,7 @@ to be confirmed in milestone M1.
 | --- | --- |
 | React Native | New Architecture only: a Fabric view plus a TurboModule over JSI. RN 0.76+, iOS 15.1+, Android API 24+. No bridge fallback. |
 | Renderer base (M1) | **Official prebuilt MapLibre Native SDKs** (user decision, M1): iOS `MapLibre` pod (`~> 6.30`: ios-v6.31.0 is on GitHub/SPM only, CocoaPods trunk tops out at 6.30.0) and Android `org.maplibre.gl:android-sdk:13.6.1`. maplibre-native is **not** cloned or built from source for M1 (~5 GB). These SDKs expose Obj-C / Java APIs, not the `mbgl` C++ headers, so the core drives the map through the platform-implemented `MapAdapter` (§2.1). |
-| Renderer base (M2) | **Still the official SDKs** (decided after M1). M2 ships in three steps on them: **M2a** style layers (fill-extrusion buildings, themes + time of day, building styles, presses, map UI, overlay anchors; this change), **M2b** labels (a native view pool + `labelsIndex`) and `procedural` worlds, **M2c** a custom render layer for roofs / facades / outlines on iOS `MLNCustomStyleLayer` (Metal) and Android `CustomLayerHost` (GL / Vulkan). Forking **MapLibre Native** (BSD-2-Clause) as a **patch queue** (`patches/*.patch`, §10) with an `mbgl::Map`-backed `MapAdapter` is only the fallback if M2c hits a wall. |
+| Renderer base (M2) | **Still the official SDKs** (decided after M1). M2 ships in three steps on them: **M2a** style layers (fill-extrusion buildings, themes + time of day, building styles, presses, map UI, overlay anchors), **M2b** labels (a native view pool + `labelsIndex`) and `procedural` worlds, **M2c** a custom render layer for roofs / facades / outlines / the captured look on iOS `MLNCustomStyleLayer` (Metal) and Android `CustomLayerHost` (GL ES 3 on the `android-sdk-opengl` artifact), done without a fork (§6.1). Forking **MapLibre Native** (BSD-2-Clause) as a **patch queue** (`patches/*.patch`, §10) with an `mbgl::Map`-backed `MapAdapter` stays a fallback only (for example if a later milestone needs ID-buffer picking or a style-spec layer type). |
 | Code sharing | One **C++ shared core** (protocol, simulation, maprama layer). Obj-C++ (iOS) and Kotlin/JNI (Android) wrappers stay thin (`ios/README.md`, `android/README.md`). |
 | Contract | `@maprama/protocol` is the single source of truth. The core decodes envelopes **identically** to `decodeCommand`, and the conformance tests prove it against fixtures exported from the TS package on every `npm test` [V: `scripts/export-fixtures.mjs`, `cpp/tests/decode_tests.cpp`]. |
 | Engine selection | The RN prop `engine="web" \| "native"`. Parity is tracked in §11. |
@@ -89,6 +91,7 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `setPaintProperties(changes)` (M2a) | KVC on `MLNStyleLayer` (`fill-extrusion-color` → `fillExtrusionColor`) with an `NSExpression` (`+expressionWithMLNJSONObject:`; `UIColor` for constant colours), queued until `didFinishLoadingStyle` | `Layer.setProperties(PaintPropertyValue(name, value))` (`Expression.Converter` for expressions) inside `getStyle {}` of the current style generation | — |
 | `setLight(light)` (M2a) | `MLNStyle.light` (`MLNLight`: anchor map, `MLNSphericalPosition`, colour, intensity) | `style.light` (`setAnchor`, `Position`, `setColor`, `setIntensity`) | — |
 | `setUi(state)` (M2a) | own scale bar / zoom buttons / attribution label + `logoView`, `attributionButton`, `compassView` | own views in the `FrameLayout` + `UiSettings` logo / attribution / compass | zoom buttons → `Engine::zoomButton(in)` |
+| `setBuildingLayer(data)` (M2c) | `MapramaBuildingLayer` (`MLNCustomStyleLayer` subclass, Metal) inserted below `buildings` after every style load; `setData:` + `setNeedsDisplay` | `BuildingLayerState` (shared with the render thread) + `CustomLayer("maprama-buildings-3d", BuildingLayerHost*)` added below `buildings` (`MapramaJni.createBuildingLayerHost`), `triggerRepaint` | — |
 | `setCameraLimits(minZoom, maxZoom, minPitch, maxPitch)` | `minimum/maximumZoomLevel`, `minimum/maximumPitch` | `setMin/MaxZoomPreference`, `setMin/MaxPitchPreference` | — |
 | `moveCamera(pose, durationMs)` | `setCamera:(animated:\|withDuration:)` (altitude via `MLNAltitudeForZoomLevel`) | `moveCamera` / `easeCamera(CameraUpdateFactory.newCameraPosition)` | camera reports below |
 | `project(token, lngLat)` | `convertCoordinate:toPointToView:` | `projection.toScreenLocation` (px → dp) | `Engine::onProjected(token, x, y)` |
@@ -125,15 +128,31 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
   75 % of the ratio (hemisphere sky + elevation-weighted sun) × exposure relative to `TIMES.day`, so day
   shows the preset's exact colours and dusk / night darken the map (both factors calibrated on device:
   the full values turned the toy palette at dusk deep red). `setTheme` sends only the changed paint properties and the light (no style
-  reload, no 300 ms cross-fade yet). Options without a style-layer equivalent (facade textures, outlines /
-  edge lines, facade details, `massing: "varied"`, cinematic grading, `zoomOut`) are accepted and
-  warn-logged once each (M2c / M4).
+  reload, no 300 ms cross-fade yet) plus the rebuilt custom building layer (M2c: facades, facade details and
+  outlines). Options that are still not drawn (`massing: "varied"`, cinematic grading, `zoomOut`) are
+  accepted and warn-logged once each; `edgeLines` is carried by engine-web's render params but not drawn by
+  engine-web either, so it is not drawn here.
 - **Building styles (M2a).** Data-driven paint, not feature-state (the iOS SDK has no public feature-state
   API): `fill-extrusion-color` = `match` on the `id` property over the theme expression, one branch per id
   (the iOS SDK round-trips values through `NSExpression`, which does not keep label arrays reliably).
   `state: "captured"` mixes 35 % of engine-web's glow `#FFD36E` into the colour and shows an accent ring
   (`buildings-captured` line layer, `line-opacity` match). `null` clears, a new world clears every
-  override, `roof` / `facade` / `decorations` / `massing` / `replaceModel` are warn-logged once (M2c).
+  override. `roof` and `facade` go to the custom building layer (M2c, below); `decorations` / `massing` /
+  `replaceModel` are warn-logged once.
+- **Custom building layer (M2c).** `buildBuildingLayer` (`cpp/src/BuildingMesh.cpp`) turns the world, the
+  resolved theme and the overrides into one immutable `BuildingLayerData` (indexed triangles, outline quads,
+  light, window lights), rebuilt on world load / `setTheme` / `setBuildingStyle` (≈ 10 ms for Seongsu's 428
+  buildings, sanitizer build) and sent only when its content changed. Vertices are placed through
+  `Projection` and web mercator exactly, relative to the world origin in "local units" (mercator ×
+  2π·6378137·cos(lat₀) ≈ meters), z in meters like `fill-extrusion-height`; `buildingLayerMatrix` multiplies
+  MapLibre's `nearClippedProjectionMatrix` (the matrix fill-extrusions use) with the local → world-pixel
+  transform in double. Both platforms draw it with a small shader pair (MSL / GLSL ES 3.00, same math):
+  MapLibre's own extrusion lighting (`fill_extrusion.vertex.glsl`: light position from
+  `Position::calculateCartesian`, vertical gradient) so roofs and facades match the walls, engine-web's
+  window layouts per facade set with lit windows at night, and screen-space outline quads. The layer sits
+  directly **below** `buildings`: both write and test depth, so draw order only breaks ties, and on MapLibre
+  GL the layer's sublayer depth is what reveals the extrusions' 3D depth range (below). Presses still use the
+  extrusion's rendered-feature query (roof parts above the walls are not pickable).
   Unknown ids emit `error {unknown_building, "setBuildingStyle: unknown building \"<id>\""}` and a missing
   world `error {not_ready}` (engine-web's codes and messages, `fatal: false`).
 - **Presses (M2a).** Platform single taps → `Engine::tap` → `MapAdapter::queryBuilding` (rendered-feature
@@ -159,8 +178,8 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 - **Replies are asynchronous.** The core calls the adapter with its lock held; the adapter posts to the
   main thread and answers through the Engine's `on*` methods, which take the lock again. Pending
   `project`/`unproject` requests are answered with `ok: false` (`not_ready`) when the view detaches.
-- **Fork fallback.** Only if M2c needs it (§1): an adapter implemented on `mbgl::Map` (patched fork) would
-  replace both platform adapters; `MapSession`, the style builder and the tests stay.
+- **Fork fallback.** Not needed for M2c (§1, §6.1): an adapter implemented on `mbgl::Map` (patched fork) would
+  replace both platform adapters; `MapSession`, the style builder, `BuildingMesh` and the tests stay.
 
 ## 3. Threading model
 
@@ -267,7 +286,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` worlds are generated by the C++ port of engine-web's generators, converted to WorldData and loaded the same way, framed at the generator's start point (M2b, §6.8); `theme` and `ui` applied at once (M2a; a `setTheme` sent during a url load wins, as in engine-web); labels and a non-`external` locationSource warn-logged once | M1 (world, camera), M2a (theme, ui), M2b (labels, procedural), M3 (location) |
-| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer uniforms (M2c) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facade / outline / details / varied massing / cinematic grading / zoomOut warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, outlines, grade), M4 (zoomOut) |
+| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer (M2c) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facades, facade details, outlines and window lights rebuilt in the custom building layer (M2c); varied massing / cinematic grading / zoomOut warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, details, outlines), M4 (grade, massing, zoomOut) |
 | `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2b |
 | `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2b |
 | `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; location puck (M3) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` warn-logged once | M2a (puck M3) |
@@ -281,7 +300,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `setDropLayer` | fire-and-forget | `DropSystem::setLayer` | Replaces the layer; builds instance buffers; collection radius and collectors | ignored + warn log | M3 |
 | `removeDropLayer` | fire-and-forget | `DropSystem::removeLayer` | Removes the layer and its instances | ignored + warn log | M3 |
 | `setGeofences` | fire-and-forget | `GeofenceSystem::setGeofences` | Replaces all geofences; membership of unchanged ids preserved | ignored + warn log | M3 |
-| `setBuildingStyle` | fire-and-forget | `MapSession` building overrides → extrusion paint (M2a); custom layer style table (M2c) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | `color` and `state: "captured"` (glow mix + accent ring) as data-driven extrusion paint (§2.1); `null` clears; roof / facade / decorations / massing / replaceModel warn-logged once; `error{unknown_building}` / `error{not_ready}` as engine-web | M2a (color, state), M2c (the rest) |
+| `setBuildingStyle` | fire-and-forget | `MapSession` building overrides → extrusion paint (M2a) + custom building layer (M2c) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | `color` and `state: "captured"` (glow mix + accent ring) as data-driven extrusion paint (§2.1); `roof` (gable / dome on rectangles), `facade` and the captured flag in the custom building layer (M2c); `null` clears; decorations / massing / replaceModel warn-logged once; `error{unknown_building}` / `error{not_ready}` as engine-web | M2a (color, state), M2c (roof, facade, captured flag), M4 (decorations, massing, replaceModel) |
 | `setOverlayAnchors` | fire-and-forget | `MapSession` overlay anchors → `MapAdapter::projectPoints` | Emits `overlay:positions` while anchors exist and the view changes | one `projectPoints` batch per 16 ms frame while anchors exist and the camera / viewport / anchors change (§2.1) | M2a |
 | `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | `camera:change` → `SubscriptionRegistry` (emitted once on subscribe, then throttled); other topics warn-logged | M1 (`camera:change`), M3 |
 | `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics warn-logged | M1 (`camera:change`), M3 |
@@ -297,7 +316,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed`, `unsupported`; `unknown_building` / `not_ready` from `setBuildingStyle` | M0 / M3 |
 | `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2b |
 | `map:press` | `MapSession::tap` → `MapAdapter::queryBuilding` | Tap whose ray hits the ground and no building | Immediate (after the platform query) | emitted (ground coordinate under the tap) | M2a |
-| `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a); custom-layer ID-buffer picking (M2c) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
+| `building:press` | `MapSession::tap` → rendered-feature query of the extrusion layer (M2a; the custom layer has no picking hook, roofs above the walls are not pickable) | Tap on an extruded or replaced building | Immediate (after the platform query) | emitted (ground point on the footprint, else its centroid) | M2a |
 | `drop:collect` | `DropSystem::update` | Collector within `collectRadiusMeters`; nonce from platform CSPRNG | Immediate; drop removed first (never twice) | not emitted | M3 |
 | `travel:start` | `TravelPlanner::start` | Accepted `travel` | Immediate, before any progress | not emitted | M3 |
 | `travel:progress` | `SubscriptionRegistry` sampling `TravelPlanner::active` | Topic `travel:progress` subscribed | Throttled (`throttleMs`) | not emitted | M3 |
@@ -322,11 +341,37 @@ The table coverage is enforced by `npm test` [V: `scripts/check-design-coverage.
 | --- | --- | --- |
 | A. MapLibre custom layer API (host callback per frame) | No fork patches; upstream-supported | The legacy `CustomLayer` is GL-only [U]. The newer drawable-based custom layer for Metal/Vulkan is still evolving [U]. No style-JSON placement, no picking hooks, limited access to depth and shadow passes. |
 | B. Style-spec extension: a new layer `type: "maprama"` implemented in the renderer | Participates in style ordering and zoom ranges. Shares depth with fill-extrusion and symbols. Gets theme-driven paint properties. | Requires patches to style parsing, the layer factory and the render layer. These are maintained in the queue. |
-| **Decision: B, built as a thin wrapper over A's drawable machinery** | The patch registers a `maprama` layer type whose `RenderMapramaLayer` delegates drawing to `MapramaLayer` in our core, using the drawable/custom-drawable APIs. Patches stay small (factory + render-layer glue, about 4 patches) and have a chance to be upstreamed as a generic "external render layer". | Revisit in M1 if upstream's custom drawable layer already covers ordering and depth. |
+| Original decision (M0): B, built as a thin wrapper over A's drawable machinery | The patch registers a `maprama` layer type whose `RenderMapramaLayer` delegates drawing to `MapramaLayer` in our core, using the drawable/custom-drawable APIs. | Needs the fork; kept as the fallback only. |
+| **Decision (M2c): A on the official SDKs** | iOS 6.30 `MLNCustomStyleLayer` (Metal: `renderEncoder`, `renderPassDesc`, `commandBuffer`) and Android 13.6.1 `CustomLayer(id, hostPtr)` over `mln::style::CustomLayerHost` (GL ES 3). The layer is a drawable of the translucent pass inside MapLibre's own render pass, placed by style order, and gets `projectionMatrix` / `nearClippedProjectionMatrix` [V: `src/mln/renderer/layers/render_custom_layer.cpp`, `drawable_custom_layer_host_tweaker.cpp` at the pinned tag]. | No picking hook (presses stay on the extrusion query); depth sharing relies on the behaviour below; the Android default artifact is Vulkan (see below). |
 
-The maprama layer consumes the core's `FrameSnapshot`, which holds the camera matrices shared with `mbgl::TransformState`.
-World-unit geometry is placed with `Projection` (§6.7) and converted into MapLibre's mercator tile space
-once per world load, never per vertex per frame.
+**Depth sharing (verified against the pinned sources, then on both simulators).** Fill-extrusions draw with
+`nearClippedProjMatrix` and `depthModeFor3D()`; the custom layer uses the same matrix, `LessEqual` and depth
+writes, so walls, roofs and facades occlude each other exactly:
+
+- **Metal (iOS) and Vulkan:** `depthModeFor3D()` has no range, fill-extrusions use the full `[0, 1]`; the layer
+  needs nothing else. The layer resets the depth bias it uses (MapLibre does not track it).
+- **GL (Android `android-sdk-opengl`):** fill-extrusions use `glDepthRange(0, R)` with
+  `R = 1 − (layerGroups + 2)·3·2⁻¹⁶`, and MapLibre sets `[d, d]` with `d = R + (1 + L)·3·2⁻¹⁶` for the custom
+  layer's sublayer, `L` = layer groups above it (`renderer_impl.cpp`, `paint_parameters.cpp`). Layers above the
+  first 3D layer get depth disabled (`opaquePassCutoff`), so the layer sits **below** `buildings` and reads
+  `GL_DEPTH_RANGE`: `R = glExtrusionDepthRange(d, layersAbove)` (`BuildingMesh.hpp`, unit-tested), then draws
+  with `glDepthRangef(0, R)`. It restores the polygon offset it uses (MapLibre does not track it).
+  `layersAbove` counts style layers, which is ≥ the layer groups above (a layer without drawables has no
+  group), so any error puts the custom layer slightly in front (never behind) the walls it decorates; on
+  the emulator the recovered range was `R = 0.999222` with `layersAbove = 2`. The first frame after a style
+  load can carry no sublayer depth (`[0, 1]`); the layer then keeps the last recovered range (1 of 240 frames).
+- **Android backend:** `org.maplibre.gl:android-sdk:13.6.1` renders with Vulkan (its AAR contains
+  `VulkanRendererStrategy` and Vulkan symbols); a Vulkan host would have to build `VkPipeline`s against
+  MapLibre's render pass through `vk::detail::DispatchLoaderDynamic` from vulkan-hpp, whose layout must match
+  the SDK's build. The package therefore depends on the **`android-sdk-opengl`** artifact of the same version
+  (same Java/Kotlin API). The AAR ships no C++ headers: the three `custom_layer*` headers the host needs are
+  vendored unchanged from tag `android-v13.6.1` in `android/src/main/cpp/vendor/maplibre` (BSD-2-Clause,
+  root `NOTICE`); `custom_layer.hpp` is not vendored (it pulls in the whole style API and is not needed).
+  The host object crosses the `.so` boundary only through the virtual `CustomLayerHost` interface and the
+  POD `CustomLayerRenderParameters`.
+
+World-unit geometry is placed with `Projection` (§6.7) and converted into web mercator once per mesh build,
+never per frame; the per-frame work is one matrix product and two draw calls.
 
 ### 6.2 Extrusion, facades and roofs
 
@@ -348,7 +393,25 @@ once per world load, never per vertex per frame.
   per-world texture buffer indexed by building index. A change only uploads that row, so there is no geometry
   rebuild unless roof, massing or `replaceModel` changes (then only that building's mesh chunk is rebuilt).
 - **Picking.** An ID pass renders `building index + 1` into an R32UI target at ¼ resolution, only on
-  frames with a pending tap.
+  frames with a pending tap (fork fallback; the SDK custom layer has no picking hook).
+
+**M2c on the official SDKs (implemented).** The walls stay MapLibre `fill-extrusion`s (M2a: presses, base
+colour, lighting); the custom building layer adds, per engine-web's `BuildingRenderer` with box massing
+[V: `cpp/src/BuildingMesh.cpp`, `cpp/tests/m2c_tests.cpp`]:
+
+| Feature | Rule (engine-web) | Native geometry / shading |
+| --- | --- | --- |
+| Gable roof | rectangles (`asRectangle`, 6°), `roof: "gable"`, not `flatRoofs` unless set explicitly | triangular prism along the long side, span + 0.3 overhang, ridge `H + span·0.42`; tiles / metal / darker wall colour by set |
+| Dome roof | rectangles, `roof: "dome"` | drum (r = short side · 0.42, 0.3 tall) + hemisphere, apex `H + 0.3 + r` |
+| Flat roof | everything else | `real`: gravel slab + parapet + HVAC; `modern` / `urban`: membrane + parapet + deck / planters / solar / HVAC; `soft`: small dome; `toy` / `none`: light overhanging cap slab — same mulberry32 draws |
+| Facade | `buildings.facade` and a set ≠ `none`, per-building `facade: false` | one quad per wall 0.006 units outside the extrusion; the fragment shader draws the set's window layout (punched / ribbon / curtain wall, cell sizes of the facade textures) in the building colour, lit windows at night (`TIMES.lights`); storefront band for `real` / `modern` / `urban` |
+| Facade details | `buildings.details` with `real` / `modern` / `urban` | slab-edge bands, glass fins, office fins, balcony slabs, cornice, storefront canopy (balcony glass rails are omitted) |
+| Outline | `buildings.outline` (toy) | 2 dp INK lines on corners, ground ring, cap / roof edges and eaves (screen-space quads instead of the inverted hull) |
+| Captured | `state: "captured"` | the extrusion's glow mix (M2a) on the facade too, plus the pole + ACCENT flag on the roof |
+
+Differences to engine-web: the facade textures are procedural patterns (no texture atlas yet), rectangle
+geometry follows the true footprint (the extrusion does), `massing: "varied"` / decorations / replaced models
+are not drawn, the captured glow does not pulse, and `soft` masses are not rounded.
 
 ### 6.3 Instanced drops
 
@@ -423,8 +486,10 @@ rebuild only the affected geometry chunks on workers.
 fails when the file drifts from the protocol), and `ThemeResolver::resolve` is checked against
 `resolveTheme` for every preset × time of day × cinematic plus field overrides and custom preset objects
 [V: `theme.json` fixture, `theme_resolver_matches_resolve_theme`]. Place 1 is implemented with style
-layers, the style light and a time-of-day colour tint (§2.1); places 2 and 3 (custom layer uniforms, the
-post pass) and the 300 ms cross-fade are M2c.
+layers, the style light and a time-of-day colour tint (§2.1). **M2c** implements place 2 for buildings: the
+custom building layer takes the style light (MapLibre's extrusion lighting), the tinted colours, the facade
+set, outlines, details and window lights. The post pass (haze, vignette, cinematic grade), fog and the 300 ms
+cross-fade remain open (M4).
 
 ### 6.7 Coordinates and zoom-out game view
 
@@ -531,6 +596,20 @@ numbers exist.
 The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan for tests
 [V: `scripts/build-core.sh --tests`].
 
+**M2c measurements (Seongsu, 428 buildings; simulators, not the reference devices).** The custom layer logs
+`maprama-frame-stats` every 240 drawn frames (iOS `os_log` category `building-layer`, Android logcat tag
+`MapramaBuildingLayer`); the numbers below are from the Maestro flows (`07-native-m2c`: 8 s orbit around the
+captured tower, realistic theme). Idle gaps > 100 ms (MapLibre renders on demand) are excluded.
+
+| | Mesh | Frame interval avg / p95 | Layer cost per frame |
+| --- | --- | --- | --- |
+| Core (`m2c_building_layer_geometry`, ASan build) | 74,969 vertices, 37,643 triangles, built in ≈ 10 ms | — | — |
+| iOS 26.5 simulator (Metal, M-series Mac) | same | 16.7–16.9 ms / 17.3–21.3 ms (vsync-bound 60 fps) | encode 0.005 ms; whole-frame GPU 0.12–0.27 ms |
+| Android 15 emulator (`-gpu host`, GL ES translator) | same | 25.8 ms / 45.2 ms during the orbit; 3.5–6.2 ms in the M1 flow (no vsync) | GL calls 1.6 ms avg (3.7 ms p95) during the orbit, 0.25–0.43 ms otherwise |
+
+Uploads (≈ 3.6 MB of vertices) happen only when the layer data changes. The emulator figure is bound by the
+emulator's GL translation; no baseline without the layer and no device numbers were taken (M4).
+
 ## 9. Build and packaging
 
 - The core is built by `scripts/build-core.sh` on macOS with `xcrun clang++` (no CMake on this toolchain)
@@ -543,9 +622,14 @@ The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan 
   `org.maplibre.gl:android-sdk:13.6.1` from Maven Central. Autolinking picks the package up from the
   podspec at the package root and `android/` (`react-native.config.js`); codegen (`codegenConfig`,
   `MapramaEngineNativeSpec`) generates the Fabric component and TurboModule glue on both platforms.
-- **M2a:** still the official SDKs (no new native dependency). **Fork fallback only:** if M2c needs the
-  fork, the patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR; app
-  builds would consume these prebuilt artifacts, so they never apply patches.
+- **M2a:** still the official SDKs (no new native dependency).
+- **M2c:** still the official SDKs. Android switches to `org.maplibre.gl:android-sdk-opengl:13.6.1` (the GL ES
+  variant of the same release, §6.1) and links `GLESv3`; `libmaprama_engine.so` also compiles
+  `android/src/main/cpp/maprama_building_layer.cpp` against the vendored `mln/style/layers/custom_layer*.hpp`
+  headers. iOS adds `ios/MapramaBuildingLayer.mm` (Metal shaders compiled at runtime from source).
+  **Fork fallback only:** if a later milestone needs the fork, the patched MapLibre is built in CI from
+  `patches/` into an XCFramework (Metal) and an AAR; app builds would consume these prebuilt artifacts, so
+  they never apply patches.
 - Tests: `npm test -w @maprama/engine-native` runs these steps:
   1. export fixtures from the built protocol package (including `resolveTheme` cases);
   2. check DESIGN.md coverage;
@@ -610,8 +694,8 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | WorldData `procedural` | `init.world` | v1 | **M2b** (C++ port of the town / grid generators, conformance-tested, §6.8) |
 | Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow` M3) |
 | Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; M3 other topics |
-| Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | **M2a** extrusion, theme colours, colour / captured overrides; M2c facades, roofs, massing, replaced models |
-| Themes + time of day + cinematic | `setTheme` | v1 | **M2a** resolution, colours, light + time-of-day tint; M2c cinematic grading, outlines, cross-fade |
+| Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | **M2a** extrusion, theme colours, colour / captured overrides; **M2c** gable / dome / flat roofs, facade windows + storefronts, facade details, captured flag (custom layer); M4 varied massing, decorations, replaced models |
+| Themes + time of day + cinematic | `setTheme` | v1 | **M2a** resolution, colours, light + time-of-day tint; **M2c** outlines, window lights at night; M4 cinematic grading, fog / haze, cross-fade |
 | Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2b |
 | Map UI | `setUi` | v1 | **M2a** (location puck M3) |
 | Presses | `map:press`, `building:press` | v1 | **M2a** (rendered-feature query) |
@@ -639,18 +723,21 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
     (all move to M2 with the fork), the core-thread command queue, frame snapshot and per-tick event
     batching (§3 M1 simplification), and `procedural` worlds (M2b).
 - **M2 — diorama look, on the official SDKs in three steps.**
-  - **M2a (this change).** `ThemeResolver` (embedded protocol data, conformance-tested), 3D buildings as a
+  - **M2a (done).** `ThemeResolver` (embedded protocol data, conformance-tested), 3D buildings as a
     `fill-extrusion` layer in theme colours, time of day as the style light + colour tint, `setTheme` paint
     patches, `setBuildingStyle` (colour, captured), presses through rendered-feature queries, map UI (scale
     bar, zoom buttons, attribution, MapLibre ornaments), overlay anchors (`overlay:positions`).
   - **M2b.** Labels as a native view pool driven by the core (`labelsIndex`, `setLabels`,
     `setLabelContent`, the label styles as far as views allow) and `procedural` worlds (**done**: C++ port
     of engine-web's generators with a conformance fixture, loaded through the WorldData path, §6.8).
-  - **M2c.** A custom render layer (iOS `MLNCustomStyleLayer` on Metal, Android `CustomLayerHost` on
-    GL / Vulkan) for roofs, facades, outlines, massing and replaced models, ID-buffer picking and cinematic
-    grading; the core thread + frame snapshot arrive with the layer's per-frame data.
+  - **M2c (this change).** The custom building layer on the SDKs' custom layer APIs (iOS
+    `MLNCustomStyleLayer` on Metal, Android `CustomLayerHost` on GL ES 3 with `android-sdk-opengl`): roofs,
+    facade windows / storefronts / details, outlines and the captured flag from core meshes, depth-shared with
+    the extrusions (§6.1, §6.2). Not in M2c: varied massing, decorations, replaced models, ID-buffer picking,
+    cinematic grading / post pass (M4); the layer has no per-frame core data yet, so the core thread + frame
+    snapshot (§3) are still not needed.
   - **Fallback.** Fork + patch queue (pin `UPSTREAM`, `maprama` layer type, CI artifacts) and an
-    `mbgl`-backed `MapAdapter`, only if M2c cannot be built on the SDKs' custom layer APIs.
+    `mbgl`-backed `MapAdapter`, only if a later milestone cannot be built on the SDKs' custom layer APIs.
 - **M3 — game systems.** cgltf skinning, `CharacterSystem` and location sources, `TravelPlanner` (A*,
   subway expansion), drops, geofences, all remaining events.
 - **M4 — parity and performance.**
@@ -661,16 +748,14 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 
 ## 12. Third-party components (NOTICE list for this package)
 
-The root `NOTICE` is intentionally not modified by M0. Add these entries when the code ships:
-
 | Component | License | Used for | Status |
 | --- | --- | --- | --- |
-| MapLibre Native | BSD-2-Clause | Base renderer: official prebuilt iOS / Android SDKs linked by apps (M1), patch queue from M2 | used from M1 (apps depend on the SDK artifacts; NOTICE entry still pending) |
+| MapLibre Native | BSD-2-Clause | Base renderer: official prebuilt iOS / Android SDKs linked by apps (M1); three `custom_layer*` headers vendored in `android/src/main/cpp/vendor/maplibre` (M2c) | used; root `NOTICE` entry with the license text (M2c) |
 | cgltf | MIT | glTF 2.0 / GLB loading | planned (M3) |
-| earcut.hpp | ISC | Roof and polygon triangulation (via MapLibre) | planned (M2) [U: bundled by MapLibre] |
+| earcut.hpp | ISC | — | **not used**: roof caps use a small ear-clipping triangulator in `BuildingMesh.cpp` (MapLibre's bundled copy is not reachable through the prebuilt SDKs) |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Core behaviour summary (M1 + M2a)
+## 13. Core behaviour summary (M1 + M2a + M2c)
 
 | Input | Output |
 | --- | --- |
@@ -679,8 +764,9 @@ The root `NOTICE` is intentionally not modified by M0. Add these entries when th
 | `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style sent, default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme and ui applied; labels and locationSource warn-logged |
 | `init` with `world.kind = "procedural"` | World generated by the C++ port of engine-web's town / grid generators (same seed → same world, §6.8), converted to WorldData and loaded like `data` (extruded buildings keep the generator's palette index); default framing at the generator's start point, then `init.camera` |
 | `setCamera` | Merged into the camera and applied to the map (§5.1); `follow: "<id>"` warn-logged |
-| `setTheme` | Resolved theme → changed paint properties + light; options without a style-layer equivalent warn-logged once |
-| `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; `error {unknown_building \| not_ready, fatal: false}` |
+| `setTheme` | Resolved theme → changed paint properties + light, and the rebuilt custom building layer (facades, details, outlines, window lights); varied massing / grading / zoomOut warn-logged once |
+| `setBuildingStyle` | Colour / captured override as data-driven extrusion paint; roof / facade / captured flag in the custom building layer; `error {unknown_building \| not_ready, fatal: false}` |
+| World load, `setTheme`, `setBuildingStyle`, adapter attach | `MapAdapter::setBuildingLayer(data)` after the style, only when the layer content changed |
 | `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` warn-logged |
 | `setOverlayAnchors` | `overlay:positions {positions: [{id, x, y, visible}]}` at most once per 16 ms frame while the view changes |
 | Platform tap | `building:press {buildingId, coordinate}` or `map:press {coordinate}` |
