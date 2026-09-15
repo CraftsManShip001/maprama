@@ -93,13 +93,13 @@ Use `world={{ kind: 'data', world }}` with a `WorldData` JSON built by
 | Engine | Package | Status |
 | --- | --- | --- |
 | v1 web engine (three.js in a WebView) | `@maprama/engine-web` | Default. Implements the whole protocol. |
-| v2 native engine (MapLibre Native fork, Fabric/JSI) | `@maprama/engine-native` | **Beta, not published in 0.1.0.** Milestone M1: flat map and camera. |
+| v2 native engine (MapLibre Native, Fabric/JSI) | `@maprama/engine-native` | **In development, not part of 0.1.0.** M1 (flat map, camera, gestures) builds on the official MapLibre SDKs; buildings, labels, characters, travel and drops follow in M2–M3. |
 
 ## Documentation and example
 
-- Documentation site sources: [`docs/`](./docs) (VitePress, currently in
-  Korean). Run `npm run docs:dev` to browse it locally with the interactive
-  playground.
+- Documentation: <https://craftsmanship001.github.io/maprama/> (Korean): guides,
+  API reference and an interactive playground running the real engine. Sources
+  live in [`docs/`](./docs); `npm run docs:dev` serves them locally.
 - Example app: [`example/`](./example), an Expo Router catalog with one
   screen per feature.
 - Changes: [CHANGELOG.md](./CHANGELOG.md).

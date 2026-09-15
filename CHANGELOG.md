@@ -10,7 +10,8 @@ All packages in this repository share one version number.
 ## [0.1.0] — Unreleased
 
 First public release of `@maprama/protocol`, `@maprama/engine-web`,
-`@maprama/react-native`, `@maprama/osm` and `@maprama/assets`.
+`@maprama/react-native`, `@maprama/osm` and `@maprama/assets`. The v2 native engine
+(`@maprama/engine-native`) is in development and not part of this release.
 
 ### Added
 
@@ -33,10 +34,9 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   `travel` command, `TravelOptions.timeScale` and the `travelTimeScale` prop of
   `MapramaView` select a speed multiplier.
 - Android support.
-- `@maprama/engine-native` (v2, **beta, not published**): milestone M1, a
-  flat map with camera and gestures behind the same protocol.
-- Example app updates: a feature catalog screen per feature, including travel
-  speed selection.
+- Documentation site on GitHub Pages: <https://craftsmanship001.github.io/maprama/>.
+- Example app updates: a feature catalog screen per feature, including a ×20
+  travel playback demo, verified on iOS and Android with Maestro.
 - Release tooling: package metadata, per-package READMEs, `LICENSE` / `NOTICE`
   in every tarball, GitHub Actions CI, `CONTRIBUTING.md` and `SECURITY.md`.
 
