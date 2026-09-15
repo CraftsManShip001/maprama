@@ -3,17 +3,21 @@ import '@maprama/engine-native';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
+  LABEL_CONTENT_MODES,
+  LABEL_STYLES,
   PRESET_NAMES,
   TIMES_OF_DAY,
   haversineMeters,
   type CameraSpec,
+  type LabelContentMode,
+  type LabelStyle,
   type PresetName,
   type TimeOfDay,
   type WorldSource,
 } from '@maprama/protocol';
-import { MapOverlay, useCameraState, type MapramaViewRef } from '@maprama/react-native';
+import { MapOverlay, useCameraState, type LabelContentFunction, type MapramaViewRef } from '@maprama/react-native';
 import { DemoMap } from '../src/components/DemoMap';
-import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, useEventLog } from '../src/components/ui';
+import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, Toggle, useEventLog } from '../src/components/ui';
 import { SAMPLE_BUILDING, SEONGSU_WORLD, STATION, STATION_NAME, offsetMeters } from '../src/data/seongsu';
 
 const WORLD: WorldSource = { kind: 'data', world: SEONGSU_WORLD };
@@ -32,6 +36,11 @@ const PRESETS: { id: string; title: string; camera: CameraSpec }[] = [
 
 const fixed = (value: number, digits: number) => value.toFixed(digits);
 
+/** `custom` here = a content function (evaluated per labelsIndex, sent as setLabelContent + content: 'custom'). */
+const LABEL_CONTENT_CHOICES: readonly LabelContentMode[] = LABEL_CONTENT_MODES;
+const customLabelContent: LabelContentFunction = (label) =>
+  label.kind === 'poi' ? { title: `${label.name} ★`, subtitle: label.category === 'subway' ? '지하철 · custom' : 'custom' } : null;
+
 export default function NativeEngineScreen() {
   const mapRef = useRef<MapramaViewRef>(null);
   const camera = useCameraState(mapRef, { throttleMs: 100 });
@@ -42,7 +51,22 @@ export default function NativeEngineScreen() {
   const [mapPress, setMapPress] = useState('map:press: none yet');
   const [buildingPress, setBuildingPress] = useState('building:press: none yet');
   const [overlay, setOverlay] = useState('overlay: waiting for overlay:positions');
+  const [labelsOn, setLabelsOn] = useState(true);
+  const [labelStyle, setLabelStyle] = useState<LabelStyle>('holo');
+  const [labelContent, setLabelContent] = useState<LabelContentMode>('nameAndType');
+  const [labelsIndex, setLabelsIndex] = useState('labelsIndex: waiting');
   const [log, pushLog] = useEventLog();
+
+  // labelsIndex arrives after every world load (same ids as engine-web).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return undefined;
+    return map.addEventListener('labelsIndex', (e) => {
+      const pois = e.labels.filter((l) => l.kind === 'poi').length;
+      setLabelsIndex(`labelsIndex: ${e.labels.length} labels (${pois} POIs, ${e.labels.length - pois} roads / districts)`);
+      pushLog(`labelsIndex: ${e.labels.length} labels`);
+    });
+  }, [pushLog]);
 
   // Readout of the station card's anchor (overlay:positions drives the <MapOverlay> itself).
   useEffect(() => {
@@ -100,6 +124,11 @@ export default function NativeEngineScreen() {
           world={WORLD}
           theme={{ base: preset, timeOfDay }}
           ui={{ zoomButtons: true }}
+          labels={{
+            enabled: labelsOn,
+            style: labelStyle,
+            content: labelContent === 'custom' ? customLabelContent : labelContent,
+          }}
           camera={{ center: STATION, pitch: 45, distance: 400 }}
           onReady={(e) => pushLog(`ready: ${e.engine.name} ${e.engine.version} (${e.engine.kind})`)}
           onError={(e) => pushLog(`error ${e.code}: ${e.message}`)}
@@ -179,6 +208,20 @@ export default function NativeEngineScreen() {
         <Chips label="Preset" options={PRESET_NAMES} value={preset} onChange={setPreset} testIDPrefix="native-theme" />
         <Chips label="Time of day" options={TIMES_OF_DAY} value={timeOfDay} onChange={setTimeOfDay} testIDPrefix="native-time" />
         <Readout testID="native-theme-state">{`theme: ${preset} · ${timeOfDay}`}</Readout>
+      </Section>
+      <Section title="Labels (setLabels / setLabelContent)">
+        <Chips label="Style" options={LABEL_STYLES} value={labelStyle} onChange={setLabelStyle} testIDPrefix="native-labels-style" />
+        <Chips
+          label="Content"
+          options={LABEL_CONTENT_CHOICES}
+          value={labelContent}
+          onChange={setLabelContent}
+          testIDPrefix="native-labels-content"
+          labels={{ custom: 'custom function' }}
+        />
+        <Toggle label="Labels" value={labelsOn} onChange={setLabelsOn} testID="native-labels-enabled" />
+        <Readout testID="native-labels-state">{`labels: ${labelStyle} · ${labelContent} · ${labelsOn ? 'on' : 'off'}`}</Readout>
+        <Readout testID="native-labels-index">{labelsIndex}</Readout>
       </Section>
       <Section title="Events">
         <EventLog lines={log} testID="native-log" />

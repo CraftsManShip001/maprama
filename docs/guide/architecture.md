@@ -169,7 +169,7 @@ MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 
 | 구독 | `subscribe` / `unsubscribe` | v1 | M1 |
 | 건물: 돌출, 외벽, 지붕, 매스 | `setTheme`, `setBuildingStyle` | v1 | M2 |
 | 테마 + 시간대 + 시네마틱 | `setTheme` | v1 | M2 |
-| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2 |
+| 라벨 (전 스타일, 커스텀 내용) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | **M2b** (코어 배치 + 네이티브 뷰; `ground`/`sign` 3D 라벨은 M2c) |
 | 지도 UI | `setUi` | v1 | M2 |
 | 탭 | `map:press`, `building:press` | v1 | M2 |
 | 오버레이 앵커 | `setOverlayAnchors`, `overlay:positions` | v1 | M2 |
@@ -184,6 +184,6 @@ MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 
 
 - **M0 기반** (완료): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
 - **M1 지도가 화면에** (현재): 공식 prebuilt MapLibre SDK 위의 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, `MapAdapter`, `init`(data/url)으로 평면 지도, 카메라·제스처, `project`/`unproject`, `camera:change` 구독. 명령 큐·프레임 스냅샷·`procedural` 월드는 뒤로 미룸
-- **M2 디오라마 룩**: 돌출·외벽·지붕·매스, 스타일 테이블 + 탭 판정, `ThemeResolver`, 라벨 시스템(GPU 쿼드 + 접근성 풀), `labelsIndex`, 지도 UI, 탭, 오버레이 앵커
+- **M2 디오라마 룩**: 돌출·외벽·지붕·매스, 스타일 테이블 + 탭 판정, `ThemeResolver`, 라벨 시스템(M2b: C++ 코어가 선택·배치하고 플랫폼 네이티브 뷰 풀이 그림), `labelsIndex`, 지도 UI, 탭, 오버레이 앵커
 - **M3 게임 시스템**: cgltf 스키닝, `CharacterSystem`과 위치 소스, `TravelPlanner`(A*, 지하철 확장), 드롭, 지오펜스, 나머지 이벤트
 - **M4 동등성과 성능**: 줌아웃 게임 뷰, [성능 예산](./performance#v2-네이티브-엔진-예산) 기기 측정, RN 예제 앱으로 웹·네이티브 나란히 매트릭스 전부 통과, `engine="native"` 베타

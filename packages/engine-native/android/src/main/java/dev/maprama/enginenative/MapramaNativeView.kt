@@ -63,11 +63,15 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   private val attributionLabel = TextView(reactContext)
   private var logoShown = false
 
+  /** Label cards placed by the core (M2b): above the map, below the map UI; touches pass through. */
+  private val labelLayer = MapramaLabelLayer(reactContext, density)
+
   init {
     MapLibre.getInstance(reactContext)
     val options = MapLibreMapOptions.createFromAttributes(reactContext).textureMode(true)
     mapView = MapView(reactContext, options)
     addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    addView(labelLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     createOrnaments()
     mapView.onCreate(null)
     mapView.onStart()
@@ -136,6 +140,8 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     val h = b - t
     mapView.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
     mapView.layout(0, 0, w, h)
+    labelLayer.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+    labelLayer.layout(0, 0, w, h)
     layoutOrnaments(w, h)
   }
 
@@ -343,6 +349,34 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     mainHandler.postDelayed({
       if (handle != 0L) MapramaJni.frame(handle, SystemClock.uptimeMillis().toDouble())
     }, delayMs.toLong().coerceAtLeast(0L))
+  }
+
+  override fun measureLabels(token: Long, strings: Array<String>, ints: IntArray) {
+    val items = LabelContentData.list(null, strings, ints)
+    mainHandler.post {
+      if (destroyed || handle == 0L) return@post
+      MapramaJni.onLabelsMeasured(handle, token, labelLayer.measure(items))
+    }
+  }
+
+  override fun setLabelFrame(
+    visual: Int,
+    tile: Int,
+    night: Boolean,
+    ids: Array<String>,
+    keys: Array<String>,
+    strings: Array<String>,
+    ints: IntArray,
+    numbers: DoubleArray,
+  ) {
+    val frame = LabelFrameData.decode(visual, tile, night, ids, keys, strings, ints, numbers)
+    // Camera reports arrive on the main thread: apply at once so the cards move with the map (the layer
+    // never calls back into the engine). Commands from the JS thread are posted.
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      if (!destroyed) labelLayer.apply(frame)
+    } else {
+      mainHandler.post { if (!destroyed) labelLayer.apply(frame) }
+    }
   }
 
   // ---- Map UI --------------------------------------------------------------------------------------
