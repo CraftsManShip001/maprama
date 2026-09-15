@@ -15,7 +15,7 @@ export default function RootLayout() {
         <Stack.Screen name="labels" options={{ title: 'Labels' }} />
         <Stack.Screen name="buildings" options={{ title: 'Geofence & buildings' }} />
         <Stack.Screen name="multiplayer" options={{ title: 'Overlays & multiplayer' }} />
-        <Stack.Screen name="native" options={{ title: 'Native engine (M2a)' }} />
+        <Stack.Screen name="native" options={{ title: 'Native engine (M2c)' }} />
       </Stack>
     </>
   );
