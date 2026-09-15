@@ -2,12 +2,16 @@
 // (iOS `MapramaNativeView` / Android `MapramaNativeView`, `MapramaEngineModule`).
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "maprama/CameraController.hpp"
+#include "maprama/MapAdapter.hpp"
 #include "maprama/MessageSink.hpp"
 #include "maprama/json.hpp"
 #include "maprama/types.hpp"
@@ -17,16 +21,19 @@ namespace maprama {
 class WorldStore;
 
 inline constexpr std::string_view kCoreName = "maprama-native";
-inline constexpr std::string_view kCoreVersion = "0.0.0";
+inline constexpr std::string_view kCoreVersion = "0.1.0";
 
 struct EngineConfig {
   EngineInfo info{std::string(kCoreName), std::string(kCoreVersion), EngineKind::Native};
   /// Validate outgoing events against the protocol (enable in debug / tests).
   bool validateOutgoingEvents = false;
+  /// Monotonic milliseconds used for subscription throttling; steady_clock when empty (tests inject one).
+  std::function<double()> clockMs;
 };
 
-/// One engine instance per map view. All methods are safe to call from any thread
-/// (the skeleton serialises with a mutex; the production core posts to its own queue, DESIGN.md §3).
+/// One engine instance per map view. All methods are safe to call from any thread: M1 serialises them
+/// with one mutex per engine (DESIGN.md §3 "M1 simplification"); the core-thread queue replaces it later
+/// without changing this interface.
 class Engine {
  public:
   virtual ~Engine() = default;
@@ -49,7 +56,26 @@ class Engine {
 
   virtual const WorldStore& worldStore() const = 0;
 
-  /// Stops processing; later calls are ignored.
+  // ---- M1 map adapter (MapAdapter.hpp) -------------------------------------------------------------
+  /// Attaches the platform map. The core immediately sends the current style, limits and camera.
+  virtual void attachMapAdapter(std::shared_ptr<MapAdapter> adapter) = 0;
+  /// Detaches it; pending `project`/`unproject` requests are answered with `ok: false` (`not_ready`).
+  virtual void detachMapAdapter() = 0;
+  /// The platform map's camera changed (gesture, animation step, jump), main thread.
+  virtual void onCameraChanged(const MapCameraPose& pose) = 0;
+  /// Reply to `MapAdapter::project`.
+  virtual void onProjected(std::uint64_t token, double x, double y) = 0;
+  /// Reply to `MapAdapter::unproject` (nullopt when the point is not on the ground).
+  virtual void onUnprojected(std::uint64_t token, std::optional<LngLat> coordinate) = 0;
+  /// Reply to `MapAdapter::fetchText`: the body, or a complete error message when `ok` is false.
+  virtual void onTextFetched(std::uint64_t token, bool ok, std::string bodyOrError) = 0;
+
+  /// Current protocol camera (diagnostics / tests).
+  virtual CameraState cameraState() const = 0;
+  /// MapLibre style JSON currently sent to the adapter (diagnostics / tests).
+  virtual std::string styleJson() const = 0;
+
+  /// Stops processing; later calls are ignored. Also detaches the map adapter.
   virtual void shutdown() = 0;
 };
 

@@ -17,6 +17,7 @@ const SCREENS: Entry[] = [
   { slug: 'labels', href: '/labels', title: '6. Labels', description: 'Label styles incl. holo, icon tiles and content modes incl. a custom content function.' },
   { slug: 'buildings', href: '/buildings', title: '7. Geofence & buildings', description: 'Plaza geofence enter/exit log; press a building to edit color, roof, massing and state.' },
   { slug: 'multiplayer', href: '/multiplayer', title: '8. Overlays & multiplayer', description: 'CharacterLayer of simulated remote players (1 s ticks, interpolated) and a MapOverlay card on a POI.' },
+  { slug: 'native', href: '/native', title: '9. Native engine (M1)', description: 'engine="native": the Seongsu world as a flat MapLibre map, camera presets, camera:change readout and a project/unproject round trip.' },
 ];
 
 export default function CatalogIndex() {

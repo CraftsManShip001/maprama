@@ -49,8 +49,6 @@ std::string envelope(const Value& msg, std::uint64_t seq) { return protocol::enc
 }  // namespace
 
 MAPRAMA_TEST(engine_skeleton_behaviour) {
-  if (!ctx.emitPath.empty()) std::ofstream(ctx.emitPath, std::ios::trunc).flush();
-
   auto sink = std::make_shared<RecordingSink>();
   maprama::EngineConfig config;
   config.validateOutgoingEvents = true;
@@ -94,24 +92,49 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
     const std::size_t warningsBefore = sink->warnings();
     engine->postMessage(c.find("input")->asString());
     const std::size_t newEvents = sink->events.size() - eventsBefore;
+    const Value decoded = protocol::decodeCommand(c.find("input")->asString()).value.msg;
+    const Value* topic = decoded.find("topic");
 
     if (type == "request") {
-      Value decoded = protocol::decodeCommand(c.find("input")->asString()).value.msg;
+      // M1: project/unproject need an attached, laid-out native map (none here) -> not_ready; others unsupported.
+      const std::string& method = decoded.find("method")->asString();
+      const std::string expectedCode = (method == "project" || method == "unproject") ? "not_ready" : "unsupported";
       bool ok = newEvents == 1;
       if (ok) {
         Value res = sink->eventMsg(eventsBefore);
         ok = res.find("type")->asString() == "response" &&
              res.find("requestId")->asString() == decoded.find("requestId")->asString() &&
-             !res.find("ok")->asBool() && res.find("error")->find("code")->asString() == "unsupported" &&
-             res.find("error")->find("message")->asString().find(decoded.find("method")->asString()) !=
-                 std::string::npos;
+             !res.find("ok")->asBool() && res.find("error")->find("code")->asString() == expectedCode;
+        if (ok && expectedCode == "unsupported") {
+          ok = res.find("error")->find("message")->asString().find(method) != std::string::npos;
+        }
       }
-      ctx.check(ok, "[" + name + "] request -> unsupported response");
+      ctx.check(ok, "[" + name + "] request -> " + expectedCode + " response");
+    } else if (name.rfind("init_url", 0) == 0 || name.rfind("init_procedural", 0) == 0) {
+      // url worlds are fetched by the platform adapter (none attached here); procedural worlds are not in M1.
+      const bool url = name.rfind("init_url", 0) == 0;
+      bool ok = newEvents == 1;
+      if (ok) {
+        Value e = sink->eventMsg(eventsBefore);
+        ok = e.find("type")->asString() == "error" && e.find("fatal")->asBool() &&
+             e.find("code")->asString() == (url ? "world_load_failed" : "unsupported");
+      }
+      ctx.check(ok, "[" + name + "] -> fatal " + (url ? std::string("world_load_failed") : std::string("unsupported")) +
+                        " error");
+    } else if (type == "setCamera" || (type == "unsubscribe" && topic && topic->asString() == "camera:change")) {
+      // Handled by the M1 session: no warning, and no event without a camera:change subscription.
+      ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");
     } else {
+      // The init fixture's camera has `follow: "player"`: the M1 session warns about it (characters are M3)
+      // in addition to the not-applied init parts.
+      const Value* camera = decoded.find("camera");
+      const std::size_t expectedWarnings = (type == "init" && camera && camera->find("follow")) ? 2 : 1;
       ctx.check(newEvents == 0, "[" + name + "] fire-and-forget emits no event (got " + std::to_string(newEvents) + ")");
-      ctx.check(sink->warnings() == warningsBefore + 1, "[" + name + "] logs one not-implemented warning");
+      ctx.check(sink->warnings() == warningsBefore + expectedWarnings,
+                "[" + name + "] logs " + std::to_string(expectedWarnings) + " not-implemented warning(s)");
       const std::string& lastLog = sink->logs.back().second;
-      ctx.check(lastLog.find("\"" + type + "\"") != std::string::npos, "[" + name + "] warning names the command");
+      ctx.check(lastLog.find(type == "init" ? std::string("init:") : "\"" + type + "\"") != std::string::npos,
+                "[" + name + "] warning names the command");
     }
     ++seq;
   }

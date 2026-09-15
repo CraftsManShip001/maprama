@@ -43,6 +43,9 @@ int main(int argc, char** argv) {
     }
   }
 
+  // Suites append the envelopes they emitted; start from an empty file (suite order is link order).
+  if (!ctx.emitPath.empty()) std::ofstream(ctx.emitPath, std::ios::trunc).flush();
+
   int suites = 0;
   int failedSuites = 0;
   for (const auto& [name, fn] : maprama::test::registry()) {

@@ -1,14 +1,19 @@
 # `@maprama/engine-native` — native engine v2 design
 
-Status: **M0 (foundation)**. This package contains:
+Status: **M1 (map on screen)**. This package contains:
 
 - this design;
-- the C++ core interfaces (`cpp/include/maprama/*.hpp`);
-- a compilable core skeleton, a protocol conformance harness, and the MapLibre Native patch-queue tooling.
+- the C++ core (`cpp/`): protocol codec, `WorldStore`, `Projection`, the dispatcher, and the M1 map session
+  (world → MapLibre style, camera, `camera:change`, `project`/`unproject`) behind the `MapAdapter`
+  interface (§2.1), with its conformance and behaviour tests;
+- the React Native library: codegen specs, the `native` engine host (`src/`), the iOS Fabric view +
+  TurboModule (`ios/`, `MapramaEngineNative.podspec`) and the Android ones (`android/`), both on the
+  official prebuilt MapLibre Native SDKs;
+- the MapLibre Native patch-queue tooling (used from M2).
 
-It does **not** contain a renderer yet. v1 ships `@maprama/engine-web`. The native engine must speak
-exactly the same `@maprama/protocol` messages, so the React Native package can switch engines with a prop
-(`engine="web" | "native"`) without API changes.
+v1 ships `@maprama/engine-web`. The native engine speaks exactly the same `@maprama/protocol` messages, so
+the React Native package switches engines with a prop (`engine="web" | "native"`, after
+`import '@maprama/engine-native'`) without API changes.
 
 Evidence labels used below: **[V]** verified in this repository (a command or file is named),
 **[E]** an estimate or target to be validated, **[U]** an unverified assumption about third-party code,
@@ -21,7 +26,8 @@ to be confirmed in milestone M1.
 | Topic | Decision |
 | --- | --- |
 | React Native | New Architecture only: a Fabric view plus a TurboModule over JSI. RN 0.76+, iOS 15.1+, Android API 24+. No bridge fallback. |
-| Renderer base | Fork **MapLibre Native** (BSD-2-Clause) and embed it. The fork is kept as a **patch queue** (`patches/*.patch`) rebased on upstream, never as a long-lived divergent fork (§10). |
+| Renderer base (M1) | **Official prebuilt MapLibre Native SDKs** (user decision, M1): iOS `MapLibre` pod (`~> 6.30`: ios-v6.31.0 is on GitHub/SPM only, CocoaPods trunk tops out at 6.30.0) and Android `org.maplibre.gl:android-sdk:13.6.1`. maplibre-native is **not** cloned or built from source for M1 (~5 GB). These SDKs expose Obj-C / Java APIs, not the `mbgl` C++ headers, so the core drives the map through the platform-implemented `MapAdapter` (§2.1). |
+| Renderer base (M2+) | Fork **MapLibre Native** (BSD-2-Clause) and embed it, starting with the custom building layer (M2). The fork is kept as a **patch queue** (`patches/*.patch`) rebased on upstream, never as a long-lived divergent fork (§10). An `mbgl::Map`-backed `MapAdapter` then replaces the platform adapters. |
 | Code sharing | One **C++ shared core** (protocol, simulation, maprama layer). Obj-C++ (iOS) and Kotlin/JNI (Android) wrappers stay thin (`ios/README.md`, `android/README.md`). |
 | Contract | `@maprama/protocol` is the single source of truth. The core decodes envelopes **identically** to `decodeCommand`, and the conformance tests prove it against fixtures exported from the TS package on every `npm test` [V: `scripts/export-fixtures.mjs`, `cpp/tests/decode_tests.cpp`]. |
 | Engine selection | The RN prop `engine="web" \| "native"`. Parity is tracked in §11. |
@@ -66,6 +72,45 @@ transport: `NativeEngineBridge.send(text)` calls `postMessage(engineId, text)`, 
 same `{"v":1,"seq":N,"kind":"evt","msg":…}` text that `decodeEvent` already accepts. The C++ output is
 verified with the TypeScript `decodeEvent` itself [V: `scripts/verify-emitted-events.mjs`].
 
+The diagram is the target (M2+). At M1 the bottom two boxes are the official prebuilt MapLibre SDKs,
+driven through the adapter below, and the wrappers host `MLNMapView` / `MapView` instead of an MTKView /
+TextureView of their own.
+
+### 2.1 M1 map adapter (`MapAdapter`)
+
+The official SDKs expose Obj-C (`MLNMapView`) and Java/Kotlin (`MapView`, `MapLibreMap`) APIs, not the
+`mbgl` C++ headers, so the core cannot own an `mbgl::Map` at M1. Instead the core talks to a small
+platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
+
+| `MapAdapter` call (core → platform) | iOS (`ios/MapramaNativeView.mm`) | Android (`MapramaNativeView.kt` + `maprama_jni.cpp`) | Reply (platform → core) |
+| --- | --- | --- | --- |
+| `setStyleJson(json)` | `MLNMapView.styleJSON` | `MapLibreMap.setStyle(Style.Builder().fromJson(json))` | — |
+| `setCameraLimits(minZoom, maxZoom, minPitch, maxPitch)` | `minimum/maximumZoomLevel`, `minimum/maximumPitch` | `setMin/MaxZoomPreference`, `setMin/MaxPitchPreference` | — |
+| `moveCamera(pose, durationMs)` | `setCamera:(animated:\|withDuration:)` (altitude via `MLNAltitudeForZoomLevel`) | `moveCamera` / `easeCamera(CameraUpdateFactory.newCameraPosition)` | camera reports below |
+| `project(token, lngLat)` | `convertCoordinate:toPointToView:` | `projection.toScreenLocation` (px → dp) | `Engine::onProjected(token, x, y)` |
+| `unproject(token, x, y)` | `convertPoint:toCoordinateFromView:` | `projection.fromScreenLocation` (dp → px) | `Engine::onUnprojected(token, lngLat?)` |
+| `fetchText(token, url)` | `NSURLSession` | `HttpURLConnection` on a worker thread | `Engine::onTextFetched(token, ok, body \| message)` |
+| `scheduleFrame(delayMs)` | `dispatch_after` on the main queue | `Handler.postDelayed` on the main looper | `Engine::frame(t)` |
+| (camera observer) | `mapViewRegionIsChanging:` / `regionDidChangeAnimated:` | `OnCameraMoveListener` / `OnCameraIdleListener` | `Engine::onCameraChanged(pose)` |
+
+- **Style.** `init` converts the `WorldData` into one MapLibre style JSON (v8) with inline GeoJSON
+  sources in lng/lat (through `Projection`): background, world area, parks, water, roads as lines by class
+  (widths in meters from engine-web's `ROAD_W`, exact at every zoom through exponential-base-2
+  interpolation), building footprints as flat fills, POI and station circles. Colors follow engine-web's
+  zoom-out "map colors" [V: `cpp/src/WorldStyle.cpp`, `map_session_tests.cpp`]. Both platforms render the
+  same string, and the M2 `mbgl` adapter can `loadJSON` it unchanged.
+- **Camera model.** `MapSession` keeps the protocol `CameraState` and merges `setCamera` into it (§5.1).
+  Poses sent to the adapter are MapLibre zoom levels; the conversion matches the ground scale at the target
+  to engine-web's 40° reference frustum, so both engines frame the same area for the same `CameraState`
+  (the protocol `zoom` z is MapLibre zoom z − 1) [V: `cpp/include/maprama/CameraMath.hpp`,
+  `camera_math_conversions`]. The distance limits are engine-web's (14–150 world units) and are pushed as
+  MapLibre zoom limits for gestures; pitch is limited to 0–60°.
+- **Replies are asynchronous.** The core calls the adapter with its lock held; the adapter posts to the
+  main thread and answers through the Engine's `on*` methods, which take the lock again. Pending
+  `project`/`unproject` requests are answered with `ok: false` (`not_ready`) when the view detaches.
+- **M2 replacement.** An adapter implemented on `mbgl::Map` (patched fork) replaces both platform adapters;
+  `MapSession`, the style builder and the tests stay.
+
 ## 3. Threading model
 
 | Thread | Owner | Runs | Must never |
@@ -92,8 +137,15 @@ verified with the TypeScript `decodeEvent` itself [V: `scripts/verify-emitted-ev
 4. **Platform input (main → core).** Gestures, taps, location fixes and viewport changes are posted as
    internal items on the command queue. They are never protocol envelopes.
 
-The skeleton `CoreEngine` serialises calls with a mutex and dispatches synchronously
-[V: `cpp/src/Engine.cpp`]. The queue above replaces the mutex in M1 without changing the `Engine` interface.
+**M1 simplification.** `CoreEngine` still serialises every call with one mutex per engine and dispatches
+synchronously [V: `cpp/src/Engine.cpp`]; there is no core thread, frame snapshot or per-tick event batch
+yet. Commands run on the thread that delivers them (the TurboModule method queue on iOS, the JS thread on
+Android); platform callbacks (camera reports, adapter replies, scheduled frames) run on the main thread
+and take the same lock. This is safe because the `MapAdapter` never calls back synchronously (§2.1), and
+it is cheap enough for M1 because MapLibre owns rendering: the core only merges camera state, answers
+requests and throttles `camera:change` (flushed by `MapAdapter::scheduleFrame`, not by a render loop).
+Events are emitted one envelope at a time through the TurboModule event emitter (§4.1). The queue above
+replaces the mutex when the core gains per-frame work (M2/M3) without changing the `Engine` interface.
 
 **Lifecycle.**
 1. Fabric mount creates the engine.
@@ -115,6 +167,21 @@ thread. Events that are still pending are dropped, because the JS handler is gon
 | `postEnvelope(engineId, envelope: object)` | A plain JS object | `jsi::Object` → `json::Value` walk (no JSON text) → `decodeCommandValue` | Avoids `JSON.stringify` in JS plus a re-parse in C++ for chatty commands (`pushLocation`, `setCamera`). Validation is the same as `decodeCommand` after `JSON.parse` [V: `decode_tests.cpp` checks that the value path agrees with the text path for every fixture]. |
 | `postBuffer(engineId, data: ArrayBuffer)` | UTF-8 envelope JSON in an ArrayBuffer | Parsed in place from a `jsi::MutableBuffer` kept alive by `shared_ptr` until the core thread consumes it | **Zero-copy** option for bulk payloads (`init` with inline `WorldData`, large `setDropLayer`). The JS side produces the buffer with `TextEncoder.encodeInto` into a pooled `ArrayBuffer`. |
 | `setEventHandler(engineId, fn: (envelopes: string[]) => void)` | JS function | Stored as a `jsi::Function` and invoked on the JS thread only | Event delivery (§3, queue 3). |
+
+**M1 deviation (implemented transport).** M1 ships a codegen **Obj-C / Java TurboModule** instead of the
+pure C++ JSI module above [V: `src/specs/NativeMapramaEngineModule.ts`]:
+
+| M1 member | Replaces | Notes |
+| --- | --- | --- |
+| `postMessage(engineId, envelope: string)` | same | Looks the engine up in the shared C++ `EngineRegistry` and calls `Engine::postMessage`. |
+| `postMessages(engineId, envelopes: string[])` | same | `NativeEngineHost` batches the `send()` calls of one JS task in a microtask (§4.3). |
+| `onEngineEvent: EventEmitter<{engineId, envelope}>` | `setEventHandler` | Codegen TurboModule `EventEmitter` (RN 0.80+); one emission per envelope, filtered by `engineId` in JS. Events emitted before the JS object exists are buffered natively (512) and in JS (256 per engine) until the host attaches. |
+| — | `postEnvelope`, `postBuffer` | Not in M1. The M1 core entry points (`Engine::postEnvelope`) exist; the JSI bindings come with the C++ TurboModule. |
+
+The host side is `NativeEngineHost` (`src/NativeEngineHost.tsx`): it renders `MapramaNativeView` with a
+fresh `engineId` and wraps the transport in `createMessageChannelHost('native', …)` from
+`@maprama/react-native`, so encoding, decoding and validation are byte-identical to the WebView host.
+`import '@maprama/engine-native'` calls `registerEngineHost('native', NativeEngineHost)`.
 
 The `jsi::Object` → `json::Value` walk must reproduce what `JSON.parse(JSON.stringify(obj))` would yield:
 - drop `undefined` and function properties;
@@ -140,20 +207,20 @@ Error strings match the TS codec exactly, except the V8-specific text after `$: 
 
 ## 5. Protocol → core mapping
 
-Statuses: **M0** is what the skeleton does today [V: `cpp/src/Dispatcher.cpp`]. **Mn** is the milestone that
-implements the command (§11).
+Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.cpp`, `cpp/src/MapSession.cpp`,
+`cpp/tests/map_session_tests.cpp`]. **Mn** is the milestone that implements the command fully (§11).
 
 ### 5.1 Commands (host → engine) — all 20 `ENGINE_COMMAND_TYPES`
 
 <!-- protocol-commands:start -->
-| Command | Kind | Core subsystem(s) | Behaviour | M0 skeleton | Full in |
+| Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
-| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` worlds load into `WorldStore` (validated + typed), other parts logged as not applied | M1 (world, camera), M2 (theme, labels, ui) |
+| `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` and `url` (fetched by the adapter) worlds load into `WorldStore` and become the map style (§2.1); default framing (engine-web `DEFAULT_ORBIT` at the plaza) then `init.camera`; `procedural` → `error{unsupported, fatal: true}`; theme, labels, ui, locationSource warn-logged | M1 (world, camera), M2 (theme, labels, ui) |
 | `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + `MapramaLayer` uniforms | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | ignored + warn log | M2 |
 | `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2 |
 | `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2 |
 | `setUi` | fire-and-forget | Platform ornaments (MapLibre scale bar / attribution) + `MapramaLayer` location puck | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | ignored + warn log | M2 |
-| `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | ignored + warn log | M1 |
+| `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow: "<id>"` warn-logged (needs characters), other fields still applied | M1 (`follow` M3) |
 | `upsertCharacters` | fire-and-forget | `CharacterSystem::upsert` | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | ignored + warn log | M3 |
 | `removeCharacters` | fire-and-forget | `CharacterSystem::remove`, `TravelPlanner::cancel` | Removes characters; running travels emit `travel:cancel` | ignored + warn log | M3 |
 | `setLocationSource` | fire-and-forget | `CharacterSystem::setLocationSource` + platform location provider | `device` starts GPS (main thread), `external` waits for `pushLocation`, `simulated` runs the demo loop | ignored + warn log | M3 |
@@ -165,15 +232,15 @@ implements the command (§11).
 | `setGeofences` | fire-and-forget | `GeofenceSystem::setGeofences` | Replaces all geofences; membership of unchanged ids preserved | ignored + warn log | M3 |
 | `setBuildingStyle` | fire-and-forget | `MapramaLayer` building style table (looked up via `WorldStore::findBuilding`) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | ignored + warn log | M2 |
 | `setOverlayAnchors` | fire-and-forget | `CameraController::setOverlayAnchors` | Emits `overlay:positions` while anchors exist and the view changes | ignored + warn log | M2 |
-| `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | ignored + warn log | M1 |
-| `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | ignored + warn log | M1 |
-| `request` | request → `response` | `project`, `unproject` → `CameraController`; `snapToRoad`, `route` → `TravelPlanner` | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `response {ok: false, error.code: "unsupported"}` for every method | M1 (`project`, `unproject`), M3 (`snapToRoad`, `route`) |
+| `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | `camera:change` → `SubscriptionRegistry` (emitted once on subscribe, then throttled); other topics warn-logged | M1 (`camera:change`), M3 |
+| `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics warn-logged | M1 (`camera:change`), M3 |
+| `request` | request → `response` | `project`, `unproject` → `CameraController`; `snapToRoad`, `route` → `TravelPlanner` | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` → `ok: false`, `unsupported` | M1 (`project`, `unproject`), M3 (`snapToRoad`, `route`) |
 <!-- protocol-commands:end -->
 
 ### 5.2 Events (engine → host) — all 16 `ENGINE_EVENT_TYPES`
 
 <!-- protocol-events:start -->
-| Event | Emitted by | Trigger | Delivery | M0 skeleton | Full in |
+| Event | Emitted by | Trigger | Delivery | Current (M1) | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `ready` | `Engine::start` → `Dispatcher::emitReady` | Engine created and sink attached | Once; `engine.kind = "native"` | emitted | M0 |
 | `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed` | M0 / M3 |
@@ -188,9 +255,9 @@ implements the command (§11).
 | `geofence:enter` | `GeofenceSystem::update` | Character crosses into a geofence | Immediate | not emitted | M3 |
 | `geofence:exit` | `GeofenceSystem::update` | Character leaves a geofence (or geofence removed) | Immediate | not emitted | M3 |
 | `character:position` | `SubscriptionRegistry` sampling `CharacterSystem::states` | Topic subscribed (optionally per id) | Throttled | not emitted | M3 |
-| `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | not emitted | M1 |
+| `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | emitted by `MapSession` (after a world load; gestures, animations and `setCamera`) | M1 |
 | `overlay:positions` | `CameraController::update` | Anchors exist and the view or anchors changed | At most once per frame | not emitted | M2 |
-| `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `ok: false`, `unsupported` | M1 / M3 |
+| `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `not_ready`; `unsupported` for M3 methods | M1 / M3 |
 <!-- protocol-events:end -->
 
 The table coverage is enforced by `npm test` [V: `scripts/check-design-coverage.mjs` fails when a name in
@@ -367,10 +434,17 @@ The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan 
 ## 9. Build and packaging
 
 - The core is built by `scripts/build-core.sh` on macOS with `xcrun clang++` (no CMake on this toolchain)
-  [V]. iOS compiles the same `cpp/src` from the podspec. Android compiles it from CMake through Gradle
-  `externalNativeBuild`.
-- The patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR. App builds
-  consume these prebuilt artifacts, so they never apply patches.
+  [V]. iOS compiles the same `cpp/src` from `MapramaEngineNative.podspec` (C++20 language mode, the core
+  itself stays C++17) together with `ios/*.mm`. Android compiles it from `android/CMakeLists.txt` through
+  Gradle `externalNativeBuild` into `libmaprama_engine.so` together with the JNI glue
+  (`android/src/main/cpp/maprama_jni.cpp`); that library links no React Native code, the Kotlin view
+  manager and TurboModule reach it through JNI.
+- **M1:** apps link the official prebuilt SDKs — the `MapLibre` pod (dynamic XCFramework, `~> 6.30`) and
+  `org.maplibre.gl:android-sdk:13.6.1` from Maven Central. Autolinking picks the package up from the
+  podspec at the package root and `android/` (`react-native.config.js`); codegen (`codegenConfig`,
+  `MapramaEngineNativeSpec`) generates the Fabric component and TurboModule glue on both platforms.
+- **M2+:** the patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR. App
+  builds consume these prebuilt artifacts, so they never apply patches.
 - Tests: `npm test -w @maprama/engine-native` runs these steps:
   1. export fixtures from the built protocol package;
   2. check DESIGN.md coverage;
@@ -381,9 +455,12 @@ The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan 
 
 ## 10. Patch-queue workflow
 
+The queue is **not used in M1**: M1 runs on the official prebuilt SDKs (§1) and `UPSTREAM` stays unpinned.
+The first patches (the `maprama` layer type for the custom building layer) and the pin land with M2.
+
 ```
 packages/engine-native/patches/
-  UPSTREAM                      # first non-comment line = upstream ref (tag), pinned in M1
+  UPSTREAM                      # first non-comment line = upstream ref (tag), pinned in M2
   0001-<subject>.patch          # git format-patch output, zero commit ids, no stat/signature
   0002-<subject>.patch
 scripts/patch-queue/
@@ -424,10 +501,11 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 | --- | --- | --- | --- |
 | Envelope codec + validation | `decodeCommand` / `encodeEvent` | v1 | **M0** (conformance-tested) |
 | Projection | `createProjection` | v1 | **M0** (within 1e-6) |
-| WorldData load (`data`) | `init.world` | v1 | **M0** store; render M1 |
-| WorldData `url` / `procedural` | `init.world` | v1 | M1 |
-| Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | M1 |
-| Subscriptions | `subscribe` / `unsubscribe` | v1 | M1 |
+| WorldData load (`data`) | `init.world` | v1 | **M1** (flat map) |
+| WorldData `url` | `init.world` | v1 | **M1** (platform fetch) |
+| WorldData `procedural` | `init.world` | v1 | M2 (`unsupported` error in M1) |
+| Camera + gestures | `setCamera`, `camera:change`, `project`/`unproject` | v1 | **M1** (`follow` M3) |
+| Subscriptions | `subscribe` / `unsubscribe` | v1 | **M1** `camera:change`; M3 other topics |
 | Buildings: extrusion, facades, roofs, massing | `setTheme`, `setBuildingStyle` | v1 | M2 |
 | Themes + time of day + cinematic | `setTheme` | v1 | M2 |
 | Labels (all styles, custom content) | `setLabels`, `setLabelContent`, `labelsIndex` | v1 | M2 |
@@ -443,19 +521,23 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
 
 **Milestones**
 
-- **M0 — foundation (this change).** Design, interfaces, the JS-exact JSON codec, `Projection`,
+- **M0 — foundation (done).** Design, interfaces, the JS-exact JSON codec, `Projection`,
   `WorldStore`, the skeleton dispatcher (`unsupported` responses, warn-logged fire-and-forget), fixture
   conformance tests, patch-queue tooling.
-- **M1 — map on screen.**
-  - Pin `UPSTREAM`.
-  - First patches: the `maprama` layer type and PMTiles support if needed.
-  - CI artifacts (XCFramework/AAR).
-  - `MapramaNativeView` + `MapramaEngineModule` on both platforms.
-  - Command queue, frame snapshot, event batching.
-  - `init` with data/url/procedural worlds rendering the flat map.
-  - Camera + gestures, `project`/`unproject`, SubscriptionRegistry, `camera:change`.
-- **M2 — diorama look.** Extrusion, facades, roofs, massing, style table + picking, `ThemeResolver`, the
-  label system (GPU quads + accessibility pool), `labelsIndex`, map UI, presses, overlay anchors.
+- **M1 — map on screen (this change), on the official prebuilt MapLibre SDKs (§1).**
+  - `MapramaNativeView` + `MapramaEngineModule` on both platforms (codegen Fabric component + Obj-C/Java
+    TurboModule, §4.1), the `native` engine host (`import '@maprama/engine-native'`).
+  - `MapAdapter` (§2.1) implemented with `MLNMapView` (iOS) and `MapView`/`MapLibreMap` (Android).
+  - `init` with `data` / `url` worlds rendering the flat map (style JSON with GeoJSON sources).
+  - Camera + gestures (pitch 0–60°, engine-web distance limits), `setCamera` merge, `project`/`unproject`,
+    `SubscriptionRegistry` with throttled `camera:change`.
+  - Deferred from the original M1 plan: pinning `UPSTREAM`, the first patches and the CI XCFramework/AAR
+    (all move to M2 with the fork), the core-thread command queue, frame snapshot and per-tick event
+    batching (§3 M1 simplification), and `procedural` worlds (M2).
+- **M2 — diorama look.** Fork + patch queue (pin `UPSTREAM`, `maprama` layer type, PMTiles if needed, CI
+  artifacts) and the `mbgl`-backed `MapAdapter`; extrusion, facades, roofs, massing, style table + picking,
+  `ThemeResolver`, the label system (GPU quads + accessibility pool), `labelsIndex`, map UI, presses,
+  overlay anchors, `procedural` worlds (port of engine-web's generator), core thread + frame snapshot.
 - **M3 — game systems.** cgltf skinning, `CharacterSystem` and location sources, `TravelPlanner` (A*,
   subway expansion), drops, geofences, all remaining events.
 - **M4 — parity and performance.**
@@ -470,18 +552,22 @@ The root `NOTICE` is intentionally not modified by M0. Add these entries when th
 
 | Component | License | Used for | Status |
 | --- | --- | --- | --- |
-| MapLibre Native | BSD-2-Clause | Base renderer (patch queue) | planned (M1) |
+| MapLibre Native | BSD-2-Clause | Base renderer: official prebuilt iOS / Android SDKs linked by apps (M1), patch queue from M2 | used from M1 (apps depend on the SDK artifacts; NOTICE entry still pending) |
 | cgltf | MIT | glTF 2.0 / GLB loading | planned (M3) |
 | earcut.hpp | ISC | Roof and polygon triangulation (via MapLibre) | planned (M2) [U: bundled by MapLibre] |
 | nlohmann/json | MIT | — | **not used** (self-written JS-semantics parser, §6.4) |
 
-## 13. Skeleton behaviour summary (M0)
+## 13. Core behaviour summary (M1)
 
 | Input | Output |
 | --- | --- |
-| Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.0.0", kind: "native"}}` |
+| Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.1.0", kind: "native"}}` |
 | Envelope failing `decodeCommand` rules | `error {code: "invalid_message", message: <exact decodeCommand error>, fatal: false}` |
-| `request` (any method) | `response {requestId, ok: false, error: {code: "unsupported", message}}` |
-| `init` with `world.kind = "data"` | `WorldStore` loaded (plus warn logs for semantic issues); remaining init parts warn-logged |
+| `init` with `world.kind = "data"` / `"url"` | `WorldStore` loaded, map style sent, default framing then `init.camera`; load failures `error {world_load_failed, fatal: true}` (url messages as engine-web: `HTTP <status> while loading <url>`, `failed to load <url>: …`, `invalid WorldData from <url>: …`); theme, labels, ui, locationSource warn-logged |
+| `init` with `world.kind = "procedural"` | `error {code: "unsupported", fatal: true}` |
+| `setCamera` | Merged into the camera and applied to the map (§5.1); `follow: "<id>"` warn-logged |
+| `subscribe` / `unsubscribe` `camera:change` | `camera:change {camera: {center, distance, pitch, bearing ∈ [0, 360)}}` once on subscribe (after a world load), then throttled on every change |
+| `request` `project` / `unproject` | `response {ok: true, result: {x, y, visible} \| {coordinate \| null}}` through the adapter; `ok: false, not_ready` without a laid-out view |
+| `request` `snapToRoad` / `route` | `response {requestId, ok: false, error: {code: "unsupported", message}}` |
 | Any other command | Ignored with a `LogLevel::Warn` log (the protocol has no warning event) |
 | Outgoing events (debug/tests) | Validated with `validateEngineEvent`; invalid ones dropped and logged |

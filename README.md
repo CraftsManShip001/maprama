@@ -93,7 +93,7 @@ Use `world={{ kind: 'data', world }}` with a `WorldData` JSON built by
 | Engine | Package | Status |
 | --- | --- | --- |
 | v1 web engine (three.js in a WebView) | `@maprama/engine-web` | Default. Implements the whole protocol. |
-| v2 native engine (MapLibre Native, Fabric/JSI) | `@maprama/engine-native` | **In development, not part of 0.1.0.** M1 (flat map, camera, gestures) builds on the official MapLibre SDKs; buildings, labels, characters, travel and drops follow in M2–M3. |
+| v2 native engine (MapLibre Native, Fabric/JSI) | `@maprama/engine-native` | **In development, not part of 0.1.0.** M1 is done on iOS and Android (`engine="native"`: flat map, camera, gestures, `camera:change`, `project`/`unproject`) on the official MapLibre SDKs; buildings, labels, characters, travel and drops follow in M2–M3. |
 
 ## Documentation and example
 
@@ -111,7 +111,7 @@ Use `world={{ kind: 'data', world }}` with a `WorldData` JSON built by
 | `packages/protocol`      | `@maprama/protocol`: shared types, message codec and validation, geo projection, themes    | published                                                 | `npm run build -w @maprama/protocol` · `npm test -w @maprama/protocol`                                          |
 | `packages/engine-web`    | `@maprama/engine-web`: three.js render engine that runs inside a WebView (v1 engine)        | published                                                 | `npm run build -w @maprama/engine-web` · `npm test -w @maprama/engine-web` · `npm run screenshot -w @maprama/engine-web` · `npm run dev -w @maprama/engine-web` |
 | `packages/react-native`  | `@maprama/react-native`: `<MapramaView>`, `<Character>`, `<DropLayer>`, overlays, hooks, Expo config plugin | published                                     | `npm run build -w @maprama/react-native` · `npm test -w @maprama/react-native`                                  |
-| `packages/engine-native` | `@maprama/engine-native`: native engine (v2) on a MapLibre Native fork                      | beta (M1: flat map + camera), private                     | `npm test -w @maprama/engine-native` (fixtures, design coverage, C++ core tests, patch queue)                     |
+| `packages/engine-native` | `@maprama/engine-native`: native engine (v2): C++ core + MapLibre Native behind Fabric      | M1: flat map, camera, gestures, `camera:change`, `project`/`unproject` via `engine="native"` (iOS, Android); private, not published | `npm run build -w @maprama/engine-native` · `npm test -w @maprama/engine-native` (fixtures, design coverage, C++ core tests, patch queue, host tests) |
 | `tools/osm`              | `@maprama/osm`: OpenStreetMap + public building data to `WorldData` builder (CLI `maprama-osm`) | published                                            | `npm run build -w @maprama/osm` · `npm test -w @maprama/osm` · `npm run sample:seongsu -w @maprama/osm`          |
 | `tools/assets`           | `@maprama/assets`: glTF/GLB inspection and optimisation (CLI `maprama`)                      | published                                                 | `npm run build -w @maprama/assets` · `npm test -w @maprama/assets`                                              |
 | `services/api`           | `@maprama/api`: service API (world data hosting, drops, collection verification)             | private                                                   | `npm test -w @maprama/api` · `npm run dev:local -w @maprama/api` · `npm run dev -w @maprama/api` (wrangler)      |
