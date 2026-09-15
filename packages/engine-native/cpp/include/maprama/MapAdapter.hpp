@@ -152,6 +152,24 @@ class MapAdapter {
   /// Asks for one `Engine::frame` call after `delayMs` (used to flush throttled subscriptions).
   /// Several requests may be coalesced into one frame call.
   virtual void scheduleFrame(double delayMs) = 0;
+
+  // ---- M3a game visuals and device location (defaults: no-ops, so adapters of other milestones compile) --
+
+  /// Replaces the data of a GeoJSON source of the current style (`geojson` is a FeatureCollection as JSON
+  /// text). Like paint patches, data sent while a style is loading is applied once it finished loading;
+  /// only the latest data per source matters (implementations may coalesce), and a new `setStyleJson`
+  /// drops data queued for the previous style (the core re-sends every game source after a style change).
+  virtual void setSourceData(const std::string& sourceId, std::string geojson) {
+    (void)sourceId;
+    (void)geojson;
+  }
+
+  /// Starts the platform location feed (`setLocationSource {kind: "device"}`): fixes go to
+  /// `Engine::onDeviceLocation`, failures (permission not granted, provider unavailable) to
+  /// `Engine::onDeviceLocationError`. Requesting the permission is the app's job.
+  virtual void startLocationUpdates() {}
+  /// Stops the platform location feed.
+  virtual void stopLocationUpdates() {}
 };
 
 }  // namespace maprama

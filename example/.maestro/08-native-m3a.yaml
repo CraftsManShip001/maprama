@@ -1,0 +1,100 @@
+# Native engine (M3a): game systems drawn with MapLibre style layers. A walker follows the simulated location
+# source (character:position readout), the `route` request places two drops on the way, the player travels to
+# the near preset (collects the first drop, enters the geofence) and then to the far preset (collects the
+# second drop, leaves the geofence). The flow checks the readouts and the event log lines written by the same
+# handlers (travel:arrive, drop onCollect, geofence onEnter / onExit), like 03-drops-collect.yaml. Taps over the
+# animated map settle for at most 500 ms.
+appId: dev.maprama.catalog
+name: Native engine M3a characters, travel, drops and geofences
+tags:
+  - native
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: native-game
+- extendedWaitUntil:
+    visible:
+      id: "native-game-walker"
+      text: "walker: [0-9].*"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "native-game-route"
+      text: "route: [0-9]+ m .*"
+    timeout: 20000
+- assertVisible:
+    id: "native-game-zone"
+    text: "near-zone: outside \\(enter 0, exit 0\\)"
+- takeScreenshot: native-m3a-start
+- tapOn:
+    id: "native-game-follow-me"
+    waitToSettleTimeoutMs: 500
+- tapOn:
+    id: "native-game-go-near"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible:
+      id: "native-game-status"
+      text: "status: arrived at near"
+    timeout: 40000
+- extendedWaitUntil:
+    visible:
+      id: "native-game-collected"
+      text: "collected: 1 \\(coin-near\\)"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "native-game-zone"
+      text: "near-zone: inside \\(enter 1, exit 0\\)"
+    timeout: 10000
+- takeScreenshot: native-m3a-near
+- tapOn:
+    id: "native-game-go-far"
+    waitToSettleTimeoutMs: 500
+# The route line and the destination pin are drawn while the player travels.
+- takeScreenshot: native-m3a-travelling
+- extendedWaitUntil:
+    visible:
+      id: "native-game-status"
+      text: "status: arrived at far"
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: "native-game-collected"
+      text: "collected: 2 \\(coin-near, coin-far\\)"
+    timeout: 10000
+# The road to the far preset can skirt the zone again: at least one exit, and outside at the end.
+- assertVisible:
+    id: "native-game-zone"
+    text: "near-zone: outside \\(enter [1-9], exit [1-9]\\)"
+- takeScreenshot: native-m3a-far
+# Overview: both characters, the geofence fill + ring and the walker on its demo loop.
+- tapOn:
+    id: "native-game-overview"
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: native-m3a-overview
+# The event log sits below the fold of the control panel; swipe on the panel, not the map.
+- repeat:
+    times: 6
+    while:
+      notVisible:
+        text: ".*exit near-zone \\(me\\).*"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- assertVisible:
+    text: ".*exit near-zone \\(me\\).*"
+- assertVisible:
+    text: ".*collected coin-far from m3a-drops \\(me\\).*"
+- assertVisible:
+    text: ".*travel:arrive at far.*"
+- assertNotVisible:
+    text: "engine error.*"
+- assertNotVisible:
+    text: ".*error [a-z_]+: .*"
+- takeScreenshot: native-m3a-log

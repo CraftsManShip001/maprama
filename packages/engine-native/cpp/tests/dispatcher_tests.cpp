@@ -98,21 +98,29 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
     const Value decoded = protocol::decodeCommand(c.find("input")->asString()).value.msg;
     const Value* topic = decoded.find("topic");
 
+    const bool gameCommand = type == "upsertCharacters" || type == "removeCharacters" || type == "setLocationSource" ||
+                             type == "pushLocation" || type == "travel" || type == "cancelTravel" || type == "setDropLayer" ||
+                             type == "removeDropLayer" || type == "setGeofences" ||
+                             ((type == "subscribe" || type == "unsubscribe") && topic && topic->asString() != "camera:change");
+    bool notImplemented = false;
+    for (std::size_t i = logsBefore; i < sink->logs.size(); ++i) {
+      notImplemented = notImplemented || sink->logs[i].second.find("is not implemented; ignored") != std::string::npos;
+    }
+
     if (type == "request") {
-      // M1: project/unproject need an attached, laid-out native map (none here) -> not_ready; others unsupported.
+      // project/unproject need an attached, laid-out native map (none here) -> not_ready; snapToRoad/route are
+      // answered by the M3a game session once a world is loaded (not_ready before).
       const std::string& method = decoded.find("method")->asString();
-      const std::string expectedCode = (method == "project" || method == "unproject") ? "not_ready" : "unsupported";
+      const bool mapMethod = method == "project" || method == "unproject";
+      const bool expectOk = !mapMethod && engine->worldStore().loaded();
       bool ok = newEvents == 1;
       if (ok) {
         Value res = sink->eventMsg(eventsBefore);
         ok = res.find("type")->asString() == "response" &&
-             res.find("requestId")->asString() == decoded.find("requestId")->asString() &&
-             !res.find("ok")->asBool() && res.find("error")->find("code")->asString() == expectedCode;
-        if (ok && expectedCode == "unsupported") {
-          ok = res.find("error")->find("message")->asString().find(method) != std::string::npos;
-        }
+             res.find("requestId")->asString() == decoded.find("requestId")->asString() && res.find("ok")->asBool() == expectOk;
+        if (ok && !expectOk) ok = res.find("error")->find("code")->asString() == "not_ready";
       }
-      ctx.check(ok, "[" + name + "] request -> " + expectedCode + " response");
+      ctx.check(ok, "[" + name + "] request -> " + (expectOk ? std::string("ok") : std::string("not_ready")) + " response");
     } else if (name.rfind("init_url", 0) == 0) {
       // url worlds are fetched by the platform adapter (none attached here).
       bool ok = newEvents == 1;
@@ -134,30 +142,36 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
       ctx.check(newEvents == 0 && sink->warnings() == warningsBefore, "[" + name + "] handled silently by the M1 session");
     } else if (type == "init" || type == "setTheme" || type == "setUi" || type == "setBuildingStyle" ||
                type == "setOverlayAnchors") {
-      // Handled by the M2a session: no event (building "b1" exists; overlays need a map view, none here) and no
-      // "not implemented" warning. Accepted-but-unrendered options (varied massing, grading, labels, location
-      // source, decorations / massing / replaceModel overrides, follow) are warn-logged once each.
-      ctx.check(newEvents == 0, "[" + name + "] handled without events (got " + std::to_string(newEvents) + ")");
-      bool notImplemented = false;
-      for (std::size_t i = logsBefore; i < sink->logs.size(); ++i) {
-        notImplemented = notImplemented || sink->logs[i].second.find("is not implemented; ignored") != std::string::npos;
+      // Handled by the M2a session: no "not implemented" warning (building "b1" exists; overlays need a map view,
+      // none here). Accepted-but-unrendered options (varied massing, grading, labels, decorations / massing /
+      // replaceModel overrides) are warn-logged once each. The init fixture's camera follows "player", which does
+      // not exist yet: engine-web fails `init.camera` with `unknown_character` (M3a does the same).
+      const Value* camera = decoded.find("camera");
+      const bool follows = type == "init" && camera && camera->find("follow") && camera->find("follow")->isString();
+      bool ok = newEvents == (follows ? 1u : 0u);
+      if (ok && follows) {
+        Value e = sink->eventMsg(eventsBefore);
+        ok = e.find("type")->asString() == "error" && e.find("code")->asString() == "unknown_character" &&
+             e.find("message")->asString() == "init: cannot follow \"" + camera->find("follow")->asString() + "\": no such character";
       }
+      ctx.check(ok, "[" + name + "] handled (events: " + std::to_string(newEvents) + ")");
       ctx.check(!notImplemented, "[" + name + "] not logged as an ignored command");
-      if (type == "init") {
-        ctx.check(sink->warnings() > warningsBefore && sink->logs.back().second.find("setCamera.follow") != std::string::npos,
-                  "[" + name + "] init.camera.follow warned (characters are M3)");
+    } else if (gameCommand) {
+      // Handled by the M3a game session: no "not implemented" warning; `travel` answers with `travel:start`.
+      ctx.check(!notImplemented, "[" + name + "] handled by the game session");
+      if (type == "travel") {
+        bool started = false;
+        for (std::size_t i = eventsBefore; i < sink->events.size(); ++i) {
+          started = started || sink->eventMsg(i).find("type")->asString() == "travel:start";
+        }
+        ctx.check(started, "[" + name + "] -> travel:start");
       }
     } else {
-      // The init fixture's camera has `follow: "player"`: the M1 session warns about it (characters are M3)
-      // in addition to the not-applied init parts.
-      const Value* camera = decoded.find("camera");
-      const std::size_t expectedWarnings = (type == "init" && camera && camera->find("follow")) ? 2 : 1;
+      // setLabels / setLabelContent: M2b (one not-implemented warning naming the command).
       ctx.check(newEvents == 0, "[" + name + "] fire-and-forget emits no event (got " + std::to_string(newEvents) + ")");
-      ctx.check(sink->warnings() == warningsBefore + expectedWarnings,
-                "[" + name + "] logs " + std::to_string(expectedWarnings) + " not-implemented warning(s)");
+      ctx.check(sink->warnings() == warningsBefore + 1, "[" + name + "] logs 1 not-implemented warning");
       const std::string& lastLog = sink->logs.back().second;
-      ctx.check(lastLog.find(type == "init" ? std::string("init:") : "\"" + type + "\"") != std::string::npos,
-                "[" + name + "] warning names the command");
+      ctx.check(lastLog.find("\"" + type + "\"") != std::string::npos, "[" + name + "] warning names the command");
     }
     ++seq;
   }
@@ -244,5 +258,18 @@ MAPRAMA_TEST(dispatcher_drops_invalid_outgoing_events) {
   ctx.check(!world->loaded() && sink.logs.back().second.find("world source kind \"url\"") != std::string::npos,
             "init with url world logs not implemented");
   ctx.check(dispatcher.stats().received == 1 && dispatcher.stats().rejected == 0, "stats counted");
+
+  // Without a game session (M0 path) every request method but the map ones is unsupported.
+  dispatcher.dispatch(envelope(Value::object({{"type", "request"},
+                                              {"requestId", "m0-route"},
+                                              {"method", "route"},
+                                              {"params", Value::object({{"from", Value::object({{"lng", 0}, {"lat", 0}})},
+                                                                        {"to", Value::object({{"lng", 1}, {"lat", 1}})},
+                                                                        {"modes", Value::array({"walk"})}})}}),
+                               2));
+  const Value response = sink.eventMsg(sink.events.size() - 1);
+  ctx.check(response.find("requestId")->asString() == "m0-route" && !response.find("ok")->asBool() &&
+                response.find("error")->find("code")->asString() == "unsupported",
+            "request without a game session -> unsupported");
   appendEmitted(ctx, sink);
 }

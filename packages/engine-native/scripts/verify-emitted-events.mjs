@@ -33,7 +33,10 @@ for (const [i, line] of lines.entries()) {
   count(types, msg.type);
   if (msg.type === 'response') {
     if (!msg.ok) count(kinds, `response:error:${msg.error.code}`);
+    else if (msg.result === null) count(kinds, 'response:null');
     else if (msg.result && typeof msg.result === 'object' && 'visible' in msg.result) count(kinds, 'response:project');
+    else if (msg.result && typeof msg.result === 'object' && 'roadId' in msg.result) count(kinds, 'response:snapToRoad');
+    else if (msg.result && typeof msg.result === 'object' && 'legs' in msg.result) count(kinds, 'response:route');
     else if (msg.result && typeof msg.result === 'object' && 'coordinate' in msg.result) count(kinds, 'response:unproject');
     else count(kinds, 'response:ok');
   } else if (msg.type === 'error') {
@@ -46,13 +49,33 @@ for (const [i, line] of lines.entries()) {
   }
 }
 
-// The core (M0 skeleton + M1 map session + M2a look / presses / overlays) must at least exercise these event kinds.
-for (const required of ['ready', 'error', 'response', 'camera:change', 'map:press', 'building:press', 'overlay:positions']) {
+// The core (M0 skeleton + M1 map session + M2a look / presses / overlays + M3a game session) must at least
+// exercise these event kinds.
+for (const required of [
+  'ready',
+  'error',
+  'response',
+  'camera:change',
+  'map:press',
+  'building:press',
+  'overlay:positions',
+  'character:position',
+  'travel:start',
+  'travel:progress',
+  'travel:arrive',
+  'travel:cancel',
+  'drop:collect',
+  'geofence:enter',
+  'geofence:exit',
+]) {
   if (!types.has(required)) failures.push(`no "${required}" event was emitted`);
 }
 for (const required of [
   'response:project',
   'response:unproject',
+  'response:route',
+  'response:snapToRoad',
+  'response:null',
   'response:error:unsupported',
   'response:error:not_ready',
   'error:invalid_message',
@@ -61,6 +84,10 @@ for (const required of [
   // every other world kind).
   'error:unknown_building',
   'error:not_ready',
+  'error:unknown_character',
+  'error:invalid_character',
+  'error:location_unavailable',
+  'error:internal',
 ]) {
   if (!kinds.has(required)) failures.push(`no "${required}" event was emitted`);
 }

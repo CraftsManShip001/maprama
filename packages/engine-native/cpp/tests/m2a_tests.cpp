@@ -186,9 +186,17 @@ MAPRAMA_TEST(m2a_extruded_buildings_and_theme_patches) {
             "3D buildings: one fill-extrusion layer on the buildings source");
   ctx.check(paintOf(s, "buildings", "fill-extrusion-height") == R"(["*",["get","height"],1])", "height = meters x heightScale");
   const auto& layers = s.find("layers")->items();
-  ctx.check(layers.back().find("id")->asString() == "buildings" &&
-                layers[layers.size() - 2].find("id")->asString() == "buildings-captured",
-            "buildings drawn last (occlude POIs / roads), captured ring just below");
+  // Only the M3a game markers (characters, drops, pin, puck) are drawn above the 3D buildings.
+  std::size_t buildingsAt = 0;
+  for (std::size_t i = 0; i < layers.size(); ++i) {
+    if (layers[i].find("id")->asString() == "buildings") buildingsAt = i;
+  }
+  bool onlyGameAbove = buildingsAt > 0;
+  for (std::size_t i = buildingsAt + 1; i < layers.size(); ++i) {
+    onlyGameAbove = onlyGameAbove && layers[i].find("id")->asString().rfind("game-", 0) == 0;
+  }
+  ctx.check(onlyGameAbove && layers[buildingsAt - 1].find("id")->asString() == "buildings-captured",
+            "buildings drawn after the ground layers (occlude POIs / roads), captured ring just below");
   const auto& features = s.find("sources")->find("maprama-buildings")->find("data")->find("features")->items();
   bool propsOk = features.size() == w.buildings.size();
   for (std::size_t i = 0; propsOk && i < features.size(); ++i) {
@@ -513,7 +521,7 @@ MAPRAMA_TEST(m2a_map_ui_state) {
 
   h.send(setUi(Value::object({{"locationPuck", true}})));
   h.send(setUi(Value::object({{"locationPuck", true}, {"scaleBar", true}})));
-  ctx.check(h.sink->countLogs("ui.locationPuck", maprama::LogLevel::Warn) == 1, "locationPuck warned once (M3)");
+  ctx.check(h.sink->countLogs("locationPuck", maprama::LogLevel::Warn) == 0, "locationPuck accepted (drawn by the M3a game session)");
 
   // Zoom buttons: ±1.45x distance over 250 ms, clamped to the distance limits.
   const double d = h.engine->cameraState().distance;

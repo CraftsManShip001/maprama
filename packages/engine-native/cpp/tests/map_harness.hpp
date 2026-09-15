@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -16,6 +17,7 @@
 #include "maprama/BuildingMesh.hpp"
 #include "maprama/Engine.hpp"
 #include "maprama/MapAdapter.hpp"
+#include "maprama/RoadGraph.hpp"
 #include "maprama/protocol.hpp"
 #include "harness.hpp"
 
@@ -70,6 +72,24 @@ class FakeAdapter final : public MapAdapter {
   void queryBuilding(std::uint64_t token, double x, double y) override { queries.emplace_back(token, x, y); }
   void fetchText(std::uint64_t token, const std::string& url) override { fetches.emplace_back(token, url); }
   void scheduleFrame(double delayMs) override { frames.push_back(delayMs); }
+  void setSourceData(const std::string& sourceId, std::string geojson) override {
+    sourceData.emplace_back(sourceId, std::move(geojson));
+  }
+  void startLocationUpdates() override { ++locationStarts; }
+  void stopLocationUpdates() override { ++locationStops; }
+
+  /// The last data sent for a game source, parsed (null when none was sent).
+  Value lastSource(const std::string& sourceId) const {
+    for (auto it = sourceData.rbegin(); it != sourceData.rend(); ++it) {
+      if (it->first == sourceId) return json::parse(it->second).value;
+    }
+    return Value();
+  }
+  std::size_t sourceUpdates(const std::string& sourceId) const {
+    std::size_t n = 0;
+    for (const auto& s : sourceData) n += s.first == sourceId ? 1 : 0;
+    return n;
+  }
 
   /// The paint change for `layer` / `property` in the last `setPaintProperties` batch, if any.
   const PaintPropertyChange* lastPaint(const std::string& layer, const std::string& property) const {
@@ -93,6 +113,9 @@ class FakeAdapter final : public MapAdapter {
   std::vector<std::tuple<std::uint64_t, double, double>> queries;
   std::vector<std::pair<std::uint64_t, std::string>> fetches;
   std::vector<double> frames;
+  std::vector<std::pair<std::string, std::string>> sourceData;
+  int locationStarts = 0;
+  int locationStops = 0;
 };
 
 struct Harness {
@@ -101,11 +124,23 @@ struct Harness {
   double now = 1000.0;
   std::unique_ptr<Engine> engine;
   std::uint64_t seq = 0;
+  js_math::Mulberry32 rng{20260916};
+  std::uint64_t collectIds = 0;
+  /// Makes the collectId generator return the previous id again (duplicate-id failure path).
+  bool repeatCollectIds = false;
 
   explicit Harness(bool attach = true, Viewport viewport = {390, 500, 3}) {
     EngineConfig config;
     config.validateOutgoingEvents = true;
     config.clockMs = [this] { return now; };
+    // Deterministic simulated walker and collectIds (UUID v4 shaped).
+    config.random = [this] { return rng(); };
+    config.collectId = [this] {
+      char id[40];
+      if (!repeatCollectIds) ++collectIds;
+      std::snprintf(id, sizeof id, "00000000-0000-4000-8000-%012llx", static_cast<unsigned long long>(collectIds));
+      return std::string(id);
+    };
     engine = createEngine(sink, config);
     engine->start();
     if (attach) engine->attachMapAdapter(adapter);
@@ -113,6 +148,15 @@ struct Harness {
   }
 
   void send(const Value& msg) { engine->postMessage(protocol::encodeCommand(msg, seq++)); }
+
+  /// Advances the clock in 16 ms frames for `ms` milliseconds, delivering a frame each step (the sessions
+  /// ignore frames they did not ask for).
+  void run(double ms) {
+    for (double t = 0; t < ms; t += 16) {
+      now += 16;
+      engine->frame(now);
+    }
+  }
 };
 
 inline Value lngLat(double lng, double lat) { return Value::object({{"lng", lng}, {"lat", lat}}); }

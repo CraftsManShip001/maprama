@@ -1,7 +1,7 @@
 // Maprama native core — travel planning and path following (port of engine-web `src/game/follower.ts`,
 // the pure parts of `src/game/travel.ts` and the `snapToRoad` handler of `src/engine/requests.ts`).
 //
-// Pure logic: no rendering, no platform code, no MapSession wiring (M3 phase 2). The double arithmetic
+// Pure logic: no rendering, no platform code (wired by `GameSession`, M3a). The double arithmetic
 // keeps V8's operation order (no FMA contraction, `js_math::hypot` / `clamp`), so plans, follower traces
 // and ETAs match engine-web; the conformance suite compares them against `travel-plan.json` and
 // `travel-trace.json` exported from engine-web's TypeScript sources.

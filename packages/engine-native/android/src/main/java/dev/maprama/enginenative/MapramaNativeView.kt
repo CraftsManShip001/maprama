@@ -1,11 +1,17 @@
 package dev.maprama.enginenative
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -25,6 +31,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.gestures.MoveGestureDetector
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
@@ -33,6 +40,7 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CustomLayer
 import org.maplibre.android.style.layers.PaintPropertyValue
 import org.maplibre.android.style.light.Position
+import org.maplibre.android.style.sources.GeoJsonSource
 
 /**
  * Hosts a MapLibre `MapView` (official Android SDK, TextureView mode) and owns one native engine registered
@@ -57,6 +65,16 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
 
   /** Incremented by every `setStyleJson`: patches queued for an older style are dropped. */
   private var styleGeneration = 0
+
+  /** Game source data (M3a) not applied yet: only the latest data per source is kept. */
+  private val pendingSources = HashMap<String, String>()
+  private var sourceStatsStart = 0L
+  private var sourceUpdates = 0
+  private var sourceTotalMs = 0.0
+  private var sourceMaxMs = 0.0
+
+  /** Device location feed (`setLocationSource {kind: "device"}`); the permission is the app's job. */
+  private var locationListener: LocationListener? = null
 
   // Map UI (MapUiState).
   private val scaleBar = ScaleBarView(reactContext, density)
@@ -92,6 +110,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   fun destroy() {
     if (destroyed) return
     destroyed = true
+    stopLocation()
     stopEngine()
     reactContext.removeLifecycleEventListener(this)
     mainHandler.removeCallbacksAndMessages(null)
@@ -170,6 +189,18 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     m.setMaxPitchPreference(60.0)
     m.addOnCameraMoveListener { reportCamera() }
     m.addOnCameraIdleListener { reportCamera() }
+    // A user pan stops `setCamera.follow` (engine-web cancels following on pans, not on zoom / rotate).
+    m.addOnMoveListener(
+      object : MapLibreMap.OnMoveListener {
+        override fun onMoveBegin(detector: MoveGestureDetector) {
+          if (handle != 0L) MapramaJni.onUserPan(handle)
+        }
+
+        override fun onMove(detector: MoveGestureDetector) {}
+
+        override fun onMoveEnd(detector: MoveGestureDetector) {}
+      },
+    )
     m.addOnMapClickListener { point ->
       val screen = m.projection.toScreenLocation(point)
       if (handle != 0L) MapramaJni.tap(handle, screen.x / density.toDouble(), screen.y / density.toDouble())
@@ -208,6 +239,8 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
 
   override fun setStyleJson(json: String) = onMap { m ->
     val generation = ++styleGeneration
+    // Game source data (M3a) queued for the previous style is dropped: the core re-sends every source.
+    pendingSources.clear()
     m.setStyle(Style.Builder().fromJson(json)) { style -> if (!destroyed && generation == styleGeneration) installBuildingLayer(style) }
   }
 
@@ -368,6 +401,107 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }, delayMs.toLong().coerceAtLeast(0L))
   }
 
+  override fun setSourceData(sourceId: String, geojson: String) = onMap { m ->
+    val generation = styleGeneration
+    // One style callback per source and generation applies the latest data queued for it.
+    if (pendingSources.put(sourceId, geojson) != null) return@onMap
+    m.getStyle { style ->
+      if (destroyed || generation != styleGeneration) return@getStyle
+      val data = pendingSources.remove(sourceId) ?: return@getStyle
+      val started = SystemClock.elapsedRealtimeNanos()
+      style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(data)
+      recordSourceUpdate((SystemClock.elapsedRealtimeNanos() - started) / 1e6)
+    }
+  }
+
+  private fun recordSourceUpdate(ms: Double) {
+    val now = SystemClock.elapsedRealtime()
+    if (sourceStatsStart == 0L) sourceStatsStart = now
+    sourceUpdates++
+    sourceTotalMs += ms
+    sourceMaxMs = maxOf(sourceMaxMs, ms)
+    if (now - sourceStatsStart < 5000) return
+    Log.i(
+      TAG,
+      "engine-native: Android game source updates $sourceUpdates in ${"%.1f".format((now - sourceStatsStart) / 1000.0)} s: " +
+        "avg ${"%.3f".format(sourceTotalMs / sourceUpdates)} ms, max ${"%.3f".format(sourceMaxMs)} ms (main thread)",
+    )
+    sourceStatsStart = now
+    sourceUpdates = 0
+    sourceTotalMs = 0.0
+    sourceMaxMs = 0.0
+  }
+
+  override fun startLocationUpdates() {
+    mainHandler.post { startLocation() }
+  }
+
+  override fun stopLocationUpdates() {
+    mainHandler.post { stopLocation() }
+  }
+
+  private fun startLocation() {
+    if (destroyed || handle == 0L) return
+    stopLocation()
+    val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val coarse = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (!fine && !coarse) {
+      // Requesting the permission is the app's job; the source fails like engine-web's denied geolocation.
+      MapramaJni.onDeviceLocationError(handle, "location permission not granted")
+      return
+    }
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+    if (manager == null) {
+      MapramaJni.onDeviceLocationError(handle, "location service unavailable")
+      return
+    }
+    val providers = ArrayList<String>()
+    if (fine && manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) providers.add(LocationManager.GPS_PROVIDER)
+    if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) providers.add(LocationManager.NETWORK_PROVIDER)
+    if (providers.isEmpty()) {
+      MapramaJni.onDeviceLocationError(handle, "no location provider is enabled")
+      return
+    }
+    val listener =
+      object : LocationListener {
+        override fun onLocationChanged(location: Location) = reportLocation(location)
+
+        @Deprecated("Deprecated in the Android SDK; implemented for API < 30")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+
+        override fun onProviderEnabled(provider: String) {}
+
+        override fun onProviderDisabled(provider: String) {}
+      }
+    try {
+      for (provider in providers) manager.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper())
+      locationListener = listener
+      providers.mapNotNull { manager.getLastKnownLocation(it) }.maxByOrNull { it.time }?.let { reportLocation(it) }
+    } catch (e: SecurityException) {
+      manager.removeUpdates(listener)
+      MapramaJni.onDeviceLocationError(handle, "location permission not granted")
+    }
+  }
+
+  private fun stopLocation() {
+    val listener = locationListener ?: return
+    locationListener = null
+    (context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)?.removeUpdates(listener)
+  }
+
+  private fun reportLocation(location: Location) {
+    if (handle == 0L || locationListener == null) return
+    MapramaJni.onDeviceLocation(
+      handle,
+      location.longitude,
+      location.latitude,
+      if (location.hasAccuracy()) location.accuracy.toDouble() else Double.NaN,
+      if (location.hasBearing()) location.bearing.toDouble() else Double.NaN,
+      if (location.hasSpeed()) location.speed.toDouble() else Double.NaN,
+      location.time.toDouble(),
+    )
+  }
+
   // ---- Map UI --------------------------------------------------------------------------------------
 
   private fun createOrnaments() {
@@ -479,7 +613,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     }
 
     init {
-      Log.i(TAG, "MapramaNativeView (M2a, MapLibre Android SDK)")
+      Log.i(TAG, "MapramaNativeView (M3a, MapLibre Android SDK)")
     }
   }
 }
