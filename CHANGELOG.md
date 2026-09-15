@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes to the published Maprama packages are documented in this
+file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and the packages follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Until 1.0.0, minor versions may contain breaking changes.
+
+All packages in this repository share one version number.
+
+## [0.1.0] — Unreleased
+
+First public release of `@maprama/protocol`, `@maprama/engine-web`,
+`@maprama/react-native`, `@maprama/osm` and `@maprama/assets`.
+
+### Added
+
+- `@maprama/react-native`: `<MapramaView>` with `Character`, `CharacterLayer`,
+  `DropLayer` (app data or the hosted service), `Geofence` and `MapOverlay`,
+  the `ref` API (`travel`, `setCamera`, `project`, `route`, `subscribe`, …),
+  `useCharacterPosition` / `useCameraState` hooks, the WebView engine host and
+  an Expo config plugin.
+- `@maprama/engine-web`: three.js engine implementing the whole protocol
+  (worlds, themes, buildings, labels, characters, travel, drops, geofences,
+  map UI), shipped as an ESM library, an IIFE bundle and a single-file HTML
+  document for WebView hosts.
+- `@maprama/protocol`: shared types, the message codec with validation, geo
+  projection and theme presets (also as JSON under `themes/*.json`).
+- `@maprama/osm`: `maprama-osm` CLI and `buildWorld()` to build `WorldData`
+  from OpenStreetMap (Overpass), with optional Korean building heights and the
+  Seongsu-dong sample world (ODbL).
+- `@maprama/assets`: `maprama` CLI to inspect and optimise glTF/GLB models.
+- Travel time scale: travel runs at real speed by default; `timeScale` on the
+  `travel` command, `TravelOptions.timeScale` and the `travelTimeScale` prop of
+  `MapramaView` select a speed multiplier.
+- Android support.
+- `@maprama/engine-native` (v2, **beta, not published**): milestone M1, a
+  flat map with camera and gestures behind the same protocol.
+- Example app updates: a feature catalog screen per feature, including travel
+  speed selection.
+- Release tooling: package metadata, per-package READMEs, `LICENSE` / `NOTICE`
+  in every tarball, GitHub Actions CI, `CONTRIBUTING.md` and `SECURITY.md`.
+
+### Changed
+
+- The project was renamed from Diorama to **Maprama**; every package now lives
+  under the `@maprama/` scope.
+
+### Fixed
+
+- Optional character fields can be reset to their defaults by sending `null`.
+- Characters created without a model get the default body again.
+- engine-web: the location puck no longer overlaps the HUD, labels are no
+  longer clipped at the screen edges, plane name tags sit in the right place,
+  and stray NUL bytes were removed from sources.
+
+[0.1.0]: https://github.com/CraftsManShip001/maprama/releases/tag/v0.1.0

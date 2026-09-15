@@ -6,6 +6,14 @@ engines. It is built on [glTF Transform](https://gltf-transform.dev),
 [meshoptimizer](https://github.com/zeux/meshoptimizer), Draco and
 [sharp](https://sharp.pixelplumbing.com).
 
+Requires Node.js 22.12+.
+
+```sh
+npm i -D @maprama/assets     # or run it once: npx @maprama/assets inspect model.glb
+```
+
+To build and test it from the monorepo:
+
 ```sh
 npm run build -w @maprama/protocol
 npm run build -w @maprama/assets

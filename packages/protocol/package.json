@@ -1,8 +1,27 @@
 {
   "name": "@maprama/protocol",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared contract for Maprama engines and hosts: types, message codec, geo projection and theme presets.",
+  "keywords": [
+    "maprama",
+    "map",
+    "2.5d",
+    "game-map",
+    "protocol",
+    "openstreetmap",
+    "typescript"
+  ],
+  "homepage": "https://github.com/CraftsManShip001/maprama/tree/main/packages/protocol#readme",
+  "bugs": {
+    "url": "https://github.com/CraftsManShip001/maprama/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CraftsManShip001/maprama.git",
+    "directory": "packages/protocol"
+  },
   "license": "Apache-2.0",
+  "author": "The Maprama Authors",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -17,8 +36,15 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/emit-theme-json.mjs",

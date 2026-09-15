@@ -1,14 +1,33 @@
 {
   "name": "@maprama/assets",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "maprama CLI: inspect, validate and optimize glTF/GLB models for Maprama engines.",
+  "keywords": [
+    "maprama",
+    "gltf",
+    "glb",
+    "3d-models",
+    "draco",
+    "meshopt",
+    "optimize",
+    "cli"
+  ],
+  "homepage": "https://github.com/CraftsManShip001/maprama/tree/main/tools/assets#readme",
+  "bugs": {
+    "url": "https://github.com/CraftsManShip001/maprama/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CraftsManShip001/maprama.git",
+    "directory": "tools/assets"
+  },
   "license": "Apache-2.0",
-  "private": true,
+  "author": "The Maprama Authors",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "maprama": "./dist/bin.js"
+    "maprama": "dist/bin.js"
   },
   "exports": {
     ".": {
@@ -20,8 +39,17 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json",
@@ -29,7 +57,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@maprama/protocol": "0.0.0",
+    "@maprama/protocol": "^0.1.0",
     "@gltf-transform/core": "4.5.0",
     "@gltf-transform/extensions": "4.5.0",
     "@gltf-transform/functions": "4.5.0",
