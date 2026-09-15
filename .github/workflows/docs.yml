@@ -1,0 +1,58 @@
+# Builds the VitePress documentation (guides, API reference, playground) and publishes it to GitHub Pages:
+# https://craftsmanship001.github.io/maprama/
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'packages/protocol/**'
+      - 'packages/engine-web/**'
+      - 'packages/react-native/**'
+      - 'services/api/openapi.yaml'
+      - 'tools/osm/samples/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            docs/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @maprama/protocol && npm run build -w @maprama/engine-web
+      - name: Build docs for the /maprama/ project site
+        run: npm run docs:build
+        env:
+          DOCS_BASE: /maprama/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

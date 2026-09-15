@@ -5,6 +5,8 @@ import { defineConfig, type DefaultTheme } from 'vitepress';
 
 // Product naming lives here.
 const BRAND = 'Maprama';
+/** Site base path: `/` locally, `/maprama/` on GitHub Pages (set by `.github/workflows/docs.yml`). */
+const BASE = process.env.DOCS_BASE ?? '/';
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function typedocSidebar(): DefaultTheme.SidebarItem[] {
@@ -52,6 +54,7 @@ const guide: DefaultTheme.SidebarItem[] = [
 
 export default defineConfig({
   lang: 'ko-KR',
+  base: BASE,
   title: BRAND,
   titleTemplate: `:title · ${BRAND}`,
   description: 'React Native를 위한 2.5D 게임 지도: 캐릭터, 이동, 드롭, 홀로그램 라벨, 지오펜스.',
@@ -59,7 +62,7 @@ export default defineConfig({
   lastUpdated: false,
   srcExclude: ['**/_*.md', 'README.md'],
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${BASE}logo.svg` }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     [
