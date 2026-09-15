@@ -12,6 +12,8 @@ An Expo Router app that demonstrates every `@maprama/react-native` feature, one 
 | 6 | `labels.tsx` | Label style (incl. `holo`), holo icon tiles, and content modes including a custom content function refreshed with `refreshLabelContent()`. |
 | 7 | `buildings.tsx` | `Geofence` "plaza" enter/exit log. Press a building (or "Pick sample building") to edit color, roof, massing, facade and `state: 'captured'` through `setBuildingStyle`. |
 | 8 | `multiplayer.tsx` | `CharacterLayer` of six simulated remote players. A fake server ticks every 1 s and the client interpolates at 10 Hz. `MapOverlay` shows a card anchored to the station POI and a speech bubble following a player. |
+| 9 | `native.tsx` | `engine="native"` M1 + M2a: 3D MapLibre buildings in theme colours, themes and time of day, a captured building, map / building presses, a `MapOverlay` card, map UI, camera presets and a project/unproject round trip. |
+| 10 | `native-game.tsx` | `engine="native"` M3a game systems as style layers: a walker on the `simulated` location source, `travel` to near / far presets at ×20 with a route line and live ETA, two drops placed halfway along the `route` request's paths and collected on the way, a geofence with enter / exit events, the location puck and camera follow. |
 
 Map data on the real-data screens is the Seongsu-dong sample from
 `tools/osm/samples/seongsu.world.json`: © OpenStreetMap contributors, ODbL. The
@@ -117,6 +119,7 @@ until the badge `testID="engine-status"` reads `engine ready`.
 | `04-labels-holo.yaml` | Switches labels to `holo`, then to the custom content function and refreshes it. |
 | `05-native-m1.yaml` | `engine="native"`: camera presets update the `camera:change` readout; a project/unproject round trip answers. |
 | `06-native-m2a.yaml` | `engine="native"` M2a: 3D buildings with the station `MapOverlay` card and the visible OSM attribution; `overlay:positions` readout; the sample building styled `captured` + `#FF8800` and pressed on the map (`building:press`); toy / dusk theme; back to the station (the card follows the camera). The control panel is scrolled by swiping on it, since a swipe at the screen centre pans the map. |
+| `07-native-m3a.yaml` | `engine="native"` M3a: the walker's `character:position` readout, the `route` readout, then travel to the near preset (drop collected, geofence entered) and to the far preset (second drop, geofence left), checked in the readouts and the event log lines of the same handlers; screenshots at start, near, while travelling, far, an overview and the log. |
 
 ```sh
 cd example

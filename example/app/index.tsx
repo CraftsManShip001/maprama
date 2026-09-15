@@ -18,6 +18,7 @@ const SCREENS: Entry[] = [
   { slug: 'buildings', href: '/buildings', title: '7. Geofence & buildings', description: 'Plaza geofence enter/exit log; press a building to edit color, roof, massing and state.' },
   { slug: 'multiplayer', href: '/multiplayer', title: '8. Overlays & multiplayer', description: 'CharacterLayer of simulated remote players (1 s ticks, interpolated) and a MapOverlay card on a POI.' },
   { slug: 'native', href: '/native', title: '9. Native engine (M2a)', description: 'engine="native": the Seongsu world as 3D MapLibre buildings in theme colours, themes and time of day, a captured building, map / building presses, a MapOverlay card, map UI, camera presets and a project/unproject round trip.' },
+  { slug: 'native-game', href: '/native-game', title: '10. Native engine (M3a)', description: 'engine="native" game systems as style layers: a walker on the simulated location source, travel to near / far presets with a route line and live ETA, drops placed on the route and collected on the way, a geofence with enter / exit events and the location puck.' },
 ];
 
 export default function CatalogIndex() {
