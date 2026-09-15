@@ -16,7 +16,7 @@ mkdirSync(outDir, { recursive: true });
 // ---- Redoc static HTML ----
 const html = join(outDir, 'openapi.html');
 const bin = join(docs, 'node_modules', '.bin', process.platform === 'win32' ? 'redocly.cmd' : 'redocly');
-const r = spawnSync(bin, ['build-docs', spec, '-o', html, '--title', 'Diorama API reference', '--disableGoogleFont', '--lint-config', 'off'], {
+const r = spawnSync(bin, ['build-docs', spec, '-o', html, '--title', 'Maprama API reference', '--disableGoogleFont', '--lint-config', 'off'], {
   cwd: docs,
   encoding: 'utf8',
 });

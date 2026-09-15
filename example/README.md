@@ -1,10 +1,10 @@
-# Diorama Catalog (`example/`)
+# Maprama Catalog (`example/`)
 
-An Expo Router app that demonstrates every `@diorama/react-native` feature, one screen each:
+An Expo Router app that demonstrates every `@maprama/react-native` feature, one screen each:
 
 | # | Screen (`app/`) | What it shows |
 | --- | --- | --- |
-| 1 | `themes.tsx` | Preset (`realistic`…`soft`, plus a full preset object from `@diorama/protocol/themes/urban.json`), time of day, cinematic grading, massing, facade details, `zoomOut` with a near/far camera. |
+| 1 | `themes.tsx` | Preset (`realistic`…`soft`, plus a full preset object from `@maprama/protocol/themes/urban.json`), time of day, cinematic grading, massing, facade details, `zoomOut` with a near/far camera. |
 | 2 | `world.tsx` | `world.kind`: `data` (the bundled OSM Seongsu sample), `url` (local API), `procedural` `town` / `grid`. The map remounts on change because `world` is read at init. |
 | 3 | `character.tsx` | Player `Character` with a bundled CC0 glTF (a `data:` URI) or the engine's default avatar. `location.source`: `simulated` / `device` / `external`, with North/South/East/West buttons pushing external fixes. Live `useCharacterPosition`. |
 | 4 | `travel.tsx` | Tap the map (or a preset) to travel with `walk` / `bike` / `car` / mixed (`walk → car → walk`) / `plane` / `subway`. ETA comes from a `travel:progress` subscription; the status changes on `travel:arrive`. |
@@ -26,9 +26,9 @@ unquoted paths, so a Release build under e.g. `~/Side Projects/` fails in `EXCon
 ```sh
 # from the repo root
 npm install
-npm run build -w @diorama/protocol
-npm run build -w @diorama/engine-web
-npm run build -w @diorama/react-native
+npm run build -w @maprama/protocol
+npm run build -w @maprama/engine-web
+npm run build -w @maprama/react-native
 
 cd example
 npx expo run:ios            # prebuild + pod install + build + launch, starts Metro (debug)
@@ -40,10 +40,10 @@ To build without Metro (release configuration, JS bundle embedded):
 cd example
 npx expo prebuild --platform ios --no-install
 (cd ios && pod install)
-xcodebuild -workspace ios/DioramaCatalog.xcworkspace -scheme DioramaCatalog -configuration Release \
+xcodebuild -workspace ios/MapramaCatalog.xcworkspace -scheme MapramaCatalog -configuration Release \
   -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build build
-xcrun simctl install booted ios/build/Build/Products/Release-iphonesimulator/DioramaCatalog.app
-xcrun simctl launch booted dev.diorama.catalog
+xcrun simctl install booted ios/build/Build/Products/Release-iphonesimulator/MapramaCatalog.app
+xcrun simctl launch booted dev.maprama.catalog
 ```
 
 Other checks:
@@ -57,11 +57,11 @@ npx tsc --noEmit -p example                  # from the repo root
 
 ## Monorepo notes
 
-- `example` is an npm workspace (root `package.json` → `workspaces`). Expo detects the workspace root and has Metro watch it, so `@diorama/react-native`, `@diorama/protocol` and `@diorama/engine-web` resolve to the local packages' build output (`lib/`, `dist/`). Rebuild them after changing library code.
+- `example` is an npm workspace (root `package.json` → `workspaces`). Expo detects the workspace root and has Metro watch it, so `@maprama/react-native`, `@maprama/protocol` and `@maprama/engine-web` resolve to the local packages' build output (`lib/`, `dist/`). Rebuild them after changing library code.
 - The repo develops against Expo SDK 57's pairing: `react` / `react-dom` 19.2.3 and `react-native` 0.86.3 (from `expo/bundledNativeModules.json`). `packages/react-native` uses the same versions in its devDependencies, so the root `node_modules` holds a single copy of each and Metro needs no custom resolution. Check with `npm ls react react-native`. The library's `peerDependencies` still allow `react-native >=0.76.0` and `react >=18.3.0`.
 - `react-native-screens` uses SDK 57's `~4.26.0`. `react-native-webview` stays at 14.0.1, matching `packages/react-native`. `npx expo install --check` flags that and `typescript` (SDK 57 expects 13.16.1 and ~6.0.3). The library's peer range allows either webview version.
 - `metro.config.js` is Expo's default config. react-native 0.86.3 ships `rn-get-polyfills`, which Expo's Metro config loads.
-- The config plugin `@diorama/react-native` in `app.json` writes `NSLocationWhenInUseUsageDescription` and `DioramaFeatures` into `Info.plist`.
+- The config plugin `@maprama/react-native` in `app.json` writes `NSLocationWhenInUseUsageDescription` and `MapramaFeatures` into `Info.plist`.
 
 ## Sample character model
 
@@ -82,23 +82,23 @@ Both need the local API, `services/api`:
 
 ```sh
 # terminal 1, repo root
-npm run build -w @diorama/protocol
-npm run dev:local -w @diorama/api -- --port 8787 --world seongsu=../../tools/osm/samples/seongsu.world.json
-# prints "client key (dev only): dio_..." and "admin key (dev only): dio_..."
+npm run build -w @maprama/protocol
+npm run dev:local -w @maprama/api -- --port 8787 --world seongsu=../../tools/osm/samples/seongsu.world.json
+# prints "client key (dev only): mpr_..." and "admin key (dev only): mpr_..."
 ```
 
 ```sh
 # terminal 2: pass the printed client key (never commit it; example/.env.local is git-ignored)
 cd example
-EXPO_PUBLIC_DIORAMA_API_KEY=dio_... npx expo run:ios
+EXPO_PUBLIC_MAPRAMA_API_KEY=mpr_... npx expo run:ios
 ```
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `EXPO_PUBLIC_DIORAMA_API_URL` | `http://localhost:8787` | service drops, world URL |
-| `EXPO_PUBLIC_DIORAMA_API_KEY` | empty (service features are skipped) | service drops, world URL |
-| `EXPO_PUBLIC_DIORAMA_WORLD_URL` | `<API_URL>/v1/worlds/seongsu.json?key=<KEY>` | world screen, `url` source |
-| `EXPO_PUBLIC_DIORAMA_DROPS_CHANNEL` | `coins` | service drops |
+| `EXPO_PUBLIC_MAPRAMA_API_URL` | `http://localhost:8787` | service drops, world URL |
+| `EXPO_PUBLIC_MAPRAMA_API_KEY` | empty (service features are skipped) | service drops, world URL |
+| `EXPO_PUBLIC_MAPRAMA_WORLD_URL` | `<API_URL>/v1/worlds/seongsu.json?key=<KEY>` | world screen, `url` source |
+| `EXPO_PUBLIC_MAPRAMA_DROPS_CHANNEL` | `coins` | service drops |
 
 - The dev server keeps everything in memory and has no campaigns until you create one with the admin key (`POST /v1/drops/campaigns`, see `services/api/openapi.yaml`). Until then `GET /v1/drops/nearby` returns no drops.
 - The drops screen probes `GET /v1/usage` first. It mounts the service layer only when the API answers, and otherwise logs "unreachable, skipped". Fetch failures are reported through `onError` (`drops_fetch_failed`) and retried by the library after 2 s, 5 s, then every 15 s.

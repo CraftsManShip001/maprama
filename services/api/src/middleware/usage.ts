@@ -6,7 +6,7 @@ import { monthKey, type AppEnv } from '../util/http.js';
 
 function setUsageHeaders(c: Context<AppEnv>, used: number, quota: number): void {
   const headers: [string, string][] = [
-    ['X-Diorama-Usage', `${used}/${quota}`],
+    ['X-Maprama-Usage', `${used}/${quota}`],
     ['X-RateLimit-Limit', String(quota)],
     ['X-RateLimit-Remaining', String(Math.max(0, quota - used))],
   ];

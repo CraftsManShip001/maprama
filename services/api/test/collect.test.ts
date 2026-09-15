@@ -1,4 +1,4 @@
-import { haversineMeters, type DropSpec, type LngLat } from '@diorama/protocol';
+import { haversineMeters, type DropSpec, type LngLat } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { deriveReceiptSecret } from '../src/util/crypto.js';
 import { verifyReceipt, verifyWebhookSignature } from '../src/verify.js';
@@ -215,7 +215,7 @@ describe('POST /v1/drops/collect', () => {
   it('enqueues a signed drop.collected webhook once per verified collect', async () => {
     const { h, admin, client, drops } = await setup();
     const hook = await json<{ secret: string; receiptSecret: string }>(
-      await h.request('/v1/webhooks', { key: admin, method: 'POST', body: { url: 'https://app.example/diorama' } }),
+      await h.request('/v1/webhooks', { key: admin, method: 'POST', body: { url: 'https://app.example/maprama' } }),
     );
     const collectId = newCollectId();
     const body = await json<CollectJson>(await collect(h, client, drops[0]!, { collectId, userId: 'frank' }));
@@ -224,8 +224,8 @@ describe('POST /v1/drops/collect', () => {
 
     expect(h.fetchCalls).toHaveLength(1);
     const call = h.fetchCalls[0]!;
-    expect(call.url).toBe('https://app.example/diorama');
-    const sig = await verifyWebhookSignature(call.body, call.headers.get('Diorama-Signature'), hook.secret, 300, h.clock.now() / 1000);
+    expect(call.url).toBe('https://app.example/maprama');
+    const sig = await verifyWebhookSignature(call.body, call.headers.get('Maprama-Signature'), hook.secret, 300, h.clock.now() / 1000);
     expect(sig.ok).toBe(true);
     const event = JSON.parse(call.body) as { type: string; data: { receipt: string; userId: string; dropId: string } };
     expect(event.type).toBe('drop.collected');

@@ -78,7 +78,7 @@ describe('POST /v1/webhooks', () => {
 
 describe('isAllowedWebhookUrl', () => {
   it('accepts public https hostnames', () => {
-    for (const url of ['https://app.example/hooks', 'https://api.example.co.kr:8443/diorama?x=1', 'https://hooks.example.com./x']) {
+    for (const url of ['https://app.example/hooks', 'https://api.example.co.kr:8443/maprama?x=1', 'https://hooks.example.com./x']) {
       expect(isAllowedWebhookUrl(url), url).toBe(true);
     }
   });
@@ -196,9 +196,9 @@ describe('POST /v1/webhooks/test and delivery retries', () => {
 
     // Each attempt is freshly signed and verifiable.
     for (const call of h.fetchCalls) {
-      expect(call.headers.get('Diorama-Event')).toBe('webhook.test');
-      expect(call.headers.get('Diorama-Delivery')).toBe(res.deliveryId);
-      const v = await verifyWebhookSignature(call.body, call.headers.get('Diorama-Signature'), hook.secret, 300, h.clock.now() / 1000);
+      expect(call.headers.get('Maprama-Event')).toBe('webhook.test');
+      expect(call.headers.get('Maprama-Delivery')).toBe(res.deliveryId);
+      const v = await verifyWebhookSignature(call.body, call.headers.get('Maprama-Signature'), hook.secret, 300, h.clock.now() / 1000);
       expect(v.ok).toBe(true);
     }
   });

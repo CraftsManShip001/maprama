@@ -9,14 +9,14 @@ import {
   type ThemeSpec,
   type TimeOfDay,
   type ZoomOutBehavior,
-} from '@diorama/protocol';
-import urbanPresetJson from '@diorama/protocol/themes/urban.json';
+} from '@maprama/protocol';
+import urbanPresetJson from '@maprama/protocol/themes/urban.json';
 import { DemoMap } from '../src/components/DemoMap';
 import { Chips, Readout, ScreenLayout, Section, Toggle } from '../src/components/ui';
 import { SEONGSU_WORLD, STATION } from '../src/data/seongsu';
 
 const WORLD = { kind: 'data', world: SEONGSU_WORLD } as const;
-/** A full preset object loaded from `@diorama/protocol/themes/*.json` (instead of a preset name). */
+/** A full preset object loaded from `@maprama/protocol/themes/*.json` (instead of a preset name). */
 const URBAN_PRESET = urbanPresetJson as unknown as ThemePreset;
 
 type BaseChoice = PresetName | 'urban.json';

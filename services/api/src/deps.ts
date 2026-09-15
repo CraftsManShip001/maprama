@@ -3,7 +3,7 @@
  * `src/adapters/memory/*` implements them in-process (tests, `dev:local`) and
  * `src/adapters/d1/*` + `src/adapters/r2.ts` implement them on Cloudflare.
  */
-import type { DropType, JsonValue, LngLat, Rarity } from '@diorama/protocol';
+import type { DropType, JsonValue, LngLat, Rarity } from '@maprama/protocol';
 import type { Bbox } from './util/geo.js';
 
 /** Billing plan. */

@@ -1,4 +1,4 @@
-// Diorama native core — command dispatcher.
+// Maprama native core — command dispatcher.
 //
 // Decodes envelopes exactly like `decodeCommand`, then routes each command to
 // its subsystem (DESIGN.md §4 mapping table). Skeleton behaviour:
@@ -12,12 +12,12 @@
 #include <string>
 #include <string_view>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/json.hpp"
-#include "diorama/protocol.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/json.hpp"
+#include "maprama/protocol.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class WorldStore;
 class ThemeResolver;
@@ -41,7 +41,7 @@ struct Subsystems {
 };
 
 struct DispatcherOptions {
-  EngineInfo info{"diorama-native", "0.0.0", EngineKind::Native};
+  EngineInfo info{"maprama-native", "0.0.0", EngineKind::Native};
   /// Validate every outgoing event with `validateEngineEvent`; invalid events are dropped and logged (debug builds).
   bool validateOutgoingEvents = false;
 };
@@ -90,4 +90,4 @@ class Dispatcher final : public EventEmitter {
   DispatchStats stats_;
 };
 
-}  // namespace diorama
+}  // namespace maprama

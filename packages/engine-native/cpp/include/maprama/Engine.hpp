@@ -1,5 +1,5 @@
-// Diorama native core — engine facade used by the platform wrappers
-// (iOS `DioramaNativeView` / Android `DioramaNativeView`, `DioramaEngineModule`).
+// Maprama native core — engine facade used by the platform wrappers
+// (iOS `MapramaNativeView` / Android `MapramaNativeView`, `MapramaEngineModule`).
 #pragma once
 
 #include <memory>
@@ -7,16 +7,16 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/CameraController.hpp"
-#include "diorama/MessageSink.hpp"
-#include "diorama/json.hpp"
-#include "diorama/types.hpp"
+#include "maprama/CameraController.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/json.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class WorldStore;
 
-inline constexpr std::string_view kCoreName = "diorama-native";
+inline constexpr std::string_view kCoreName = "maprama-native";
 inline constexpr std::string_view kCoreVersion = "0.0.0";
 
 struct EngineConfig {
@@ -55,4 +55,4 @@ class Engine {
 
 std::unique_ptr<Engine> createEngine(std::shared_ptr<MessageSink> sink, EngineConfig config = {});
 
-}  // namespace diorama
+}  // namespace maprama

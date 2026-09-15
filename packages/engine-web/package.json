@@ -1,7 +1,7 @@
 {
-  "name": "@diorama/engine-web",
+  "name": "@maprama/engine-web",
   "version": "0.0.0",
-  "description": "Diorama web render engine (three.js) implementing the @diorama/protocol message contract.",
+  "description": "Maprama web render engine (three.js) implementing the @maprama/protocol message contract.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,7 +34,7 @@
     "fixtures": "node scripts/make-glb-fixture.mjs"
   },
   "dependencies": {
-    "@diorama/protocol": "*",
+    "@maprama/protocol": "*",
     "three": "0.186.0"
   },
   "devDependencies": {

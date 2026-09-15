@@ -8,7 +8,7 @@
  *
  * Drop id: `d1.<campaignId>.<window>.<geohash>.<index>`.
  */
-import { DROP_TYPES, RARITIES, haversineMeters, type DropSpec, type LngLat, type Rarity } from '@diorama/protocol';
+import { DROP_TYPES, RARITIES, haversineMeters, type DropSpec, type LngLat, type Rarity } from '@maprama/protocol';
 import { DROP_LIMITS } from '../config.js';
 import type { Campaign, DropArea } from '../deps.js';
 import { seededRandom } from '../util/prng.js';

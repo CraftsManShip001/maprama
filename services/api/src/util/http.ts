@@ -17,7 +17,7 @@ export async function readJson(c: Context<AppEnv>): Promise<unknown> {
 /** Runs a task after the response (Workers `waitUntil`), never throwing into the request. */
 export function defer(deps: ServiceDeps, c: Context<AppEnv>, task: Promise<unknown>): void {
   const safe = task.catch((err: unknown) => {
-    console.error('[diorama-api] background task failed:', err instanceof Error ? err.message : 'unknown error');
+    console.error('[maprama-api] background task failed:', err instanceof Error ? err.message : 'unknown error');
   });
   if (deps.waitUntil) {
     deps.waitUntil(safe);

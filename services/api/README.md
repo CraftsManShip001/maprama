@@ -1,6 +1,6 @@
-# @diorama/api
+# @maprama/api
 
-The paid hosted Diorama service, next to the open-source SDK: world data and
+The paid hosted Maprama service, next to the open-source SDK: world data and
 vector tiles, place search and reverse geocoding, public transit, dynamic
 drops with server-verified collection, API keys with a monthly free tier plus
 usage-based overage, and signed webhooks.
@@ -24,10 +24,10 @@ Everything is testable locally without a Cloudflare account.
 - `src/app.ts`: `createApp(deps: ServiceDeps)`; no global state, all I/O injected.
 - `src/worker.ts`: Workers entry; binds `DB` (D1), `TILES` (R2), `RECEIPT_SECRET`.
 - `src/deps.ts`: `KeysRepo`, `UsageRepo`, `PlacesRepo`, `TransitRepo`, `DropsRepo`, `WebhooksRepo`, `BlobStore`, `Clock`.
-- `src/verify.ts` (`@diorama/api/verify`): pure Web Crypto helpers for app servers. It has no imports.
+- `src/verify.ts` (`@maprama/api/verify`): pure Web Crypto helpers for app servers. It has no imports.
 - `migrations/0001_init.sql`: D1 schema.
 - `openapi.yaml`: every endpoint, error code and auth scheme.
-- Contract types (`LngLat`, `DropSpec`, `WorldData`, ...) come from `@diorama/protocol`.
+- Contract types (`LngLat`, `DropSpec`, `WorldData`, ...) come from `@maprama/protocol`.
 
 ### Endpoints and billable units
 
@@ -51,12 +51,12 @@ Weights live in `src/config.ts` (`UNIT_WEIGHTS`). A request is billable when it
 returns a status below 400, or 422 from collect (the verification work was done).
 Free keys get `429 QUOTA_EXCEEDED` once `used + weight > monthlyQuota`. Pro keys
 keep working, and units beyond the quota are recorded as `overageUnits`.
-Counters are per key per UTC month. Responses carry `X-Diorama-Usage: used/quota`,
+Counters are per key per UTC month. Responses carry `X-Maprama-Usage: used/quota`,
 `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
 
 ### Keys
 
-Keys look like `dio_<43 base64url chars>`. Only the SHA-256 hex hash is stored,
+Keys look like `mpr_<43 base64url chars>`. Only the SHA-256 hex hash is stored,
 together with `appId`, `plan` (`free|pro`), `monthlyQuota` and `role`
 (`client|server|admin`). Lookup is by hash, followed by a constant-time compare.
 Raw keys are never logged; the error handler logs only `err.message`, never URLs
@@ -122,7 +122,7 @@ On success the service stores the collect, returns `{receipt}` and enqueues a
 The receipt is `base64url(canonicalJSON(claims)) + "." + base64url(HMAC-SHA256)`,
 with claims `{v, appId, dropId, collectId, userId, payload, collectedAt, type, rarity}`.
 It is signed with a per-app secret derived as
-`HMAC-SHA256(RECEIPT_SECRET, "diorama-receipt:v1:" + appId)`, so one app cannot
+`HMAC-SHA256(RECEIPT_SECRET, "maprama-receipt:v1:" + appId)`, so one app cannot
 forge another app's receipts. Read it with `GET /v1/receipts/secret` (admin,
 returns `{receiptSecret}`, no webhook needed). `POST /v1/webhooks` also returns it.
 
@@ -147,9 +147,9 @@ networks.
 Delivery is a `POST` with JSON body and these headers:
 
 ```
-Diorama-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>
-Diorama-Event: drop.collected | webhook.test
-Diorama-Delivery: evt_...
+Maprama-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>
+Maprama-Event: drop.collected | webhook.test
+Maprama-Delivery: evt_...
 ```
 
 Delivery makes up to 3 attempts, with 1 s and 4 s backoff, an 8 s timeout each and
@@ -160,15 +160,15 @@ Delivery makes up to 3 attempts, with 1 s and 4 s backoff, an 8 s timeout each a
 
 ```ts
 import express from 'express';
-import { verifyWebhookSignature, verifyReceipt } from '@diorama/api/verify';
+import { verifyWebhookSignature, verifyReceipt } from '@maprama/api/verify';
 
 const app = express();
-app.post('/diorama/webhook', express.text({ type: 'application/json' }), async (req, res) => {
-  const sig = await verifyWebhookSignature(req.body, req.get('Diorama-Signature'), process.env.DIORAMA_WEBHOOK_SECRET!);
+app.post('/maprama/webhook', express.text({ type: 'application/json' }), async (req, res) => {
+  const sig = await verifyWebhookSignature(req.body, req.get('Maprama-Signature'), process.env.MAPRAMA_WEBHOOK_SECRET!);
   if (!sig.ok) return res.status(400).send(sig.reason); // 'malformed' | 'mismatch' | 'expired'
   const event = JSON.parse(req.body);
   if (event.type === 'drop.collected') {
-    const receipt = await verifyReceipt(event.data.receipt, process.env.DIORAMA_RECEIPT_SECRET!);
+    const receipt = await verifyReceipt(event.data.receipt, process.env.MAPRAMA_RECEIPT_SECRET!);
     if (receipt.ok) await grantReward(receipt.claims.userId, receipt.claims.dropId, receipt.claims.payload); // idempotent on dropId+userId
   }
   res.sendStatus(204);
@@ -201,12 +201,12 @@ app can be checked with the same `verifyReceipt`.
 ```sh
 # from the repo root
 npm install
-npm run build -w @diorama/protocol   # the root build runs in folder order
+npm run build -w @maprama/protocol   # the root build runs in folder order
 
 cd services/api
 npm test                             # vitest: in-memory adapters + real D1 adapters on node:sqlite
 npm run typecheck
-npm run build                        # tsc → dist/ (library + @diorama/api/verify)
+npm run build                        # tsc → dist/ (library + @maprama/api/verify)
 
 # Node dev server with in-memory storage; prints a dev client key and admin key
 npm run dev:local -- --port 8787 --world seongsu=../../tools/osm/samples/seongsu.world.json --tiles seongsu=./seongsu.pmtiles
@@ -225,7 +225,7 @@ npx tsx scripts/create-key.ts --app my-app --plan free --role client     # print
 npx wrangler d1 execute DB --local --command "<printed INSERT>"
 npx tsx scripts/seed-from-world.ts path/to/seongsu.world.json --region seongsu --out seed.sql
 npx wrangler d1 execute DB --local --file seed.sql
-npx wrangler r2 object put diorama-tiles/worlds/seongsu.json --local --file path/to/seongsu.world.json
+npx wrangler r2 object put maprama-tiles/worlds/seongsu.json --local --file path/to/seongsu.world.json
 echo 'RECEIPT_SECRET="local-dev-secret-at-least-32-characters"' > .dev.vars
 npm run dev                          # wrangler dev --local
 ```
@@ -245,11 +245,11 @@ npm run dev                          # wrangler dev --local
 
 ## Deployment
 
-1. `npx wrangler d1 create diorama-api`, then put the `database_id` into `wrangler.toml` (the committed value is a placeholder).
-2. `npx wrangler r2 bucket create diorama-tiles`.
+1. `npx wrangler d1 create maprama-api`, then put the `database_id` into `wrangler.toml` (the committed value is a placeholder).
+2. `npx wrangler r2 bucket create maprama-tiles`.
 3. `npx wrangler secret put RECEIPT_SECRET` (≥ 32 random characters). Rotating it invalidates existing receipts and changes every app's `receiptSecret`.
 4. `npx wrangler d1 migrations apply DB --remote`.
-5. Upload data: `wrangler r2 object put diorama-tiles/tiles/<tileset>.pmtiles --file ...` and the world JSON files. Seed D1 with the scripts above (`--remote`).
+5. Upload data: `wrangler r2 object put maprama-tiles/tiles/<tileset>.pmtiles --file ...` and the world JSON files. Seed D1 with the scripts above (`--remote`).
 6. `npx wrangler deploy` (or `npm run build:worker` for a dry-run bundle into `dist/worker`).
 
 ## Cost notes

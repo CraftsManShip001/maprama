@@ -4,7 +4,7 @@
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ 앱: <DioramaMap> · <Character> · ref.travel() · hooks       │  @diorama/react-native
+│ 앱: <MapramaView> · <Character> · ref.travel() · hooks       │  @maprama/react-native
 ├────────────────────────────────────────────────────────────┤
 │ 선언형 diff · 프레임 배치 · 요청/응답 상관 · 구독 참조 카운트 │
 ├────────────────────────────────────────────────────────────┤
@@ -12,9 +12,9 @@
 │   ├─ WebViewEngineHost (v1) → react-native-webview          │
 │   └─ Native host (v2)        → JSI TurboModule              │
 ├────────────────────────────────────────────────────────────┤
-│ @diorama/protocol 봉투: {"v":1,"seq":N,"kind":…,"msg":…}    │  같은 코덱, 같은 검증
+│ @maprama/protocol 봉투: {"v":1,"seq":N,"kind":…,"msg":…}    │  같은 코덱, 같은 검증
 ├───────────────────────────────┬────────────────────────────┤
-│ @diorama/engine-web (three.js)│ @diorama/engine-native      │
+│ @maprama/engine-web (three.js)│ @maprama/engine-native      │
 │ WebView 또는 브라우저          │ C++ 코어 + MapLibre Native  │
 └───────────────────────────────┴────────────────────────────┘
 ```
@@ -23,7 +23,7 @@
 
 ## 프로토콜
 
-`@diorama/protocol`이 유일한 계약입니다.
+`@maprama/protocol`이 유일한 계약입니다.
 
 - **봉투**: `encodeCommand(cmd, seq)` / `decodeEvent(text)`가 `{ v: PROTOCOL_VERSION, seq, kind: 'cmd' | 'evt', msg }` JSON 문자열을 만들고 읽습니다. 디코드는 항상 검증을 포함하며 실패하면 이유를 돌려줍니다.
 - **명령** (호스트 → 엔진, `ENGINE_COMMAND_TYPES` 20종): `init`, `setTheme`, `setLabels`, `setLabelContent`, `setUi`, `setCamera`, `upsertCharacters`, `removeCharacters`, `setLocationSource`, `pushLocation`, `travel`, `cancelTravel`, `setDropLayer`, `removeDropLayer`, `setGeofences`, `setBuildingStyle`, `setOverlayAnchors`, `subscribe`, `unsubscribe`, `request`
@@ -54,10 +54,10 @@
 ## 엔진 호스트 교체
 
 ```tsx
-import { registerEngineHost, createMessageChannelHost } from '@diorama/react-native';
+import { registerEngineHost, createMessageChannelHost } from '@maprama/react-native';
 
 registerEngineHost('native', NativeEngineHost);
-<DioramaMap engine="native" world={world} />;
+<MapramaView engine="native" world={world} />;
 ```
 
 `createMessageChannelHost(kind, post)`는 JSI나 WebSocket처럼 문자열을 옮기는 어떤 전송 수단으로도 `EngineHost`를 만들어 줍니다. 앱의 다른 코드는 바뀌지 않습니다.
@@ -67,7 +67,7 @@ registerEngineHost('native', NativeEngineHost);
 플레이그라운드와 테스트는 WebView 없이 같은 엔진을 페이지 안에서 돌립니다.
 
 ```ts
-import { createEngine, createDirectTransport } from '@diorama/engine-web';
+import { createEngine, createDirectTransport } from '@maprama/engine-web';
 
 const transport = createDirectTransport();
 transport.onEvent((event) => console.log(event));
@@ -107,18 +107,18 @@ transport.postCommand({ type: 'init', world: { kind: 'procedural', layout: 'town
 ### 층
 
 ```
-TS API (@diorama/react-native, engine="native")             JS 스레드
-Fabric + JSI: DioramaNativeView · DioramaEngineModule
+TS API (@maprama/react-native, engine="native")             JS 스레드
+Fabric + JSI: MapramaNativeView · MapramaEngineModule
 플랫폼 래퍼: iOS MTKView·CADisplayLink / Android TextureView·Choreographer
 C++ 코어: Dispatcher · WorldStore · Projection · ThemeResolver · LabelSystem
           CameraController · CharacterSystem · TravelPlanner · DropSystem · GeofenceSystem
-MapLibre Native (패치) + DioramaLayer: 돌출·외벽·지붕, 인스턴싱 드롭, 스키닝 glTF, 홀로 라벨
+MapLibre Native (패치) + MapramaLayer: 돌출·외벽·지붕, 인스턴싱 드롭, 스키닝 glTF, 홀로 라벨
 GPU: Metal (iOS) · Vulkan (Android) · GL ES 3 폴백
 ```
 
 ### 디오라마 레이어
 
-MapLibre 스타일 스펙에 `type: "diorama"` 레이어를 추가하는 작은 패치(약 4개)로, 그리기는 커스텀 드로어블 API를 통해 코어의 `DioramaLayer`에 위임합니다. 스타일 순서와 줌 범위에 참여하고 fill-extrusion·심볼과 깊이를 공유할 수 있어서, 커스텀 레이어 API만 쓰는 방식보다 이 방식을 골랐습니다.
+MapLibre 스타일 스펙에 `type: "maprama"` 레이어를 추가하는 작은 패치(약 4개)로, 그리기는 커스텀 드로어블 API를 통해 코어의 `MapramaLayer`에 위임합니다. 스타일 순서와 줌 범위에 참여하고 fill-extrusion·심볼과 깊이를 공유할 수 있어서, 커스텀 레이어 API만 쓰는 방식보다 이 방식을 골랐습니다.
 
 ### 타일
 
@@ -127,15 +127,15 @@ MapLibre 스타일 스펙에 `type: "diorama"` 레이어를 추가하는 작은 
 
 | 레이어 | 지오메트리 | 속성 | WorldData 필드 |
 | --- | --- | --- | --- |
-| `diorama_roads` | LineString | `id`, `cls`, `name`?, `bridge`? | `roads[]` |
-| `diorama_buildings` | Polygon | `id`, `height_m`, `levels`?, `kind`?, `name`? | `buildings[]` |
-| `diorama_water` | Polygon | 없음 | `water[]` |
-| `diorama_parks` | Polygon | `name`? | `parks[]` |
-| `diorama_pois` | Point | `id`, `name`, `cat` | `pois[]` |
-| `diorama_stations` | Point | `id`, `name` | `stations[]` |
-| `diorama_districts` | Point | `name`, `water`? | `districts[]` |
+| `maprama_roads` | LineString | `id`, `cls`, `name`?, `bridge`? | `roads[]` |
+| `maprama_buildings` | Polygon | `id`, `height_m`, `levels`?, `kind`?, `name`? | `buildings[]` |
+| `maprama_water` | Polygon | 없음 | `water[]` |
+| `maprama_parks` | Polygon | `name`? | `parks[]` |
+| `maprama_pois` | Point | `id`, `name`, `cat` | `pois[]` |
+| `maprama_stations` | Point | `id`, `name` | `stations[]` |
+| `maprama_districts` | Point | `name`, `water`? | `districts[]` |
 
-월드 수준 필드는 PMTiles 메타데이터의 `"diorama"` 키(z/x/y 소스는 `…/diorama.json`)에 둡니다.
+월드 수준 필드는 PMTiles 메타데이터의 `"maprama"` 키(z/x/y 소스는 `…/maprama.json`)에 둡니다.
 
 ### 동등성 매트릭스
 
@@ -163,7 +163,7 @@ MapLibre 스타일 스펙에 `type: "diorama"` 레이어를 추가하는 작은 
 ### 마일스톤
 
 - **M0 기반** (현재): 설계, C++ 인터페이스, JS와 동일한 JSON 코덱, `Projection`, `WorldStore`, `unsupported`로 응답하는 골격 디스패처, 픽스처 적합성 테스트, 패치 큐 도구
-- **M1 지도가 화면에**: upstream 고정, 첫 패치(`diorama` 레이어 타입, 필요 시 PMTiles), XCFramework/AAR CI 산출물, 양 플랫폼 `DioramaNativeView` + `DioramaEngineModule`, 명령 큐·프레임 스냅샷·이벤트 배치, `init`(data/url/procedural)으로 평면 지도, 카메라·제스처, `project`/`unproject`, 구독
+- **M1 지도가 화면에**: upstream 고정, 첫 패치(`maprama` 레이어 타입, 필요 시 PMTiles), XCFramework/AAR CI 산출물, 양 플랫폼 `MapramaNativeView` + `MapramaEngineModule`, 명령 큐·프레임 스냅샷·이벤트 배치, `init`(data/url/procedural)으로 평면 지도, 카메라·제스처, `project`/`unproject`, 구독
 - **M2 디오라마 룩**: 돌출·외벽·지붕·매스, 스타일 테이블 + 탭 판정, `ThemeResolver`, 라벨 시스템(GPU 쿼드 + 접근성 풀), `labelsIndex`, 지도 UI, 탭, 오버레이 앵커
 - **M3 게임 시스템**: cgltf 스키닝, `CharacterSystem`과 위치 소스, `TravelPlanner`(A*, 지하철 확장), 드롭, 지오펜스, 나머지 이벤트
 - **M4 동등성과 성능**: 줌아웃 게임 뷰, [성능 예산](./performance#v2-네이티브-엔진-예산) 기기 측정, RN 예제 앱으로 웹·네이티브 나란히 매트릭스 전부 통과, `engine="native"` 베타

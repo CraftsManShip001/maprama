@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import type { ExpoConfig } from '@expo/config-types';
-import withDiorama, {
+import withMaprama, {
   ANDROID_FEATURES_META,
   DEFAULT_LOCATION_PERMISSION_TEXT,
   IOS_FEATURES_KEY,
@@ -65,7 +65,7 @@ describe('AndroidManifest', () => {
 describe('config plugin', () => {
   it('registers iOS and Android mods that apply the changes', async () => {
     const base: ExpoConfig = { name: 'app', slug: 'app' };
-    const config = withDiorama(base, { features: ['drops'], locationPermissionText: 'Find drops near you' }) as ExpoConfig & {
+    const config = withMaprama(base, { features: ['drops'], locationPermissionText: 'Find drops near you' }) as ExpoConfig & {
       mods: { ios: { infoPlist: (c: unknown) => Promise<{ modResults: Record<string, unknown> }> }; android: { manifest: (c: unknown) => Promise<{ modResults: Manifest }> } };
     };
     const ios = await config.mods.ios.infoPlist({ ...config, modResults: {}, modRequest: { platform: 'ios', projectRoot: '/tmp', platformProjectRoot: '/tmp/ios', modName: 'infoPlist', introspect: false } });
@@ -77,6 +77,6 @@ describe('config plugin', () => {
   });
 
   it('throws on invalid options when applied', () => {
-    expect(() => withDiorama({ name: 'app', slug: 'app' }, { features: 'drops' as never })).toThrow(/must be an array/);
+    expect(() => withMaprama({ name: 'app', slug: 'app' }, { features: 'drops' as never })).toThrow(/must be an array/);
   });
 });

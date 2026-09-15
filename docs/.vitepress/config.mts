@@ -3,15 +3,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type DefaultTheme } from 'vitepress';
 
-// Product naming lives here so the codename is easy to replace.
-const BRAND = 'Diorama';
+// Product naming lives here.
+const BRAND = 'Maprama';
 const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function typedocSidebar(): DefaultTheme.SidebarItem[] {
   const file = join(docsRoot, 'api', 'reference', 'typedoc-sidebar.json');
   if (!existsSync(file)) return [];
   const items = JSON.parse(readFileSync(file, 'utf8')) as DefaultTheme.SidebarItem[];
-  const names: Record<string, string> = { protocol: '@diorama/protocol', 'react-native': '@diorama/react-native' };
+  const names: Record<string, string> = { protocol: '@maprama/protocol', 'react-native': '@maprama/react-native' };
   return items.map((item) => ({ ...item, text: names[item.text ?? ''] ?? item.text }));
 }
 
@@ -105,8 +105,8 @@ export default defineConfig({
           text: 'CLI 도구',
           items: [
             { text: '개요', link: '/tools/' },
-            { text: 'diorama-osm (월드 빌드)', link: '/tools/osm' },
-            { text: 'diorama (glTF 에셋)', link: '/tools/assets' },
+            { text: 'maprama-osm (월드 빌드)', link: '/tools/osm' },
+            { text: 'maprama (glTF 에셋)', link: '/tools/assets' },
           ],
         },
       ],
@@ -135,7 +135,7 @@ export default defineConfig({
     },
     footer: {
       message: 'SDK 코드는 Apache-2.0 · 호스팅 서비스는 유료(무료 티어 제공) · 샘플 지도 데이터 © OpenStreetMap contributors (ODbL 1.0)',
-      copyright: `${BRAND}는 가칭(codename)입니다.`,
+      copyright: `Copyright 2026 The ${BRAND} Authors`,
     },
   },
   vite: {

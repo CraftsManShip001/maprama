@@ -1,6 +1,6 @@
-// Builds @diorama/engine-web:
-//   dist/index.js (+ .d.ts)   ESM library build (three and @diorama/protocol external)
-//   dist/engine.iife.js       self-contained IIFE, global `DioramaEngine`
+// Builds @maprama/engine-web:
+//   dist/index.js (+ .d.ts)   ESM library build (three and @maprama/protocol external)
+//   dist/engine.iife.js       self-contained IIFE, global `MapramaEngine`
 //   dist/engine.html          single-file HTML (IIFE inlined, full-viewport container, WebView transport)
 //   dist/engine-html.js/.d.ts `export const ENGINE_HTML: string`
 // The playground bundle is NOT built here (dist is published); `npm run dev` and
@@ -29,7 +29,7 @@ await esbuild.build({
   outfile: join(dist, 'index.js'),
   format: 'esm',
   sourcemap: true,
-  external: ['three', 'three/*', '@diorama/protocol'],
+  external: ['three', 'three/*', '@maprama/protocol'],
 });
 
 await esbuild.build({
@@ -37,10 +37,10 @@ await esbuild.build({
   entryPoints: [join(root, 'src/index.ts')],
   outfile: join(dist, 'engine.iife.js'),
   format: 'iife',
-  globalName: 'DioramaEngine',
+  globalName: 'MapramaEngine',
   minify: true,
   // three's DRACOLoader builds default decoder URLs from import.meta.url at module
-  // load; IIFE output has no import.meta, which threw and left DioramaEngine
+  // load; IIFE output has no import.meta, which threw and left MapramaEngine
   // undefined. The engine sets an explicit decoder path, so any absolute base works.
   define: { 'import.meta.url': JSON.stringify('https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/DRACOLoader.js') },
 });
@@ -51,13 +51,13 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Diorama</title>
-<style>html,body{margin:0;height:100%;overflow:hidden;background:#d9dfe0;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}#diorama-root{position:fixed;inset:0}</style>
+<title>Maprama</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#d9dfe0;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}#maprama-root{position:fixed;inset:0}</style>
 </head>
 <body>
-<div id="diorama-root"></div>
+<div id="maprama-root"></div>
 <script>${iife}</script>
-<script>(function(){var E=window.DioramaEngine;window.__diorama=E.createEngine(document.getElementById('diorama-root'),{transport:E.createWebViewTransport()});})();</script>
+<script>(function(){var E=window.MapramaEngine;window.__maprama=E.createEngine(document.getElementById('maprama-root'),{transport:E.createWebViewTransport()});})();</script>
 </body>
 </html>
 `;

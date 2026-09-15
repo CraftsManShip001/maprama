@@ -1,5 +1,5 @@
 /**
- * `diorama optimize`: dedup, prune, weld, resample, simplify to a triangle
+ * `maprama optimize`: dedup, prune, weld, resample, simplify to a triangle
  * budget, resize textures, normalize origin/facing/height, and compress.
  *
  * @module
@@ -65,7 +65,7 @@ export function yawForFacing(face: Facing): number {
 }
 
 /**
- * Wraps the scene's root nodes in a `diorama_root` node carrying the facing
+ * Wraps the scene's root nodes in a `maprama_root` node carrying the facing
  * rotation, height scale and feet-centering translation. Using a wrapper keeps
  * skins and animations intact.
  */
@@ -79,7 +79,7 @@ function normalize(doc: Document, options: OptimizeOptions, steps: string[], war
     warnings.push('no scene: skipped normalization');
     return;
   }
-  const wrapper = doc.createNode('diorama_root');
+  const wrapper = doc.createNode('maprama_root');
   for (const child of scene.listChildren()) {
     scene.removeChild(child);
     wrapper.addChild(child);

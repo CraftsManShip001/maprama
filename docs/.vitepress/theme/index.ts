@@ -1,7 +1,7 @@
 import type { Theme } from 'vitepress';
 import DefaultTheme from 'vitepress/theme';
 import { h } from 'vue';
-import DioramaPlayground from './playground/DioramaPlayground.vue';
+import MapramaPlayground from './playground/MapramaPlayground.vue';
 import './style.css';
 
 export default {
@@ -9,9 +9,9 @@ export default {
   Layout: () =>
     h(DefaultTheme.Layout, null, {
       // live engine in the home hero
-      'home-hero-image': () => h(DioramaPlayground, { variant: 'hero' }),
+      'home-hero-image': () => h(MapramaPlayground, { variant: 'hero' }),
     }),
   enhanceApp({ app }) {
-    app.component('DioramaPlayground', DioramaPlayground);
+    app.component('MapramaPlayground', MapramaPlayground);
   },
 } satisfies Theme;

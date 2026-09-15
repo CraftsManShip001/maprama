@@ -31,7 +31,7 @@ export class ScaleBar {
   constructor(parent: HTMLElement) {
     const doc = parent.ownerDocument;
     this.el = doc.createElement('div');
-    this.el.className = 'dio-scalebar';
+    this.el.className = 'mpr-scalebar';
     this.el.setAttribute('aria-hidden', 'true');
     this.text = doc.createElement('span');
     this.line = doc.createElement('i');

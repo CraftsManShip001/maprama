@@ -3,7 +3,7 @@
 엔진은 월드의 도로, 동·하천, POI 이름을 라벨로 그립니다. `labels` prop이 스타일과 내용을 정합니다.
 
 ```tsx
-<DioramaMap labels={{ enabled: true, style: 'holo', icons: 'auto', content: 'nameAndType' }} />
+<MapramaView labels={{ enabled: true, style: 'holo', icons: 'auto', content: 'nameAndType' }} />
 ```
 
 `labels`에서 빠진 필드는 엔진 기본값을 씁니다: `enabled: true`, `style: 'holo'`, `icons: 'auto'`, `content: 'nameAndType'`. 그래서 아무것도 지정하지 않아도 홀로그램 라벨이 켜집니다. 끄려면 `enabled: false`를 넘기세요.
@@ -65,10 +65,10 @@ id는 원본 데이터에서만 만들어지므로 같은 월드를 다시 로�
 `content`에 함수를 넘기면 호스트가 엔진에 `content: 'custom'`을 보내고, 함수 결과를 `setLabelContent` 명령으로 보냅니다.
 
 ```tsx
-const map = useRef<DioramaMapRef>(null);
+const map = useRef<MapramaViewRef>(null);
 const today = useTodayDrops(); // 앱 데이터
 
-<DioramaMap
+<MapramaView
   ref={map}
   labels={{
     enabled: true,

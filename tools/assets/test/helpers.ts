@@ -110,7 +110,7 @@ export async function makeModel(options: TestModelOptions = {}): Promise<{ doc: 
 
 /** Temporary directory helper. */
 export function tempDir(): { dir: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'diorama-assets-'));
+  const dir = mkdtempSync(join(tmpdir(), 'maprama-assets-'));
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 

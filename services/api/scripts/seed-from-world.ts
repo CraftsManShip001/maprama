@@ -7,7 +7,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { validateWorldData, type WorldData } from '@diorama/protocol';
+import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { inlineSql, placeUpsert, stationUpsert } from '../src/adapters/d1/statements.js';
 import { seedFromWorld } from '../src/seed/world.js';
 

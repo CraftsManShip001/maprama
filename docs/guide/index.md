@@ -1,11 +1,11 @@
 # 소개와 결정
 
-**Diorama**(가칭)는 실제 동네 지도를 2.5D 게임 맵으로 바꾸는 React Native 라이브러리입니다. 건물은 테마에 맞춰 돌출되고, 캐릭터가 도로를 따라 걷고, 앱이 뿌린 아이템을 가까이 가서 줍고, 구역에 들어가면 이벤트가 옵니다.
+**Maprama**는 실제 동네 지도를 2.5D 게임 맵으로 바꾸는 React Native 라이브러리입니다. 건물은 테마에 맞춰 돌출되고, 캐릭터가 도로를 따라 걷고, 앱이 뿌린 아이템을 가까이 가서 줍고, 구역에 들어가면 이벤트가 옵니다.
 
 ::: tip 한눈에
-- 앱 코드: `@diorama/react-native`의 컴포넌트, `ref` API, 훅
-- 계약: `@diorama/protocol` (타입, 메시지 코덱, 좌표 투영, 테마 프리셋)
-- 렌더링: 교체 가능한 엔진. v1은 `@diorama/engine-web`, v2는 네이티브 C++ 엔진
+- 앱 코드: `@maprama/react-native`의 컴포넌트, `ref` API, 훅
+- 계약: `@maprama/protocol` (타입, 메시지 코덱, 좌표 투영, 테마 프리셋)
+- 렌더링: 교체 가능한 엔진. v1은 `@maprama/engine-web`, v2는 네이티브 C++ 엔진
 - 데이터와 검증: 오픈소스 CLI로 직접 만들거나, 유료 호스팅 서비스를 씁니다
 :::
 
@@ -13,13 +13,13 @@
 
 | 패키지 | 역할 | 라이선스 |
 | --- | --- | --- |
-| `@diorama/react-native` | `DioramaMap`과 자식 컴포넌트, ref API, 훅, Expo config plugin | Apache-2.0 |
-| `@diorama/protocol` | 호스트와 엔진이 공유하는 계약: 타입, `encodeCommand`/`decodeEvent`, `createProjection`, 테마 프리셋 | Apache-2.0 |
-| `@diorama/engine-web` | three.js 엔진 (v1). WebView 안이나 브라우저에서 실행 | Apache-2.0 |
-| `@diorama/engine-native` | MapLibre Native 포크 + C++ 코어 (v2). 현재 설계와 코어 골격 단계 | Apache-2.0 |
-| `@diorama/osm` (`diorama-osm`) | OSM과 국내 건물 높이로 `WorldData` JSON 생성 | Apache-2.0 (생성 데이터는 ODbL) |
-| `@diorama/assets` (`diorama`) | glTF/GLB 검사·최적화 CLI | Apache-2.0 |
-| 호스팅 서비스 (`@diorama/api`) | 월드·타일, 장소 검색, 대중교통, 드롭 검증, API 키, 웹훅 | 상용 |
+| `@maprama/react-native` | `MapramaView`과 자식 컴포넌트, ref API, 훅, Expo config plugin | Apache-2.0 |
+| `@maprama/protocol` | 호스트와 엔진이 공유하는 계약: 타입, `encodeCommand`/`decodeEvent`, `createProjection`, 테마 프리셋 | Apache-2.0 |
+| `@maprama/engine-web` | three.js 엔진 (v1). WebView 안이나 브라우저에서 실행 | Apache-2.0 |
+| `@maprama/engine-native` | MapLibre Native 포크 + C++ 코어 (v2). 현재 설계와 코어 골격 단계 | Apache-2.0 |
+| `@maprama/osm` (`maprama-osm`) | OSM과 국내 건물 높이로 `WorldData` JSON 생성 | Apache-2.0 (생성 데이터는 ODbL) |
+| `@maprama/assets` (`maprama`) | glTF/GLB 검사·최적화 CLI | Apache-2.0 |
+| 호스팅 서비스 (`@maprama/api`) | 월드·타일, 장소 검색, 대중교통, 드롭 검증, API 키, 웹훅 | 상용 |
 
 ## 확정한 결정과 그 이유
 
@@ -36,7 +36,7 @@ Expo 앱은 development build나 prebuild로 씁니다. plugin이 위치 권한 
 
 ### 엔진은 바꿔 끼운다
 
-렌더러를 처음부터 네이티브로 만들면 출시가 늦어집니다. 그래서 **v1은 WebView 안의 three.js 엔진**으로 전체 기능을 먼저 제공하고, **v2는 MapLibre Native를 포크한 C++ 엔진**으로 성능과 배터리를 해결합니다. 두 엔진은 같은 `@diorama/protocol` 메시지(명령 20종, 이벤트 16종)를 구현하므로, 앱은 `engine` prop만 바꾸면 됩니다. [엔진 구조와 로드맵](./architecture)을 보세요.
+렌더러를 처음부터 네이티브로 만들면 출시가 늦어집니다. 그래서 **v1은 WebView 안의 three.js 엔진**으로 전체 기능을 먼저 제공하고, **v2는 MapLibre Native를 포크한 C++ 엔진**으로 성능과 배터리를 해결합니다. 두 엔진은 같은 `@maprama/protocol` 메시지(명령 20종, 이벤트 16종)를 구현하므로, 앱은 `engine` prop만 바꾸면 됩니다. [엔진 구조와 로드맵](./architecture)을 보세요.
 
 ### 데이터: OSM + 국내 공공데이터, Google 없음
 
@@ -48,7 +48,7 @@ Google 지도 데이터는 약관상 다른 지도 위에 재가공할 수 없�
 
 ### 오픈 코어
 
-SDK(컴포넌트, 프로토콜, 엔진, CLI)는 **Apache-2.0**으로 공개합니다. 누구나 `diorama-osm`으로 월드를 만들어 자기 CDN에 올릴 수 있습니다. 직접 운영하기 번거로운 부분은 **호스팅 서비스**가 API 키로 제공합니다.
+SDK(컴포넌트, 프로토콜, 엔진, CLI)는 **Apache-2.0**으로 공개합니다. 누구나 `maprama-osm`으로 월드를 만들어 자기 CDN에 올릴 수 있습니다. 직접 운영하기 번거로운 부분은 **호스팅 서비스**가 API 키로 제공합니다.
 
 - 월드 JSON과 PMTiles 벡터 타일, 장소 검색과 역지오코딩, 대중교통
 - 동적 드롭 캠페인과 서버 검증 수집, 서명된 영수증, 웹훅

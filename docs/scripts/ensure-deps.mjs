@@ -1,6 +1,6 @@
 // Prepares everything `docs:build` / `docs:dev` need, without touching other packages' dependencies:
 //   1. docs/node_modules (installed from docs/package-lock.json with `npm ci`; docs is not a root workspace);
-//   2. built @diorama/protocol and @diorama/engine-web (the playground imports their dist/), built only when missing.
+//   2. built @maprama/protocol and @maprama/engine-web (the playground imports their dist/), built only when missing.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,8 +20,8 @@ if (!existsSync(join(docs, 'node_modules', 'vitepress', 'package.json'))) {
   run(['ci', '--no-audit', '--no-fund'], docs);
 }
 if (!existsSync(join(repo, 'packages', 'protocol', 'dist', 'index.js'))) {
-  run(['run', 'build', '-w', '@diorama/protocol'], repo);
+  run(['run', 'build', '-w', '@maprama/protocol'], repo);
 }
 if (!existsSync(join(repo, 'packages', 'engine-web', 'dist', 'index.js'))) {
-  run(['run', 'build', '-w', '@diorama/engine-web'], repo);
+  run(['run', 'build', '-w', '@maprama/engine-web'], repo);
 }

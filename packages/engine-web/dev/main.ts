@@ -20,7 +20,7 @@
  * `model=<url>` (glTF / GLB model for the player; ready waits until it is
  * attached, e.g. `/fixtures/box-character.glb`).
  *
- * Sets `window.__DIORAMA_READY__ = true` once the world is loaded and rendered
+ * Sets `window.__MAPRAMA_READY__ = true` once the world is loaded and rendered
  * (used by `scripts/screenshot.mjs`); engine `error` events are logged with
  * `console.error`.
  */
@@ -46,13 +46,13 @@ import type {
   WorldData,
   WorldSource,
   ZoomOutBehavior,
-} from '@diorama/protocol';
-import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, LOCATION_SOURCE_KINDS, PRESET_NAMES, TIMES_OF_DAY, ZOOM_OUT_BEHAVIORS } from '@diorama/protocol';
+} from '@maprama/protocol';
+import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, LOCATION_SOURCE_KINDS, PRESET_NAMES, TIMES_OF_DAY, ZOOM_OUT_BEHAVIORS } from '@maprama/protocol';
 import { createDirectTransport, createEngine } from '../src/index.js';
 
 declare global {
   interface Window {
-    __DIORAMA_READY__?: boolean;
+    __MAPRAMA_READY__?: boolean;
     __engine?: ReturnType<typeof createEngine>;
   }
 }
@@ -271,7 +271,7 @@ async function demoTravel(choice: TravelChoice): Promise<void> {
 }
 
 async function init(world?: WorldSource): Promise<void> {
-  window.__DIORAMA_READY__ = false;
+  window.__MAPRAMA_READY__ = false;
   hasPlayer = false;
   const source: WorldSource = world ?? (state.layout === 'sample' ? { kind: 'url', url: params.get('world') || './sample-world.json' } : { kind: 'procedural', layout: state.layout });
   await engine.dispatch({ type: 'init', world: source, theme: theme(), labels: labelsSpec(), ui: uiSpec(), locationSource: state.loc });
@@ -302,7 +302,7 @@ async function init(world?: WorldSource): Promise<void> {
   if (travel) await demoTravel(travel);
   const settle = num('settle') ?? 0;
   if (settle > 0) await new Promise((r) => setTimeout(r, settle));
-  window.__DIORAMA_READY__ = true;
+  window.__MAPRAMA_READY__ = true;
 }
 
 function updateHash(): void {

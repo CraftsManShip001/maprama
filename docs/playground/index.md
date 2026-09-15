@@ -2,16 +2,16 @@
 title: 플레이그라운드
 aside: false
 outline: false
-pageClass: dio-wide
+pageClass: mpr-wide
 prev: false
 next: false
 ---
 
 # 플레이그라운드
 
-실제 `@diorama/engine-web`가 이 페이지 안에서 돌아갑니다. WebView 대신 `createDirectTransport()`로 같은 프로토콜 명령을 보내요. 옵션을 바꾸면 아래 코드 패널이 같은 설정의 `@diorama/react-native` JSX로 바뀌고, 테마는 JSON으로 복사할 수 있습니다.
+실제 `@maprama/engine-web`가 이 페이지 안에서 돌아갑니다. WebView 대신 `createDirectTransport()`로 같은 프로토콜 명령을 보내요. 옵션을 바꾸면 아래 코드 패널이 같은 설정의 `@maprama/react-native` JSX로 바뀌고, 테마는 JSON으로 복사할 수 있습니다.
 
-<DioramaPlayground />
+<MapramaPlayground />
 
 ## 여기서 일어나는 일
 

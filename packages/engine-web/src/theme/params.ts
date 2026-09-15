@@ -15,7 +15,7 @@ import {
   type ThemeSpec,
   type TimeOfDayPreset,
   type ZoomOutBehavior,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 
 /**
  * three r186 uses physically based light units (the legacy mode of r128 is

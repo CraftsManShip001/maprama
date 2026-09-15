@@ -1,13 +1,13 @@
 import { beforeEach } from '@jest/globals';
 import { act } from '@testing-library/react-native';
-import { decodeCommand, encodeEvent, type EngineCommand, type EngineEvent } from '@diorama/protocol';
+import { decodeCommand, encodeEvent, type EngineCommand, type EngineEvent } from '@maprama/protocol';
 import { setFrameSchedulerForTesting } from '../batching';
 import { webViewInstances, type FakeWebViewInstance } from '../../jest/react-native-webview';
 
 export { webViewInstances };
 
 /** A `ready` event from the web engine. */
-export const READY: EngineEvent = { type: 'ready', engine: { name: 'diorama-web', version: '0.0.0-test', kind: 'web' } };
+export const READY: EngineEvent = { type: 'ready', engine: { name: 'maprama-web', version: '0.0.0-test', kind: 'web' } };
 
 /** The most recently mounted fake WebView. */
 export function latestWebView(): FakeWebViewInstance {

@@ -19,7 +19,7 @@ import {
   type Projection,
   type TravelMode,
   type WorldPoint,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import {
   AnimationMixer,
   Box3,
@@ -554,7 +554,7 @@ export class CharacterManager {
         const doc = layer.ownerDocument;
         ensureLabelStyles(doc);
         ch.tag = doc.createElement('div');
-        ch.tag.className = 'dio-tag' + (ch.spec.isPlayer ? ' me' : '');
+        ch.tag.className = 'mpr-tag' + (ch.spec.isPlayer ? ' me' : '');
         if (ch.spec.isPlayer && ch.spec.color) ch.tag.style.setProperty('--tag', ch.spec.color);
         ch.tag.textContent = ch.spec.name ?? ch.id;
         layer.appendChild(ch.tag);

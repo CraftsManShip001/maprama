@@ -12,7 +12,7 @@ module.exports = {
   transformIgnorePatterns: ['node_modules/(?!((jest-)?react-native|@react-native(-community)?|react-native-webview)/)'],
   moduleNameMapper: {
     // Keep the 757 KiB engine bundle out of unit tests.
-    '^@diorama/engine-web/engine-html$': '<rootDir>/jest/engine-html.js',
+    '^@maprama/engine-web/engine-html$': '<rootDir>/jest/engine-html.js',
     // Fake WebView that records postMessage calls and lets tests emit engine events.
     '^react-native-webview$': '<rootDir>/jest/react-native-webview.tsx',
   },

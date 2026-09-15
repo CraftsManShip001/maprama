@@ -25,7 +25,7 @@ import {
   type Material,
   type Object3D,
 } from 'three';
-import type { TravelMode } from '@diorama/protocol';
+import type { TravelMode } from '@maprama/protocol';
 import type { MaterialFactory } from '../theme/materials.js';
 import { clamp } from '../util/math.js';
 

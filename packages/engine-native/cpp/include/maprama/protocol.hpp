@@ -1,6 +1,6 @@
-// Diorama native core — message protocol codec (port of messages.ts).
+// Maprama native core — message protocol codec (port of messages.ts).
 //
-// `decodeCommand` reproduces `@diorama/protocol`'s `decodeCommand` exactly:
+// `decodeCommand` reproduces `@maprama/protocol`'s `decodeCommand` exactly:
 // same acceptance and the same error strings, except that the text after
 // "$: invalid JSON: " (V8's JSON.parse message) is implementation-specific.
 // Verified by cpp/tests/fixtures/decode-command.json (exported from the TS
@@ -12,9 +12,9 @@
 #include <string>
 #include <string_view>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
-namespace diorama::protocol {
+namespace maprama::protocol {
 
 /// `PROTOCOL_VERSION`.
 inline constexpr int kProtocolVersion = 1;
@@ -84,4 +84,4 @@ ValidationResult validateThemePreset(const json::Value& value);
 std::string encodeCommand(const json::Value& command, std::uint64_t seq);
 std::string encodeEvent(const json::Value& event, std::uint64_t seq);
 
-}  // namespace diorama::protocol
+}  // namespace maprama::protocol

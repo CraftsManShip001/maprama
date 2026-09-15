@@ -2,7 +2,7 @@
  * In-memory implementations of every service dependency, for tests and
  * `npm run dev:local`. Not durable; not for production.
  */
-import { haversineMeters, type LngLat } from '@diorama/protocol';
+import { haversineMeters, type LngLat } from '@maprama/protocol';
 import type {
   ApiKeyRecord,
   BlobMeta,

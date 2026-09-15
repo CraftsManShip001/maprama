@@ -13,10 +13,10 @@
 #include <utility>
 #include <vector>
 
-#include "diorama/json.hpp"
-#include "diorama/types.hpp"
+#include "maprama/json.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama::validate {
+namespace maprama::validate {
 
 using json::Value;
 using Error = std::optional<std::string>;
@@ -70,4 +70,4 @@ struct RunResult {
 
 RunResult run(const Check& check, const Value* value, const std::string& path = "$");
 
-}  // namespace diorama::validate
+}  // namespace maprama::validate

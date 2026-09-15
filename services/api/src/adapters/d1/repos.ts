@@ -1,5 +1,5 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types/index';
-import { haversineMeters, type LngLat } from '@diorama/protocol';
+import { haversineMeters, type LngLat } from '@maprama/protocol';
 import type {
   ApiKeyRecord,
   Campaign,

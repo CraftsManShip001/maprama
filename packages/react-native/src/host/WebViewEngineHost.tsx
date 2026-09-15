@@ -1,7 +1,7 @@
 /**
- * v1 engine host: runs `@diorama/engine-web` inside `react-native-webview`.
+ * v1 engine host: runs `@maprama/engine-web` inside `react-native-webview`.
  *
- * Wire format (see `@diorama/engine-web` `createWebViewTransport`): commands are
+ * Wire format (see `@maprama/engine-web` `createWebViewTransport`): commands are
  * delivered with `WebView.postMessage(encodeCommand(...))`, which the page
  * receives as a `message` event; the engine answers with
  * `window.ReactNativeWebView.postMessage(encodeEvent(...))`, which arrives in
@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Platform, StyleSheet } from 'react-native';
 import WebView from 'react-native-webview';
-import { ENGINE_HTML } from '@diorama/engine-web/engine-html';
+import { ENGINE_HTML } from '@maprama/engine-web/engine-html';
 import { createMessageChannelHost, type EngineHostComponentProps, type MessageChannelHost } from './EngineHost';
 
 /** Imperative WebView methods used by the host. */

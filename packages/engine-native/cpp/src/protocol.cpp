@@ -1,4 +1,4 @@
-#include "diorama/protocol.hpp"
+#include "maprama/protocol.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -6,7 +6,7 @@
 #include "schemas.hpp"
 #include "validate.hpp"
 
-namespace diorama::protocol {
+namespace maprama::protocol {
 
 namespace {
 
@@ -123,4 +123,4 @@ std::string encodeEvent(const json::Value& event, std::uint64_t seq) {
   return encode("encodeEvent", "evt", event, seq);
 }
 
-}  // namespace diorama::protocol
+}  // namespace maprama::protocol

@@ -13,7 +13,7 @@ import {
   type RouteLeg,
   type RouteResult,
   type TravelMode,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import type { RequestHandler } from '../bridge/dispatcher.js';
 import { EngineError } from '../bridge/dispatcher.js';
 import { polylineLength, route, snap } from '../world/graph.js';

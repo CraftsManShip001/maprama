@@ -5,7 +5,7 @@
  * @module
  */
 
-import { validateWorldData, type BuildingFootprint, type WorldData, type WorldSource } from '@diorama/protocol';
+import { validateWorldData, type BuildingFootprint, type WorldData, type WorldSource } from '@maprama/protocol';
 import { mulberry32 } from '../util/math.js';
 import { buildGraph, type GraphRoad } from './graph.js';
 import { buildGridWorld } from './grid.js';

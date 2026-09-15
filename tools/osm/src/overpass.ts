@@ -19,7 +19,7 @@ export const DEFAULT_OVERPASS_ENDPOINTS = [
 ];
 
 /** Overpass servers reject requests without a User-Agent (HTTP 406). */
-export const DEFAULT_USER_AGENT = 'diorama-osm/0.0.0 (Diorama world builder; Node.js)';
+export const DEFAULT_USER_AGENT = 'maprama-osm/0.0.0 (Maprama world builder; Node.js)';
 
 /** Parses `"south,west,north,east"`. */
 export function parseBBox(text: string): BBox {
@@ -66,9 +66,9 @@ export function buildOverpassQuery(bbox: BBox, timeoutSec = 180): string {
 
 /** Options for {@link fetchOverpass}. */
 export interface FetchOverpassOptions {
-  /** Endpoints to try in order. Default: `$DIORAMA_OVERPASS_ENDPOINT` (comma-separated) or {@link DEFAULT_OVERPASS_ENDPOINTS}. */
+  /** Endpoints to try in order. Default: `$MAPRAMA_OVERPASS_ENDPOINT` (comma-separated) or {@link DEFAULT_OVERPASS_ENDPOINTS}. */
   endpoints?: string[];
-  /** User-Agent header. Default: `$DIORAMA_OSM_USER_AGENT` or {@link DEFAULT_USER_AGENT}. */
+  /** User-Agent header. Default: `$MAPRAMA_OSM_USER_AGENT` or {@link DEFAULT_USER_AGENT}. */
   userAgent?: string;
   /** Per-request timeout in ms. Default 90 000. */
   timeoutMs?: number;
@@ -101,7 +101,7 @@ export function cacheFileFor(cacheDir: string, query: string): string {
 }
 
 function envEndpoints(): string[] | undefined {
-  const v = process.env.DIORAMA_OVERPASS_ENDPOINT;
+  const v = process.env.MAPRAMA_OVERPASS_ENDPOINT;
   const list = v
     ?.split(',')
     .map((s) => s.trim())
@@ -113,7 +113,7 @@ function envEndpoints(): string[] | undefined {
  * Fetches OSM data for `bbox` from Overpass. Tries each endpoint in order
  * (POST, form field `data`), retrying transient failures with exponential
  * backoff. Successful responses are cached (keyed by query hash) and annotated
- * with `diorama: { bbox, endpoint, fetchedAt, query }`.
+ * with `maprama: { bbox, endpoint, fetchedAt, query }`.
  */
 export async function fetchOverpass(bbox: BBox, options: FetchOverpassOptions = {}): Promise<OverpassResponse> {
   const query = buildOverpassQuery(bbox);
@@ -132,7 +132,7 @@ export async function fetchOverpass(bbox: BBox, options: FetchOverpassOptions = 
   }
 
   const endpoints = options.endpoints?.length ? options.endpoints : (envEndpoints() ?? DEFAULT_OVERPASS_ENDPOINTS);
-  const userAgent = options.userAgent ?? process.env.DIORAMA_OSM_USER_AGENT ?? DEFAULT_USER_AGENT;
+  const userAgent = options.userAgent ?? process.env.MAPRAMA_OSM_USER_AGENT ?? DEFAULT_USER_AGENT;
   const timeoutMs = options.timeoutMs ?? 90_000;
   const passes = Math.max(1, options.passes ?? 2);
   const backoffMs = options.backoffMs ?? 2000;
@@ -176,7 +176,7 @@ export async function fetchOverpass(bbox: BBox, options: FetchOverpassOptions = 
         if (json.remark && /error|timed out|timeout|out of memory/i.test(json.remark)) {
           throw new HttpError(`incomplete result: ${json.remark}`, true);
         }
-        json.diorama = { bbox, endpoint, fetchedAt: new Date().toISOString(), query };
+        json.maprama = { bbox, endpoint, fetchedAt: new Date().toISOString(), query };
         if (cacheFile && options.cacheDir) {
           await mkdir(options.cacheDir, { recursive: true });
           await writeFile(cacheFile, JSON.stringify(json));

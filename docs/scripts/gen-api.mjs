@@ -1,5 +1,5 @@
-// Generates the TSDoc API reference (markdown) for @diorama/protocol and
-// @diorama/react-native into docs/api/reference with typedoc + typedoc-plugin-markdown.
+// Generates the TSDoc API reference (markdown) for @maprama/protocol and
+// @maprama/react-native into docs/api/reference with typedoc + typedoc-plugin-markdown.
 // Sources are read directly from packages/*/src (read-only); nothing outside docs/ is written.
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';

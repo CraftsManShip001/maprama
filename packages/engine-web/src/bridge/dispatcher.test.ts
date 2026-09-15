@@ -1,4 +1,4 @@
-import { encodeCommand, type EngineEvent, type WorldData } from '@diorama/protocol';
+import { encodeCommand, type EngineEvent, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { CameraController } from '../core/camera.js';
 import { createRequestHandlers, projectionFor } from '../engine/requests.js';

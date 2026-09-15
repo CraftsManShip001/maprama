@@ -22,8 +22,8 @@
 
 | 대상 | 권장 |
 | --- | --- |
-| 월드 JSON | `diorama-osm`은 3 MB를 넘으면 경고합니다. 넓은 지역은 나누세요 |
-| 캐릭터 모델 | `diorama optimize` 기본 예산: 삼각형 20,000개, 텍스처 1024 px |
+| 월드 JSON | `maprama-osm`은 3 MB를 넘으면 경고합니다. 넓은 지역은 나누세요 |
+| 캐릭터 모델 | `maprama optimize` 기본 예산: 삼각형 20,000개, 텍스처 1024 px |
 | 압축 | Meshopt 디코더는 엔진에 들어 있습니다. Draco 압축 모델은 디코더를 `www.gstatic.com`에서 받으므로 네트워크가 필요합니다 |
 
 `world`의 `url` 응답은 호스팅 서비스가 `ETag`와 `Cache-Control: private, max-age=86400, stale-while-revalidate=604800`으로 보내므로 재방문 때 304로 끝납니다.

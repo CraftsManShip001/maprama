@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { createRef, useCallback, useEffect, type Ref } from 'react';
 import { Image, Linking, StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { encodeEvent, type EngineEvent, type LabelInfo, type WorldSource } from '@diorama/protocol';
+import { encodeEvent, type EngineEvent, type LabelInfo, type WorldSource } from '@maprama/protocol';
 import {
   Character,
   CharacterLayer,
-  DioramaMap,
+  MapramaView,
   Geofence,
   MapOverlay,
   createMessageChannelHost,
   registerEngineHost,
-  type DioramaMapProps,
-  type DioramaMapRef,
+  type MapramaViewProps,
+  type MapramaViewRef,
   type EngineHostComponentProps,
 } from '../index';
-import { ENGINE_HTML } from '@diorama/engine-web/engine-html';
+import { ENGINE_HTML } from '@maprama/engine-web/engine-html';
 import {
   READY,
   clearPosted,
@@ -34,8 +34,8 @@ import {
 const WORLD: WorldSource = { kind: 'procedural', layout: 'town' };
 const PLAZA = { lng: 127.056, lat: 37.544 };
 
-function Map(props: Partial<DioramaMapProps> & { ref?: Ref<DioramaMapRef> }) {
-  return <DioramaMap world={WORLD} {...props} />;
+function Map(props: Partial<MapramaViewProps> & { ref?: Ref<MapramaViewRef> }) {
+  return <MapramaView world={WORLD} {...props} />;
 }
 
 beforeEach(() => {
@@ -85,7 +85,7 @@ describe('engine host', () => {
   });
 
   it('queues commands until ready, then sends init followed by the queue in order', async () => {
-    const ref = createRef<DioramaMapRef>();
+    const ref = createRef<MapramaViewRef>();
     await render(
       <Map ref={ref} theme={{ base: 'urban', timeOfDay: 'golden' }} camera={{ pitch: 45, distance: 60, follow: 'me' }}>
         <Character id="me" isPlayer follow="location" />
@@ -118,7 +118,7 @@ describe('engine host', () => {
     const onReady = jest.fn();
     await render(<Map onReady={onReady} />);
     await emit(READY);
-    expect(onReady).toHaveBeenCalledWith({ engine: { name: 'diorama-web', version: '0.0.0-test', kind: 'web' } });
+    expect(onReady).toHaveBeenCalledWith({ engine: { name: 'maprama-web', version: '0.0.0-test', kind: 'web' } });
   });
 
   it('folds prop changes made before ready into init', async () => {
@@ -174,7 +174,7 @@ describe('engine host', () => {
 });
 
 describe('prop diffs', () => {
-  async function readyMap(initial: Partial<DioramaMapProps>) {
+  async function readyMap(initial: Partial<MapramaViewProps>) {
     const utils = await render(<Map {...initial} />);
     await emit(READY);
     await nextFrame();
@@ -183,7 +183,7 @@ describe('prop diffs', () => {
   }
 
   it('sends only the commands for props that changed', async () => {
-    const initial: Partial<DioramaMapProps> = {
+    const initial: Partial<MapramaViewProps> = {
       theme: { base: 'urban' },
       labels: { enabled: true, style: 'holo' },
       ui: { scaleBar: true },
@@ -455,7 +455,7 @@ describe('labels', () => {
   it('does not re-evaluate an inline content function on re-renders; label field changes and refreshLabelContent do', async () => {
     const evaluated: string[] = [];
     let suffix = 'a';
-    const ref = createRef<DioramaMapRef>();
+    const ref = createRef<MapramaViewRef>();
     function App({ tick, enabled = true }: { tick: number; enabled?: boolean }) {
       return (
         <Map

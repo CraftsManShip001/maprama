@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Text } from 'react-native';
-import type { WorldSource } from '@diorama/protocol';
+import type { WorldSource } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Chips, EventLog, Readout, ScreenLayout, Section, styles, useEventLog } from '../src/components/ui';
 import { WORLD_URL } from '../src/config';
@@ -44,7 +44,7 @@ export default function WorldScreen() {
           />
         ) : (
           <Text testID="world-url-missing" style={[styles.readout, { padding: 16 }]}>
-            No world URL configured. Start the local API (see example/README.md) and set EXPO_PUBLIC_DIORAMA_API_KEY, or set EXPO_PUBLIC_DIORAMA_WORLD_URL. Skipped.
+            No world URL configured. Start the local API (see example/README.md) and set EXPO_PUBLIC_MAPRAMA_API_KEY, or set EXPO_PUBLIC_MAPRAMA_WORLD_URL. Skipped.
           </Text>
         )
       }

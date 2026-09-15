@@ -1,5 +1,5 @@
 /**
- * `diorama` command line interface (`inspect`, `optimize`).
+ * `maprama` command line interface (`inspect`, `optimize`).
  *
  * @module
  */
@@ -20,11 +20,11 @@ const defaultIO: CliIO = {
   stderr: (t) => process.stderr.write(`${t}\n`),
 };
 
-export const USAGE = `diorama: glTF/GLB tools for Diorama
+export const USAGE = `maprama: glTF/GLB tools for Maprama
 
 Usage:
-  diorama inspect <model.glb>
-  diorama optimize <in.glb> -o <out.glb> [--max-triangles 20000] [--max-texture 1024]
+  maprama inspect <model.glb>
+  maprama optimize <in.glb> -o <out.glb> [--max-triangles 20000] [--max-texture 1024]
                    [--draco | --meshopt] [--center-feet] [--face +z|-z|+x|-x]
                    [--scale-to-height 1.8] [--verbose]
 
@@ -113,7 +113,7 @@ export async function main(argv: string[], io: CliIO = defaultIO): Promise<numbe
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    io.stderr(`diorama: ${message}`);
+    io.stderr(`maprama: ${message}`);
     if (e instanceof UsageError || (e instanceof TypeError && /option|argument/i.test(message))) {
       io.stderr(USAGE);
       return 2;

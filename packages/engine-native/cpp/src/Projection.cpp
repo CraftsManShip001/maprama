@@ -1,12 +1,12 @@
-#include "diorama/Projection.hpp"
+#include "maprama/Projection.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <string>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
-namespace diorama {
+namespace maprama {
 
 namespace {
 
@@ -60,4 +60,4 @@ double haversineMeters(const LngLat& a, const LngLat& b) {
   return 2 * kEarthRadiusMeters * std::asin(std::min(1.0, std::sqrt(s)));
 }
 
-}  // namespace diorama
+}  // namespace maprama

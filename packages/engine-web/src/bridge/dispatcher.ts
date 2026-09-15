@@ -24,7 +24,7 @@ import {
   type RequestParamsMap,
   type RequestResultMap,
   type ResponseEvent,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 
 export type CommandOf<T extends EngineCommandType> = Extract<EngineCommand, { type: T }>;
 export type CommandHandler<T extends EngineCommandType> = (command: CommandOf<T>) => void | Promise<void>;

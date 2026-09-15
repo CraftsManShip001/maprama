@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: Diorama API
+  title: Maprama API
   version: 0.1.0
-  summary: Hosted map data, search, transit and verified drops for Diorama apps.
+  summary: Hosted map data, search, transit and verified drops for Maprama apps.
   description: |
-    The paid hosted service next to the open-source Diorama SDK.
+    The paid hosted service next to the open-source Maprama SDK.
 
     ## Authentication
     Every endpoint except `/v1/health` needs an API key:
@@ -21,7 +21,7 @@ info:
     `drops` 2, `collect` 10. A request is billable when its status is < 400,
     or 422 for collect verification. Free keys receive `429 QUOTA_EXCEEDED`
     once the monthly quota would be exceeded; pro keys continue and the excess
-    is recorded as overage. Metered responses carry `X-Diorama-Usage`,
+    is recorded as overage. Metered responses carry `X-Maprama-Usage`,
     `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
 
     ## Errors
@@ -91,18 +91,18 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: WorldData (schema version 1, see `@diorama/protocol`).
+          description: WorldData (schema version 1, see `@maprama/protocol`).
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
             Cache-Control: { $ref: '#/components/headers/CacheControl' }
-            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+            X-Maprama-Usage: { $ref: '#/components/headers/XMapramaUsage' }
             X-RateLimit-Limit: { $ref: '#/components/headers/XRateLimitLimit' }
             X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
           content:
             application/json:
               schema:
                 type: object
-                description: WorldData as defined by `@diorama/protocol`.
+                description: WorldData as defined by `@maprama/protocol`.
                 additionalProperties: true
         '304':
           description: Not modified.
@@ -130,7 +130,7 @@ paths:
         '200':
           description: TileJSON 3.0.0.
           headers:
-            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+            X-Maprama-Usage: { $ref: '#/components/headers/XMapramaUsage' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TileJson' }
@@ -169,7 +169,7 @@ paths:
               description: '`gzip` when negotiated.'
               schema: { type: string, enum: [gzip] }
             Cache-Control: { $ref: '#/components/headers/CacheControl' }
-            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+            X-Maprama-Usage: { $ref: '#/components/headers/XMapramaUsage' }
           content:
             application/vnd.mapbox-vector-tile:
               schema: { type: string, format: binary }
@@ -202,7 +202,7 @@ paths:
         '200':
           description: Ranked results.
           headers:
-            X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+            X-Maprama-Usage: { $ref: '#/components/headers/XMapramaUsage' }
           content:
             application/json:
               schema:
@@ -541,15 +541,15 @@ webhooks:
       operationId: onDropCollected
       summary: A drop collection was verified
       description: |
-        Sent to the app's endpoint with `Diorama-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`,
-        `Diorama-Event` and `Diorama-Delivery` headers. Verify with
-        `verifyWebhookSignature` from `@diorama/api/verify`. Respond 2xx; non-2xx
+        Sent to the app's endpoint with `Maprama-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`,
+        `Maprama-Event` and `Maprama-Delivery` headers. Verify with
+        `verifyWebhookSignature` from `@maprama/api/verify`. Respond 2xx; non-2xx
         or network errors are retried up to 3 attempts in total.
       security: []
       parameters:
-        - { name: Diorama-Signature, in: header, required: true, schema: { type: string } }
-        - { name: Diorama-Event, in: header, required: true, schema: { type: string, enum: [drop.collected, webhook.test] } }
-        - { name: Diorama-Delivery, in: header, required: true, schema: { type: string } }
+        - { name: Maprama-Signature, in: header, required: true, schema: { type: string } }
+        - { name: Maprama-Event, in: header, required: true, schema: { type: string, enum: [drop.collected, webhook.test] } }
+        - { name: Maprama-Delivery, in: header, required: true, schema: { type: string } }
       requestBody:
         required: true
         content:
@@ -564,7 +564,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: '`Authorization: Bearer dio_...`'
+      description: '`Authorization: Bearer mpr_...`'
     queryKey:
       type: apiKey
       in: query
@@ -590,7 +590,7 @@ components:
     CacheControl:
       description: '`private, max-age=86400, stale-while-revalidate=604800`'
       schema: { type: string }
-    XDioramaUsage:
+    XMapramaUsage:
       description: '`<used units>/<monthly quota>` after this request.'
       schema: { type: string }
     XRateLimitLimit:
@@ -629,7 +629,7 @@ components:
     QuotaExceeded:
       description: '`QUOTA_EXCEEDED` (free plan only).'
       headers:
-        X-Diorama-Usage: { $ref: '#/components/headers/XDioramaUsage' }
+        X-Maprama-Usage: { $ref: '#/components/headers/XMapramaUsage' }
         X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
       content:
         application/json:
@@ -682,7 +682,7 @@ components:
       items: { type: number }
     DropSpec:
       type: object
-      description: '`DropSpec` from `@diorama/protocol`. `id` = `d1.<campaignId>.<window>.<geohash>.<index>`.'
+      description: '`DropSpec` from `@maprama/protocol`. `id` = `d1.<campaignId>.<window>.<geohash>.<index>`.'
       required: [id, type, coordinate]
       properties:
         id: { type: string }

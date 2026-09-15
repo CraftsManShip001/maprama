@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { RoadClass, Vec2 } from '@diorama/protocol';
+import type { RoadClass, Vec2 } from '@maprama/protocol';
 import { clamp } from '../util/math.js';
 
 /** Road width (world units) per class. */

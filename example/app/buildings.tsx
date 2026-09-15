@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Character, Geofence, type DioramaMapRef } from '@diorama/react-native';
-import { ROOF_SHAPES, type BuildingStyle, type LngLat, type LocationSourceKind, type Massing, type RoofShape } from '@diorama/protocol';
+import { Character, Geofence, type MapramaViewRef } from '@maprama/react-native';
+import { ROOF_SHAPES, type BuildingStyle, type LngLat, type LocationSourceKind, type Massing, type RoofShape } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, Toggle, useEventLog } from '../src/components/ui';
 import { SAMPLE_BUILDING, SEONGSU_WORLD, STATION, offsetMeters } from '../src/data/seongsu';
@@ -21,7 +21,7 @@ interface Editor {
 }
 
 export default function BuildingsScreen() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const [source, setSource] = useState<Extract<LocationSourceKind, 'simulated' | 'external'>>('external');
   const [inside, setInside] = useState(false);
   const [log, pushLog] = useEventLog();

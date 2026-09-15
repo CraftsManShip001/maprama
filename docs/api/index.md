@@ -4,18 +4,18 @@
 
 ## 패키지
 
-### [`@diorama/react-native`](/api/reference/react-native/)
+### [`@maprama/react-native`](/api/reference/react-native/)
 
 앱이 쓰는 API입니다.
 
-- 컴포넌트: [`DioramaMap`](/api/reference/react-native/variables/DioramaMap), [`Character`](/api/reference/react-native/functions/Character), [`CharacterLayer`](/api/reference/react-native/functions/CharacterLayer), [`DropLayer`](/api/reference/react-native/functions/DropLayer), [`Geofence`](/api/reference/react-native/functions/Geofence), [`MapOverlay`](/api/reference/react-native/functions/MapOverlay)
-- props: [`DioramaMapProps`](/api/reference/react-native/interfaces/DioramaMapProps), [`CharacterProps`](/api/reference/react-native/interfaces/CharacterProps), [`DropLayerProps`](/api/reference/react-native/type-aliases/DropLayerProps)
-- ref: [`DioramaMapRef`](/api/reference/react-native/interfaces/DioramaMapRef)
-- 훅: [`useDioramaMap`](/api/reference/react-native/functions/useDioramaMap), [`useCharacterPosition`](/api/reference/react-native/functions/useCharacterPosition), [`useCameraState`](/api/reference/react-native/functions/useCameraState)
+- 컴포넌트: [`MapramaView`](/api/reference/react-native/variables/MapramaView), [`Character`](/api/reference/react-native/functions/Character), [`CharacterLayer`](/api/reference/react-native/functions/CharacterLayer), [`DropLayer`](/api/reference/react-native/functions/DropLayer), [`Geofence`](/api/reference/react-native/functions/Geofence), [`MapOverlay`](/api/reference/react-native/functions/MapOverlay)
+- props: [`MapramaViewProps`](/api/reference/react-native/interfaces/MapramaViewProps), [`CharacterProps`](/api/reference/react-native/interfaces/CharacterProps), [`DropLayerProps`](/api/reference/react-native/type-aliases/DropLayerProps)
+- ref: [`MapramaViewRef`](/api/reference/react-native/interfaces/MapramaViewRef)
+- 훅: [`useMapramaView`](/api/reference/react-native/functions/useMapramaView), [`useCharacterPosition`](/api/reference/react-native/functions/useCharacterPosition), [`useCameraState`](/api/reference/react-native/functions/useCameraState)
 - 엔진 호스트: [`EngineHost`](/api/reference/react-native/interfaces/EngineHost), [`registerEngineHost`](/api/reference/react-native/functions/registerEngineHost), [`createMessageChannelHost`](/api/reference/react-native/functions/createMessageChannelHost)
-- 오류: [`DioramaError`](/api/reference/react-native/classes/DioramaError)
+- 오류: [`MapramaError`](/api/reference/react-native/classes/MapramaError)
 
-### [`@diorama/protocol`](/api/reference/protocol/)
+### [`@maprama/protocol`](/api/reference/protocol/)
 
 호스트와 엔진이 공유하는 계약입니다. 앱에서는 주로 타입과 테마 프리셋을 가져다 씁니다.
 
@@ -24,10 +24,10 @@
 - 좌표: [`createProjection`](/api/reference/protocol/functions/createProjection), [`haversineMeters`](/api/reference/protocol/functions/haversineMeters)
 - 메시지: [`EngineCommand`](/api/reference/protocol/type-aliases/EngineCommand), [`EngineEvent`](/api/reference/protocol/type-aliases/EngineEvent), [`encodeCommand`](/api/reference/protocol/functions/encodeCommand), [`decodeEvent`](/api/reference/protocol/functions/decodeEvent)
 
-`@diorama/react-native`가 다시 내보내는 프로토콜 타입(`ThemeSpec`, `LngLat` 등)은 프로토콜 페이지로 연결됩니다.
+`@maprama/react-native`가 다시 내보내는 프로토콜 타입(`ThemeSpec`, `LngLat` 등)은 프로토콜 페이지로 연결됩니다.
 
 ## 그 밖의 레퍼런스
 
 - 호스팅 서비스 HTTP API: [OpenAPI 레퍼런스](/service/api-reference)
-- CLI: [diorama-osm](/tools/osm), [diorama](/tools/assets)
+- CLI: [maprama-osm](/tools/osm), [maprama](/tools/assets)
 - 엔진 메시지 흐름과 호환성 규칙: [엔진 구조와 로드맵](/guide/architecture)

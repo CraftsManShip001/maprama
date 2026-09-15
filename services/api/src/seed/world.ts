@@ -1,4 +1,4 @@
-import { createProjection, type WorldData } from '@diorama/protocol';
+import { createProjection, type WorldData } from '@maprama/protocol';
 import type { Place, TransitStationInput } from '../deps.js';
 
 /** Converts a `WorldData` file into searchable places (POIs + stations) and transit stations. */

@@ -25,10 +25,10 @@
 ## 건물 탭
 
 ```tsx
-<DioramaMap onBuildingPress={(e) => openBuildingSheet(e.buildingId, e.coordinate)} />
+<MapramaView onBuildingPress={(e) => openBuildingSheet(e.buildingId, e.coordinate)} />
 ```
 
-`buildingId`는 WorldData의 건물 id입니다 (`diorama-osm`으로 만든 월드는 `w<wayId>` 형식). 바닥을 탭하면 `onPress`가 옵니다.
+`buildingId`는 WorldData의 건물 id입니다 (`maprama-osm`으로 만든 월드는 `w<wayId>` 형식). 바닥을 탭하면 `onPress`가 옵니다.
 
 ## 건물별 스타일
 
@@ -63,9 +63,9 @@ map.current?.setBuildingStyle(buildingId, null); // 되돌리기
 
 ```tsx
 function Territory({ myTeamColor }: { myTeamColor: string }) {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   return (
-    <DioramaMap
+    <MapramaView
       ref={map}
       world={world}
       onBuildingPress={async ({ buildingId }) => {
@@ -75,7 +75,7 @@ function Territory({ myTeamColor }: { myTeamColor: string }) {
     >
       <Character id="me" isPlayer follow="location" />
       <Geofence id="hq" center={hq} radiusMeters={40} onEnter={() => api.checkIn('hq')} />
-    </DioramaMap>
+    </MapramaView>
   );
 }
 ```

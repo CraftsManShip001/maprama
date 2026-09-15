@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { validateWorldData, type WorldData } from '@diorama/protocol';
+import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { OSM_ATTRIBUTION, KR_ATTRIBUTION, buildWorld, buildWorldWithStats, stringifyWorld } from '../src/build.js';
 import { signedArea } from '../src/geometry.js';
 import type { OverpassResponse } from '../src/types.js';

@@ -1,5 +1,5 @@
 /**
- * Public prop and API types. They wrap `@diorama/protocol` types; protocol
+ * Public prop and API types. They wrap `@maprama/protocol` types; protocol
  * types are re-exported from the package entry and never redefined here.
  *
  * @module
@@ -39,8 +39,8 @@ import type {
   TravelLeg,
   TravelMode,
   WorldSource,
-} from '@diorama/protocol';
-import type { DioramaErrorCode } from './errors';
+} from '@maprama/protocol';
+import type { MapramaErrorCode } from './errors';
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -53,9 +53,9 @@ import type { DioramaErrorCode } from './errors';
 export type ModelInput = number | string | ModelSource;
 
 /** An error reported through `onError`. */
-export interface DioramaErrorEvent {
+export interface MapramaErrorEvent {
   /** Engine code (e.g. `unsupported`, `world_load_failed`) or host code (e.g. `invalid_message`). */
-  code: DioramaErrorCode;
+  code: MapramaErrorCode;
   message: string;
   /**
    * True when the map cannot continue (the engine must be re-initialised). For
@@ -70,7 +70,7 @@ export interface DioramaErrorEvent {
 export type EngineEventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;
 
 // ---------------------------------------------------------------------------
-// DioramaMap
+// MapramaView
 // ---------------------------------------------------------------------------
 
 /**
@@ -88,7 +88,7 @@ export type EngineEventOf<T extends EngineEventType> = Extract<EngineEvent, { ty
 export type LabelContentFunction = (label: LabelInfo) => LabelContent | null | undefined;
 
 /** Label configuration (`labels` prop). */
-export interface DioramaLabelsProps extends Omit<LabelsSpec, 'content'> {
+export interface MapramaLabelsProps extends Omit<LabelsSpec, 'content'> {
   /**
    * A content mode, or a function computing custom content per label (the
    * engine receives `content: 'custom'` plus `setLabelContent` entries).
@@ -105,7 +105,7 @@ export interface DioramaLabelsProps extends Omit<LabelsSpec, 'content'> {
 export type DeviceLocationProvider = 'auto' | 'expo-location' | 'webview';
 
 /** Location configuration (`location` prop). */
-export interface DioramaLocationProps {
+export interface MapramaLocationProps {
   /**
    * `device` (GPS), `external` (push fixes with `ref.pushLocation`) or
    * `simulated` (demo loop). Default `external`.
@@ -116,30 +116,30 @@ export interface DioramaLocationProps {
 }
 
 /** Payload of `onReady`. */
-export interface DioramaReadyEvent {
+export interface MapramaReadyEvent {
   engine: EngineInfo;
 }
 
 /** Payload of `onPress`. */
-export interface DioramaPressEvent {
+export interface MapramaPressEvent {
   /** Ground coordinate that was pressed. */
   coordinate: LngLat;
 }
 
 /** Payload of `onBuildingPress`. */
-export interface DioramaBuildingPressEvent {
+export interface MapramaBuildingPressEvent {
   buildingId: string;
   coordinate: LngLat;
 }
 
-/** Props of `DioramaMap`. */
-export interface DioramaMapProps {
+/** Props of `MapramaView`. */
+export interface MapramaViewProps {
   /** The world to load: `{kind:'url', url}`, `{kind:'data', world}` or `{kind:'procedural', layout}`. Read at init. */
   world: WorldSource;
   /** Visual theme. Changes send `setTheme`. */
   theme?: ThemeSpec;
   /** Label configuration. Changes send `setLabels`; a `content` function sends `setLabelContent`. */
-  labels?: DioramaLabelsProps;
+  labels?: MapramaLabelsProps;
   /** Map UI elements drawn by the engine. Changes send `setUi`. */
   ui?: MapUiSpec;
   /**
@@ -148,7 +148,7 @@ export interface DioramaMapProps {
    */
   camera?: CameraSpec;
   /** Player location source. Default `{ source: 'external' }`. */
-  location?: DioramaLocationProps;
+  location?: MapramaLocationProps;
   /** Engine host kind (see `registerEngineHost`). Default `'web'`. Read at mount. */
   engine?: string;
   /**
@@ -165,17 +165,17 @@ export interface DioramaMapProps {
    */
   travelStartTimeoutMs?: number;
   /** The engine loaded and received `init` (fires again after an engine reload). */
-  onReady?: (event: DioramaReadyEvent) => void;
+  onReady?: (event: MapramaReadyEvent) => void;
   /** The ground was pressed. */
-  onPress?: (event: DioramaPressEvent) => void;
+  onPress?: (event: MapramaPressEvent) => void;
   /** A building was pressed. */
-  onBuildingPress?: (event: DioramaBuildingPressEvent) => void;
+  onBuildingPress?: (event: MapramaBuildingPressEvent) => void;
   /**
    * Engine errors, invalid engine messages and host failures. The map never
    * throws for these. A fatal host failure (`host_load_failed`, or no host for
    * `engine`) also rejects every pending request and travel with that code.
    */
-  onError?: (event: DioramaErrorEvent) => void;
+  onError?: (event: MapramaErrorEvent) => void;
   /** Style of the map container (e.g. `{ flex: 1 }`). */
   style?: StyleProp<ViewStyle>;
   /** Test id of the container view. */
@@ -225,11 +225,11 @@ export interface SubscriptionEventMap {
   'travel:progress': EngineEventOf<'travel:progress'>;
 }
 
-/** Imperative map API, available through `ref` on `DioramaMap` and `useDioramaMap()`. */
-export interface DioramaMapRef {
+/** Imperative map API, available through `ref` on `MapramaView` and `useMapramaView()`. */
+export interface MapramaViewRef {
   /**
    * Moves a character along an ordered mode chain, e.g. `['walk', 'car', 'walk']`.
-   * Resolves on `travel:arrive`; rejects with `DioramaError` code
+   * Resolves on `travel:arrive`; rejects with `MapramaError` code
    * `travel_cancelled`, `timeout`, `engine_reloaded`, `unmounted`, or a fatal
    * host code such as `host_load_failed`.
    *
@@ -298,8 +298,8 @@ export interface CharacterPosition {
   speedMps: number;
 }
 
-/** A `DioramaMapRef`, a React ref holding one, or nothing. Accepted by the hooks. */
-export type DioramaMapRefLike = DioramaMapRef | { readonly current: DioramaMapRef | null } | null | undefined;
+/** A `MapramaViewRef`, a React ref holding one, or nothing. Accepted by the hooks. */
+export type MapramaViewRefLike = MapramaViewRef | { readonly current: MapramaViewRef | null } | null | undefined;
 
 // ---------------------------------------------------------------------------
 // Components

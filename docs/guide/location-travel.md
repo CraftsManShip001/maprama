@@ -62,7 +62,7 @@ console.log(result.legs); // travel:start가 보고한 실제 구간
 ### 프로미스와 타임아웃
 
 - 프로미스는 `travel:arrive`에서 resolve됩니다.
-- `DioramaError`로 reject되는 코드: `travel_cancelled`(취소), `timeout`, `engine_reloaded`(WebView 재생성), `unmounted`, 그리고 치명적인 호스트 오류 코드(`host_load_failed` 등).
+- `MapramaError`로 reject되는 코드: `travel_cancelled`(취소), `timeout`, `engine_reloaded`(WebView 재생성), `unmounted`, 그리고 치명적인 호스트 오류 코드(`host_load_failed` 등).
 - `startTimeoutMs`(기본은 map의 `travelStartTimeoutMs`, 10000 ms)는 `travel:start`까지 기다리는 시간, `options.timeoutMs`는 전체 이동 시간을 제한합니다. 전체 타임아웃이 지나면 `cancelTravel`도 보냅니다.
 - 타임아웃은 **호출 시점부터** 잽니다. 엔진이 준비되기 전에 부른 `travel`도 제때 준비되지 않으면 `timeout`으로 reject되고, 큐의 명령은 버려집니다. 명령이 엔진에 전달되면 타임아웃은 그때부터 다시 잽니다.
 - `requestTimeoutMs`와 `travelStartTimeoutMs` prop은 타이머를 걸 때마다 최신 값을 읽습니다.
@@ -90,7 +90,7 @@ const me = useCharacterPosition(map, 'me', { throttleMs: 500 }); // { coordinate
 const camera = useCameraState(map, { throttleMs: 250 });
 ```
 
-- `map`에는 `useRef`의 ref 객체, API 자체, 또는 `DioramaMap` 안에서 `null`(감싸고 있는 지도)을 넘길 수 있습니다.
+- `map`에는 `useRef`의 ref 객체, API 자체, 또는 `MapramaView` 안에서 `null`(감싸고 있는 지도)을 넘길 수 있습니다.
 - 지도가 훅보다 늦게 마운트되어도(조건부 렌더링 등) 마운트되는 순간 구독합니다.
 - 다른 지도로 바뀌면 값이 `null`로 초기화되고 새 지도를 구독합니다. 이전 지도의 값이 남지 않습니다.
 - 캐릭터 위치 이벤트는 위치, 방향, 속도가 바뀌었을 때만 옵니다.
@@ -116,4 +116,4 @@ const off = map.current!.subscribe('travel:progress', (e) => setProgress(e), { i
 
 ## 호스팅 서비스의 대중교통
 
-역과 노선 데이터는 `GET /v1/transit/stations?bbox=`와 `GET /v1/transit/lines/{lineId}`로 받을 수 있습니다. 월드 JSON의 `stations[]`는 `diorama-osm`이 OSM에서 채웁니다.
+역과 노선 데이터는 `GET /v1/transit/stations?bbox=`와 `GET /v1/transit/lines/{lineId}`로 받을 수 있습니다. 월드 JSON의 `stations[]`는 `maprama-osm`이 OSM에서 채웁니다.

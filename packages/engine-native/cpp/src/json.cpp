@@ -1,4 +1,4 @@
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
 #include <algorithm>
 #include <clocale>
@@ -8,7 +8,7 @@
 #include <cstring>
 #include <unordered_map>
 
-namespace diorama::json {
+namespace maprama::json {
 
 namespace {
 
@@ -601,4 +601,4 @@ std::string stringify(const Value& value) {
   return out;
 }
 
-}  // namespace diorama::json
+}  // namespace maprama::json

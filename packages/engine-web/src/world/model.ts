@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { BuildingKind, District, LngLat, Poi, Station, Vec2, WorldBounds } from '@diorama/protocol';
+import type { BuildingKind, District, LngLat, Poi, Station, Vec2, WorldBounds } from '@maprama/protocol';
 import type { RoadGraph } from './graph.js';
 
 /** Massing variants for rectangular lots (prototype `massesFor`). */

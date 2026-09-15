@@ -1,7 +1,7 @@
-// Diorama native core — minimal JSON value with JavaScript semantics.
+// Maprama native core — minimal JSON value with JavaScript semantics.
 //
 // The core must decode envelopes *identically* to `decodeCommand` in
-// `@diorama/protocol`, including error strings. That requires JS semantics
+// `@maprama/protocol`, including error strings. That requires JS semantics
 // that off-the-shelf C++ JSON libraries do not provide:
 //   - every number is an IEEE-754 double; `1e400` parses to Infinity (V8
 //     `JSON.parse` accepts it) instead of failing;
@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-namespace diorama::json {
+namespace maprama::json {
 
 enum class Type : std::uint8_t { Null, Boolean, Number, String, Array, Object };
 
@@ -116,4 +116,4 @@ std::string numberToString(double number);
 /// True when `key` is a canonical array index ("0".."4294967294"), which JS orders first.
 bool isArrayIndexKey(std::string_view key, std::uint32_t* index = nullptr);
 
-}  // namespace diorama::json
+}  // namespace maprama::json

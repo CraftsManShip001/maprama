@@ -1,4 +1,4 @@
-import type { JsonValue } from '@diorama/protocol';
+import type { JsonValue } from '@maprama/protocol';
 import { WEBHOOK_DEFAULTS } from '../config.js';
 import type { DeliveryAttempt, ServiceDeps, WebhookEndpoint } from '../deps.js';
 import { randomHex } from '../util/crypto.js';
@@ -62,7 +62,7 @@ export function isAllowedWebhookUrl(raw: string, policy: WebhookUrlPolicy = {}):
 /**
  * Delivers one event with up to 3 attempts and backoff, recording every attempt.
  * Each attempt is signed with a fresh timestamp:
- * `Diorama-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`.
+ * `Maprama-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`.
  */
 export async function deliverWebhook(deps: ServiceDeps, endpoint: WebhookEndpoint, event: WebhookEvent): Promise<DeliveryAttempt[]> {
   // Re-check the stored URL: rows saved before the policy existed (or inserted directly) must not be called.
@@ -82,10 +82,10 @@ export async function deliverWebhook(deps: ServiceDeps, endpoint: WebhookEndpoin
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': 'Diorama-Webhooks/1',
+          'user-agent': 'Maprama-Webhooks/1',
           [WEBHOOK_SIGNATURE_HEADER]: signature,
-          'Diorama-Event': event.type,
-          'Diorama-Delivery': event.id,
+          'Maprama-Event': event.type,
+          'Maprama-Delivery': event.id,
         },
         body,
         redirect: 'manual',

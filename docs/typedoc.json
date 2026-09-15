@@ -7,7 +7,7 @@
   "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme", "./scripts/typedoc-module-names.mjs"],
   "docsRoot": ".",
   "sidebar": { "autoConfiguration": true, "format": "vitepress", "pretty": true, "collapsed": true },
-  "name": "Diorama API reference",
+  "name": "Maprama API reference",
   "readme": "none",
   "entryFileName": "index",
   "excludeInternal": true,

@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { LabelContent, LabelContentMode } from '@diorama/protocol';
+import type { LabelContent, LabelContentMode } from '@maprama/protocol';
 import {
   BoxGeometry,
   CanvasTexture,

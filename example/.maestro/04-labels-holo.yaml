@@ -1,5 +1,5 @@
 # Labels: switch the style to holo, then use the custom content function.
-appId: dev.diorama.catalog
+appId: dev.maprama.catalog
 name: Labels switch to holo
 tags:
   - labels

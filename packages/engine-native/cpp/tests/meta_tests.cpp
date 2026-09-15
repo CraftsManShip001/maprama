@@ -1,54 +1,54 @@
 // Protocol constants and enum string tables vs protocol-meta.json.
-#include "diorama/Projection.hpp"
-#include "diorama/protocol.hpp"
-#include "diorama/types.hpp"
+#include "maprama/Projection.hpp"
+#include "maprama/protocol.hpp"
+#include "maprama/types.hpp"
 #include "harness.hpp"
 
 namespace {
 
-using diorama::json::Value;
+using maprama::json::Value;
 
 template <class Container>
-void expectList(diorama::test::Context& ctx, const Value& meta, const char* key, const Container& actual) {
+void expectList(maprama::test::Context& ctx, const Value& meta, const char* key, const Container& actual) {
   const Value* expected = meta.find(key);
   if (!ctx.check(expected != nullptr && expected->isArray(), std::string(key) + " present in protocol-meta.json")) {
     return;
   }
-  std::string expectedText = diorama::json::stringify(*expected);
+  std::string expectedText = maprama::json::stringify(*expected);
   Value actualValue = Value::array();
   for (std::string_view name : actual) actualValue.push(Value(name));
-  std::string actualText = diorama::json::stringify(actualValue);
+  std::string actualText = maprama::json::stringify(actualValue);
   ctx.check(expectedText == actualText, std::string(key) + ": C++ " + actualText + " != TS " + expectedText);
 }
 
 template <class E>
-void expectEnum(diorama::test::Context& ctx, const Value& meta, const char* key) {
-  expectList(ctx, meta, key, diorama::EnumNames<E>::values);
+void expectEnum(maprama::test::Context& ctx, const Value& meta, const char* key) {
+  expectList(ctx, meta, key, maprama::EnumNames<E>::values);
 }
 
-void expectNumber(diorama::test::Context& ctx, const Value& meta, const char* key, double actual) {
+void expectNumber(maprama::test::Context& ctx, const Value& meta, const char* key, double actual) {
   const Value* expected = meta.find(key);
   ctx.check(expected != nullptr && expected->isNumber() && expected->asNumber() == actual,
-            std::string(key) + " == " + diorama::json::numberToString(actual));
+            std::string(key) + " == " + maprama::json::numberToString(actual));
 }
 
 }  // namespace
 
-DIORAMA_TEST(meta_constants_match_protocol) {
-  const Value meta = diorama::test::loadFixture(ctx, "protocol-meta.json");
-  expectNumber(ctx, meta, "PROTOCOL_VERSION", diorama::protocol::kProtocolVersion);
-  expectNumber(ctx, meta, "WORLD_DATA_VERSION", diorama::protocol::kWorldDataVersion);
-  expectNumber(ctx, meta, "DEFAULT_UNIT_METERS", diorama::kDefaultUnitMeters);
-  expectNumber(ctx, meta, "METERS_PER_DEGREE_LNG", diorama::kMetersPerDegreeLng);
-  expectNumber(ctx, meta, "METERS_PER_DEGREE_LAT", diorama::kMetersPerDegreeLat);
-  expectNumber(ctx, meta, "EARTH_RADIUS_METERS", diorama::kEarthRadiusMeters);
+MAPRAMA_TEST(meta_constants_match_protocol) {
+  const Value meta = maprama::test::loadFixture(ctx, "protocol-meta.json");
+  expectNumber(ctx, meta, "PROTOCOL_VERSION", maprama::protocol::kProtocolVersion);
+  expectNumber(ctx, meta, "WORLD_DATA_VERSION", maprama::protocol::kWorldDataVersion);
+  expectNumber(ctx, meta, "DEFAULT_UNIT_METERS", maprama::kDefaultUnitMeters);
+  expectNumber(ctx, meta, "METERS_PER_DEGREE_LNG", maprama::kMetersPerDegreeLng);
+  expectNumber(ctx, meta, "METERS_PER_DEGREE_LAT", maprama::kMetersPerDegreeLat);
+  expectNumber(ctx, meta, "EARTH_RADIUS_METERS", maprama::kEarthRadiusMeters);
 
-  expectList(ctx, meta, "ENGINE_COMMAND_TYPES", diorama::protocol::kEngineCommandTypes);
-  expectList(ctx, meta, "ENGINE_EVENT_TYPES", diorama::protocol::kEngineEventTypes);
+  expectList(ctx, meta, "ENGINE_COMMAND_TYPES", maprama::protocol::kEngineCommandTypes);
+  expectList(ctx, meta, "ENGINE_EVENT_TYPES", maprama::protocol::kEngineEventTypes);
 }
 
-DIORAMA_TEST(meta_enum_tables_match_protocol) {
-  using namespace diorama;  // NOLINT
+MAPRAMA_TEST(meta_enum_tables_match_protocol) {
+  using namespace maprama;  // NOLINT
   const Value meta = test::loadFixture(ctx, "protocol-meta.json");
   expectEnum<EngineKind>(ctx, meta, "ENGINE_KINDS");
   expectEnum<RequestMethod>(ctx, meta, "REQUEST_METHODS");

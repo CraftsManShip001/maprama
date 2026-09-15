@@ -4,7 +4,7 @@
 # The onCollect toast only shows for 4 s, and a Maestro tap on this screen takes about 10 s to return
 # (the live map keeps the hierarchy busy), so the flow checks the event log line that the same
 # onCollect handler writes ("Collected <item> (<rarity>) from <layer>") instead of the toast.
-appId: dev.diorama.catalog
+appId: dev.maprama.catalog
 name: Drops collect
 tags:
   - drops

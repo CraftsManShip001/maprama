@@ -4,7 +4,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import { Animated, StyleSheet, type LayoutChangeEvent } from 'react-native';
-import type { OverlayPosition } from '@diorama/protocol';
+import type { OverlayPosition } from '@maprama/protocol';
 import { useMapContext } from '../context';
 import type { MapOverlayAnchor, MapOverlayProps } from '../types';
 

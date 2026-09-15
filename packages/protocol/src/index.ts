@@ -1,5 +1,5 @@
 /**
- * `@diorama/protocol`: the shared contract between Diorama hosts (React Native,
+ * `@maprama/protocol`: the shared contract between Maprama hosts (React Native,
  * tools, services) and render engines (web, native).
  *
  * - {@link createProjection}: `{ lng, lat }` ⇄ world units.

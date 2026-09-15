@@ -1,15 +1,15 @@
-# @diorama/assets
+# @maprama/assets
 
-`diorama` is a CLI that inspects and optimizes user-supplied glTF 2.0 / GLB
-models (characters, drops, vehicles and landmarks) so they work well in Diorama
+`maprama` is a CLI that inspects and optimizes user-supplied glTF 2.0 / GLB
+models (characters, drops, vehicles and landmarks) so they work well in Maprama
 engines. It is built on [glTF Transform](https://gltf-transform.dev),
 [meshoptimizer](https://github.com/zeux/meshoptimizer), Draco and
 [sharp](https://sharp.pixelplumbing.com).
 
 ```sh
-npm run build -w @diorama/protocol
-npm run build -w @diorama/assets
-npm test -w @diorama/assets
+npm run build -w @maprama/protocol
+npm run build -w @maprama/assets
+npm test -w @maprama/assets
 ```
 
 ## Engine conventions
@@ -22,7 +22,7 @@ npm test -w @diorama/assets
 | Origin | at the feet (bottom center of the bounds) |
 | Animation clips | `idle`, `walk`, `run`, `ride`, `wave` (or map them with `CharacterSpec.animations`) |
 
-## `diorama inspect <model.glb>`
+## `maprama inspect <model.glb>`
 
 Prints a JSON report to stdout. Warnings are also printed to stderr. The report
 contains:
@@ -49,7 +49,7 @@ Examples of the synonyms used to suggest a mapping:
 
 Matching uses the last segment of names such as `Armature|mixamo.com|Walk`.
 
-## `diorama optimize <in.glb> -o <out.glb> [options]`
+## `maprama optimize <in.glb> -o <out.glb> [options]`
 
 | Option | Default | |
 | --- | --- | --- |
@@ -64,7 +64,7 @@ Matching uses the last segment of names such as `Armature|mixamo.com|Walk`.
 The optimization pipeline runs these steps in order:
 
 1. `dedup`, `prune`, `weld`, and `resample` (when the model has animations).
-2. Normalize the model: face +Z, then scale to height, then move the origin to the feet. All scene roots are wrapped in a `diorama_root` node that carries this transform, which keeps skins and animation channels intact.
+2. Normalize the model: face +Z, then scale to height, then move the origin to the feet. All scene roots are wrapped in a `maprama_root` node that carries this transform, which keeps skins and animation channels intact.
 3. If the scene exceeds `--max-triangles`, `simplify` runs with increasing error bounds until the budget is met. A warning is printed if it cannot be met, for example because of morph targets.
 4. Textures larger than `--max-texture` are resized with sharp, keeping their original format.
 5. `prune` and `dedup` run again.
@@ -76,7 +76,7 @@ warnings. When clip names do not follow the convention, the summary also
 includes `suggestedAnimations`:
 
 ```jsonc
-// diorama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8
+// maprama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8
 "warnings": [
   "animation clip \"Armature|Walking\" does not match idle|walk|run|ride|wave",
   "suggested CharacterSpec.animations mapping: {\"walk\":\"Armature|Walking\"}"

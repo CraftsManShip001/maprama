@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { createRef, useRef } from 'react';
 import { Text } from 'react-native';
 import { act, render } from '@testing-library/react-native';
-import type { EngineCommand, EngineEvent, EngineInfo } from '@diorama/protocol';
+import type { EngineCommand, EngineEvent, EngineInfo } from '@maprama/protocol';
 import {
   Character,
-  DioramaError,
-  DioramaMap,
+  MapramaError,
+  MapramaView,
   useCameraState,
   useCharacterPosition,
-  useDioramaMap,
-  type DioramaMapRef,
+  useMapramaView,
+  type MapramaViewRef,
   type EngineHost,
 } from '../index';
 import { MapController } from '../ref';
@@ -26,12 +26,12 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-async function readyMap(extra: Partial<Parameters<typeof DioramaMap>[0]> = {}) {
-  const ref = createRef<DioramaMapRef>();
+async function readyMap(extra: Partial<Parameters<typeof MapramaView>[0]> = {}) {
+  const ref = createRef<MapramaViewRef>();
   const utils = await render(
-    <DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} {...extra}>
+    <MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} {...extra}>
       <Character id="me" isPlayer />
-    </DioramaMap>,
+    </MapramaView>,
   );
   await emit(READY);
   clearPosted();
@@ -72,7 +72,7 @@ describe('travel', () => {
     const [travel] = commandsOf('travel');
     expect(travel!.modes).toEqual(['walk']);
     await emit({ type: 'travel:cancel', requestId: travel!.requestId, characterId: 'me' });
-    await expect(promise).rejects.toMatchObject({ name: 'DioramaError', code: 'travel_cancelled' });
+    await expect(promise).rejects.toMatchObject({ name: 'MapramaError', code: 'travel_cancelled' });
   });
 
   it('rejects with timeout when travel does not start and cancels it', async () => {
@@ -83,7 +83,7 @@ describe('travel', () => {
     await act(async () => {
       jest.advanceTimersByTime(1001);
     });
-    await expect(promise).rejects.toBeInstanceOf(DioramaError);
+    await expect(promise).rejects.toBeInstanceOf(MapramaError);
     await expect(promise).rejects.toMatchObject({ code: 'timeout' });
     expect(commands().map((c) => c.type)).toEqual(['travel', 'cancelTravel']);
   });
@@ -103,8 +103,8 @@ describe('travel', () => {
 
   it('restarts the start timeout when a queued travel reaches the engine', async () => {
     jest.useFakeTimers();
-    const ref = createRef<DioramaMapRef>();
-    await render(<DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} travelStartTimeoutMs={1000} />);
+    const ref = createRef<MapramaViewRef>();
+    await render(<MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} travelStartTimeoutMs={1000} />);
     const promise = ref.current!.travel('me', DEST);
     let settled = false;
     promise.then(
@@ -130,8 +130,8 @@ describe('travel', () => {
 
   it('rejects a travel made before ready when the engine never becomes ready, and drops the queued command', async () => {
     jest.useFakeTimers();
-    const ref = createRef<DioramaMapRef>();
-    await render(<DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} travelStartTimeoutMs={1000} />);
+    const ref = createRef<MapramaViewRef>();
+    await render(<MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} travelStartTimeoutMs={1000} />);
     const promise = ref.current!.travel('me', DEST);
     promise.catch(() => {});
     await act(async () => {
@@ -194,8 +194,8 @@ describe('requests', () => {
 
   it('arms a not-ready timeout at the call when the engine never becomes ready', async () => {
     jest.useFakeTimers();
-    const ref = createRef<DioramaMapRef>();
-    await render(<DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} requestTimeoutMs={300} />);
+    const ref = createRef<MapramaViewRef>();
+    await render(<MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} requestTimeoutMs={300} />);
     const point = ref.current!.project(DEST);
     point.catch(() => {});
     await act(async () => {
@@ -205,7 +205,7 @@ describe('requests', () => {
     await act(async () => {
       jest.advanceTimersByTime(2);
     });
-    await expect(point).rejects.toMatchObject({ name: 'DioramaError', code: 'timeout', message: expect.stringContaining('not ready') });
+    await expect(point).rejects.toMatchObject({ name: 'MapramaError', code: 'timeout', message: expect.stringContaining('not ready') });
     // A late ready does not deliver the abandoned request.
     await emit(READY);
     expect(commands().map((c) => c.type)).toEqual(['init']);
@@ -213,8 +213,8 @@ describe('requests', () => {
 
   it('rejects pending requests and travel with the host code on a fatal host load error', async () => {
     const onError = jest.fn();
-    const ref = createRef<DioramaMapRef>();
-    await render(<DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} onError={onError} />);
+    const ref = createRef<MapramaViewRef>();
+    await render(<MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} onError={onError} />);
     const point = ref.current!.project(DEST);
     const trip = ref.current!.travel('me', DEST);
     point.catch(() => {});
@@ -223,8 +223,8 @@ describe('requests', () => {
     await act(async () => {
       (webView.props.onError as (e: { nativeEvent: { description: string } }) => void)({ nativeEvent: { description: 'net::ERR_FAILED' } });
     });
-    await expect(point).rejects.toMatchObject({ name: 'DioramaError', code: 'host_load_failed' });
-    await expect(trip).rejects.toMatchObject({ name: 'DioramaError', code: 'host_load_failed' });
+    await expect(point).rejects.toMatchObject({ name: 'MapramaError', code: 'host_load_failed' });
+    await expect(trip).rejects.toMatchObject({ name: 'MapramaError', code: 'host_load_failed' });
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'host_load_failed', fatal: true }));
     await emit(READY);
     expect(commands().map((c) => c.type)).toEqual(['init']);
@@ -240,18 +240,18 @@ describe('requests', () => {
     pending.catch(() => {});
     api.reportHostError({ code: 'host_crashed', message: 'reloading', fatal: false });
     api.reportHostError({ code: 'unsupported', message: 'no engine host registered for "x"', fatal: true });
-    await expect(pending).rejects.toMatchObject({ name: 'DioramaError', code: 'unsupported' });
+    await expect(pending).rejects.toMatchObject({ name: 'MapramaError', code: 'unsupported' });
     expect(onError.mock.calls.map(([e]) => (e as { code: string }).code)).toEqual(['host_crashed', 'unsupported']);
     api.dispose();
   });
 
   it('reads requestTimeoutMs and travelStartTimeoutMs from the latest props', async () => {
     jest.useFakeTimers();
-    const ref = createRef<DioramaMapRef>();
+    const ref = createRef<MapramaViewRef>();
     const tree = (requestTimeoutMs: number, travelStartTimeoutMs: number) => (
-      <DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'grid' }} requestTimeoutMs={requestTimeoutMs} travelStartTimeoutMs={travelStartTimeoutMs}>
+      <MapramaView ref={ref} world={{ kind: 'procedural', layout: 'grid' }} requestTimeoutMs={requestTimeoutMs} travelStartTimeoutMs={travelStartTimeoutMs}>
         <Character id="me" isPlayer />
-      </DioramaMap>
+      </MapramaView>
     );
     const { rerender } = await render(tree(60000, 60000));
     await emit(READY);
@@ -276,17 +276,17 @@ describe('subscriptions', () => {
     jest.useFakeTimers();
     const renders: string[] = [];
     function Hud({ showPosition }: { showPosition: boolean }) {
-      const map = useRef<DioramaMapRef>(null);
+      const map = useRef<MapramaViewRef>(null);
       return (
         <>
-          <DioramaMap ref={map} world={{ kind: 'procedural', layout: 'town' }}>
+          <MapramaView ref={map} world={{ kind: 'procedural', layout: 'town' }}>
             <Character id="me" isPlayer />
-          </DioramaMap>
+          </MapramaView>
           {showPosition ? <Position map={map} /> : null}
         </>
       );
     }
-    function Position({ map }: { map: { current: DioramaMapRef | null } }) {
+    function Position({ map }: { map: { current: MapramaViewRef | null } }) {
       const pos = useCharacterPosition(map, 'me', { throttleMs: 500 });
       const label = pos ? `${pos.coordinate.lng},${pos.coordinate.lat}` : 'none';
       renders.push(label);
@@ -316,18 +316,18 @@ describe('subscriptions', () => {
     expect(commands().filter((c) => c.type === 'unsubscribe')).toEqual([{ type: 'unsubscribe', topic: 'character:position', id: 'me' }]);
   });
 
-  it('useCameraState works inside the map via context and useDioramaMap exposes the ref API', async () => {
-    let api: DioramaMapRef | null = null;
+  it('useCameraState works inside the map via context and useMapramaView exposes the ref API', async () => {
+    let api: MapramaViewRef | null = null;
     function Inside() {
-      api = useDioramaMap();
+      api = useMapramaView();
       const camera = useCameraState(null, { throttleMs: 0 });
       return <Text testID="cam">{camera ? String(camera.distance) : 'none'}</Text>;
     }
-    const ref = createRef<DioramaMapRef>();
+    const ref = createRef<MapramaViewRef>();
     const { getByTestId } = await render(
-      <DioramaMap ref={ref} world={{ kind: 'procedural', layout: 'town' }}>
+      <MapramaView ref={ref} world={{ kind: 'procedural', layout: 'town' }}>
         <Inside />
-      </DioramaMap>,
+      </MapramaView>,
     );
     expect(api).toBe(ref.current);
     await emit(READY);
@@ -338,14 +338,14 @@ describe('subscriptions', () => {
 
   it('hooks holding a ref subscribe once a conditionally rendered map mounts, and follow a remounted map', async () => {
     function App({ showMap, mapKey = 'a' }: { showMap: boolean; mapKey?: string }) {
-      const map = useRef<DioramaMapRef>(null);
+      const map = useRef<MapramaViewRef>(null);
       const pos = useCharacterPosition(map, 'me', { throttleMs: 0 });
       const camera = useCameraState(map, { throttleMs: 0 });
       return (
         <>
           <Text testID="pos">{pos ? String(pos.coordinate.lng) : 'none'}</Text>
           <Text testID="cam">{camera ? String(camera.distance) : 'none'}</Text>
-          {showMap ? <DioramaMap key={mapKey} ref={map} world={{ kind: 'procedural', layout: 'town' }} /> : null}
+          {showMap ? <MapramaView key={mapKey} ref={map} world={{ kind: 'procedural', layout: 'town' }} /> : null}
         </>
       );
     }
@@ -382,14 +382,14 @@ describe('subscriptions', () => {
 
   it('hooks reset to null when the map is swapped directly for another map', async () => {
     function App({ mapKey }: { mapKey: string }) {
-      const map = useRef<DioramaMapRef>(null);
+      const map = useRef<MapramaViewRef>(null);
       const pos = useCharacterPosition(map, 'me', { throttleMs: 0 });
       const camera = useCameraState(map, { throttleMs: 0 });
       return (
         <>
           <Text testID="pos">{pos ? String(pos.coordinate.lng) : 'none'}</Text>
           <Text testID="cam">{camera ? String(camera.distance) : 'none'}</Text>
-          <DioramaMap key={mapKey} ref={map} world={{ kind: 'procedural', layout: 'town' }} />
+          <MapramaView key={mapKey} ref={map} world={{ kind: 'procedural', layout: 'town' }} />
         </>
       );
     }

@@ -4,17 +4,17 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import type { CameraSpec, InitCommand, LabelContent, LabelInfo, LabelsSpec } from '@diorama/protocol';
+import type { CameraSpec, InitCommand, LabelContent, LabelInfo, LabelsSpec } from '@maprama/protocol';
 import { CommandBatcher } from './batching';
 import { MapContext, notifyMapMountChange, type MapContextValue } from './context';
 import type { EngineHost, EngineHostError } from './host/EngineHost';
 import { DEFAULT_ENGINE_HOST, getEngineHost } from './host/registry';
 import { planLocation, startExpoLocationWatch } from './location/device';
 import { MapController } from './ref';
-import type { DioramaLabelsProps, DioramaMapProps, DioramaMapRef, LabelContentFunction } from './types';
+import type { MapramaLabelsProps, MapramaViewProps, MapramaViewRef, LabelContentFunction } from './types';
 
 /** @internal Converts the `labels` prop to the protocol spec (a content function becomes `'custom'`). */
-export function toLabelsSpec(labels: DioramaLabelsProps | undefined): LabelsSpec {
+export function toLabelsSpec(labels: MapramaLabelsProps | undefined): LabelsSpec {
   if (!labels) return {};
   const { content, ...rest } = labels;
   if (content === undefined) return rest;
@@ -65,19 +65,19 @@ interface Internals extends MapContextValue {
 }
 
 /**
- * The 2.5D game map. Hosts the engine (a WebView running `@diorama/engine-web`
+ * The 2.5D game map. Hosts the engine (a WebView running `@maprama/engine-web`
  * by default), sends `init` once the engine is ready and turns prop changes and
  * children into minimal protocol commands.
  *
  * ```tsx
- * const map = useRef<DioramaMapRef>(null);
- * <DioramaMap ref={map} world={{ kind: 'procedural', layout: 'town' }} theme={{ base: 'urban', timeOfDay: 'golden' }}
+ * const map = useRef<MapramaViewRef>(null);
+ * <MapramaView ref={map} world={{ kind: 'procedural', layout: 'town' }} theme={{ base: 'urban', timeOfDay: 'golden' }}
  *   camera={{ pitch: 45, distance: 60, follow: 'me' }} location={{ source: 'device' }} style={{ flex: 1 }}>
  *   <Character id="me" isPlayer follow="location" />
- * </DioramaMap>
+ * </MapramaView>
  * ```
  */
-export const DioramaMap = forwardRef<DioramaMapRef, DioramaMapProps>(function DioramaMap(props, ref) {
+export const MapramaView = forwardRef<MapramaViewRef, MapramaViewProps>(function MapramaView(props, ref) {
   const propsRef = useRef(props);
   propsRef.current = props;
   const locationPlan = planLocation(props.location);

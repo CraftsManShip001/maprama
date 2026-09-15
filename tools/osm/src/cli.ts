@@ -1,5 +1,5 @@
 /**
- * `diorama-osm` command line interface.
+ * `maprama-osm` command line interface.
  *
  * @module
  */
@@ -7,7 +7,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { validateWorldData, type LngLat } from '@diorama/protocol';
+import { validateWorldData, type LngLat } from '@maprama/protocol';
 import { buildWorldWithStats, stringifyWorld, type BuildWorldOptions } from './build.js';
 import { fetchOverpass, parseBBox } from './overpass.js';
 import { PACKAGE_ROOT, SAMPLES } from './samples.js';
@@ -27,21 +27,21 @@ const defaultIO: CliIO = {
 /** Size above which the CLI warns that a world file is getting heavy. */
 export const WORLD_SIZE_WARN_BYTES = 3 * 1024 * 1024;
 
-export const USAGE = `diorama-osm: build Diorama WorldData from OpenStreetMap
+export const USAGE = `maprama-osm: build Maprama WorldData from OpenStreetMap
 
 Usage:
-  diorama-osm fetch --bbox s,w,n,e --out raw.json [--endpoint url]... [--no-cache] [--timeout 90]
-  diorama-osm build --raw raw.json --out world.json --name <name>
+  maprama-osm fetch --bbox s,w,n,e --out raw.json [--endpoint url]... [--no-cache] [--timeout 90]
+  maprama-osm build --raw raw.json --out world.json --name <name>
                     [--bbox s,w,n,e] [--origin lat,lng] [--unit-meters 8]
                     [--kr-buildings kr.geojson] [--simplify-meters 0.5]
                     [--precision 2] [--include-sidewalks]
-  diorama-osm sample <${Object.keys(SAMPLES).join('|')}> [--out world.json] [--raw raw.json]
+  maprama-osm sample <${Object.keys(SAMPLES).join('|')}> [--out world.json] [--raw raw.json]
                     [--endpoint url]... [--no-cache] [--kr-buildings kr.geojson]
-  diorama-osm help
+  maprama-osm help
 
 Environment:
-  DIORAMA_OVERPASS_ENDPOINT  comma-separated Overpass endpoints (overrides defaults)
-  DIORAMA_OSM_USER_AGENT     User-Agent sent to Overpass`;
+  MAPRAMA_OVERPASS_ENDPOINT  comma-separated Overpass endpoints (overrides defaults)
+  MAPRAMA_OSM_USER_AGENT     User-Agent sent to Overpass`;
 
 class UsageError extends Error {}
 
@@ -198,7 +198,7 @@ export async function main(argv: string[], io: CliIO = defaultIO): Promise<numbe
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    io.stderr(`diorama-osm: ${message}`);
+    io.stderr(`maprama-osm: ${message}`);
     if (e instanceof UsageError || (e instanceof TypeError && /option|argument/i.test(message))) {
       io.stderr(USAGE);
       return 2;

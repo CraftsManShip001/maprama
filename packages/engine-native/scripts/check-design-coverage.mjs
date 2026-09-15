@@ -12,7 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ENGINE_COMMAND_TYPES, ENGINE_EVENT_TYPES, REQUEST_METHODS } from '@diorama/protocol';
+import { ENGINE_COMMAND_TYPES, ENGINE_EVENT_TYPES, REQUEST_METHODS } from '@maprama/protocol';
 
 // Optional argument: path to a DESIGN.md to check (defaults to this package's).
 const designPath = process.argv[2] ?? fileURLToPath(new URL('../DESIGN.md', import.meta.url));

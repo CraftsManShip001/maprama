@@ -41,7 +41,7 @@ import type {
   RequestMethod,
   SubscriptionTopic,
   WorldPoint,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import type { Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 import type { CommandHandler, RequestHandler } from './bridge/dispatcher.js';
 import type { EventListener } from './bridge/emitter.js';
@@ -53,7 +53,7 @@ import type { RenderParams } from './theme/params.js';
 import type { TextureSet } from './theme/textures.js';
 import type { SnapResult } from './world/graph.js';
 import type { WorldModel } from './world/model.js';
-import type { EngineCommandType } from '@diorama/protocol';
+import type { EngineCommandType } from '@maprama/protocol';
 
 /** Handler for one subscription topic. */
 export interface SubscriptionHandler {

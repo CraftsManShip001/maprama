@@ -13,7 +13,7 @@ function capture(): { io: { stdout: (s: string) => void; stderr: (s: string) => 
   return { io: { stdout: (s) => out.push(s), stderr: (s) => err.push(s) }, out, err };
 }
 
-describe('diorama CLI', () => {
+describe('maprama CLI', () => {
   it('inspect prints a JSON report', async () => {
     const model = await writeModel(tmp.dir, 'cli.glb', { animations: ['Take 001'] });
     const c = capture();

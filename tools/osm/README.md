@@ -1,38 +1,38 @@
-# @diorama/osm
+# @maprama/osm
 
-Builds Diorama [`WorldData`](../../packages/protocol/src/world.ts) JSON from
+Builds Maprama [`WorldData`](../../packages/protocol/src/world.ts) JSON from
 OpenStreetMap data (via the Overpass API). It can optionally add building
 heights from the Korean national building dataset.
 
-- CLI: `diorama-osm` (`fetch`, `build`, `sample`)
+- CLI: `maprama-osm` (`fetch`, `build`, `sample`)
 - Library: `buildWorld(raw, options)`, a pure function you can unit-test without network access
 - Sample world: [`samples/seongsu.world.json`](samples/seongsu.world.json) (Seongsu-dong, Seoul)
 
 ## Build
 
 ```sh
-npm run build -w @diorama/protocol   # the contract must be built first
-npm run build -w @diorama/osm
-npm test -w @diorama/osm
+npm run build -w @maprama/protocol   # the contract must be built first
+npm run build -w @maprama/osm
+npm test -w @maprama/osm
 ```
 
 ## Commands
 
 ```sh
 # 1. Download raw OSM data (Overpass JSON, full geometry) for a bbox: south,west,north,east
-diorama-osm fetch --bbox 37.5410,127.0520,37.5480,127.0610 --out raw.json
+maprama-osm fetch --bbox 37.5410,127.0520,37.5480,127.0610 --out raw.json
 
 # 2. Convert it to WorldData
-diorama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
+maprama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
 
 # Both steps for a built-in sample area
-diorama-osm sample seongsu
+maprama-osm sample seongsu
 ```
 
 Regenerate the checked-in sample from the repository root:
 
 ```sh
-npm run build -w @diorama/protocol && npm run build -w @diorama/osm && npm run sample:seongsu -w @diorama/osm
+npm run build -w @maprama/protocol && npm run build -w @maprama/osm && npm run sample:seongsu -w @maprama/osm
 ```
 
 This writes `tools/osm/samples/seongsu.world.json`. It also writes the raw
@@ -43,7 +43,7 @@ payload to `tools/osm/.cache/samples/seongsu.raw.json`.
 | Option | Default | |
 | --- | --- | --- |
 | `--bbox s,w,n,e` | required | Bounding box in degrees |
-| `--out <file>` | required | Raw Overpass JSON (with a `diorama` metadata block holding the bbox) |
+| `--out <file>` | required | Raw Overpass JSON (with a `maprama` metadata block holding the bbox) |
 | `--endpoint <url>` | see below | Repeatable. Endpoints are tried in order |
 | `--timeout <s>` | `90` | Per-request timeout |
 | `--no-cache` | | Skip the response cache |
@@ -55,7 +55,7 @@ payload to `tools/osm/.cache/samples/seongsu.raw.json`.
 | `--raw <file>` | required | Output of `fetch` (any Overpass `[out:json]` + `out geom` payload works) |
 | `--out <file>` | required | WorldData JSON |
 | `--name <name>` | required | World name |
-| `--bbox s,w,n,e` | `raw.diorama.bbox`, else the data extent | Clip box |
+| `--bbox s,w,n,e` | `raw.maprama.bbox`, else the data extent | Clip box |
 | `--origin lat,lng` | bbox center | Geographic point mapped to world `(0, 0)` |
 | `--unit-meters <m>` | `8` | Meters per world unit |
 | `--simplify-meters <m>` | `0.5` | Douglas–Peucker tolerance |
@@ -77,13 +77,13 @@ over the list, with exponential backoff between attempts. It treats HTTP
 retryable. HTTP 400 (a bad query) is never retried.
 
 - Requests are `POST` with the form field `data`. A `User-Agent` header is always sent, because Overpass servers answer `406` without one.
-- `DIORAMA_OVERPASS_ENDPOINT` takes a comma-separated list that overrides the defaults. `DIORAMA_OSM_USER_AGENT` overrides the User-Agent.
+- `MAPRAMA_OVERPASS_ENDPOINT` takes a comma-separated list that overrides the defaults. `MAPRAMA_OSM_USER_AGENT` overrides the User-Agent.
 - Responses are cached in `tools/osm/.cache/overpass-<sha256(query)>.json` (gitignored). Delete the cache or pass `--no-cache` to refresh.
 - Please respect the [Overpass usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html): keep bboxes small and rely on the cache.
 
 ## Mapping rules
 
-World space follows `@diorama/protocol`: `+x` = east, `z` = −north, in world
+World space follows `@maprama/protocol`: `+x` = east, `z` = −north, in world
 units of `unitMeters` meters. Ids are `w<wayId>`, `r<relationId>` and
 `n<nodeId>`. When a way is split by the bbox, or a relation has several outer
 rings, the pieces are suffixed `_0`, `_1`, and so on.
@@ -171,7 +171,7 @@ ogr2ogr -f GeoJSON kr.geojson AL_D010_11_YYYYMMDD.shp \
   -select GRND_FLR,HEIGHT \
   -lco RFC7946=YES
 
-diorama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul" --kr-buildings kr.geojson
+maprama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul" --kr-buildings kr.geojson
 ```
 
 (The `.shp` name above is an example. Use the file from your download, and

@@ -1,11 +1,11 @@
-#include "diorama/WorldStore.hpp"
+#include "maprama/WorldStore.hpp"
 
 #include <set>
 #include <utility>
 
 #include "schemas.hpp"
 
-namespace diorama {
+namespace maprama {
 
 namespace {
 
@@ -184,4 +184,4 @@ double shoelaceArea2(const std::vector<Vec2>& ring) {
 
 std::unique_ptr<WorldStore> createWorldStore() { return std::make_unique<WorldStoreImpl>(); }
 
-}  // namespace diorama
+}  // namespace maprama

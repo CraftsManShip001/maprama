@@ -26,8 +26,8 @@ import {
   type Side,
   type Texture,
 } from 'three';
-import type { ShadingModel, ThemePreset } from '@diorama/protocol';
-import { INK } from '@diorama/protocol';
+import type { ShadingModel, ThemePreset } from '@maprama/protocol';
+import { INK } from '@maprama/protocol';
 
 /** Extra material options (prototype `extra`). */
 export interface MatExtra {

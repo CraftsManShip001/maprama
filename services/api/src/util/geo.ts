@@ -1,4 +1,4 @@
-import { haversineMeters, type LngLat } from '@diorama/protocol';
+import { haversineMeters, type LngLat } from '@maprama/protocol';
 
 /** `[west, south, east, north]` in degrees. */
 export type Bbox = [number, number, number, number];

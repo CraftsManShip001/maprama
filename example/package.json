@@ -1,8 +1,8 @@
 {
-  "name": "@diorama/example",
+  "name": "@maprama/example",
   "version": "0.0.0",
   "private": true,
-  "description": "Diorama feature catalog: an Expo Router app demonstrating every @diorama/react-native feature.",
+  "description": "Maprama feature catalog: an Expo Router app demonstrating every @maprama/react-native feature.",
   "license": "Apache-2.0",
   "main": "expo-router/entry",
   "scripts": {
@@ -14,8 +14,8 @@
     "e2e": "maestro test .maestro"
   },
   "dependencies": {
-    "@diorama/protocol": "*",
-    "@diorama/react-native": "*",
+    "@maprama/protocol": "*",
+    "@maprama/react-native": "*",
     "expo": "57.0.22",
     "expo-constants": "~57.0.18",
     "expo-linking": "~57.0.10",

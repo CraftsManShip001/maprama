@@ -1,14 +1,14 @@
 {
-  "name": "@diorama/assets",
+  "name": "@maprama/assets",
   "version": "0.0.0",
-  "description": "diorama CLI: inspect, validate and optimize glTF/GLB models for Diorama engines.",
+  "description": "maprama CLI: inspect, validate and optimize glTF/GLB models for Maprama engines.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "diorama": "./dist/bin.js"
+    "maprama": "./dist/bin.js"
   },
   "exports": {
     ".": {
@@ -29,7 +29,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@diorama/protocol": "0.0.0",
+    "@maprama/protocol": "0.0.0",
     "@gltf-transform/core": "4.5.0",
     "@gltf-transform/extensions": "4.5.0",
     "@gltf-transform/functions": "4.5.0",

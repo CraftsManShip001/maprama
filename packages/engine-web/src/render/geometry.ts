@@ -6,7 +6,7 @@
  */
 
 import { BoxGeometry, BufferAttribute, BufferGeometry, Shape, ShapeGeometry } from 'three';
-import type { Vec2 } from '@diorama/protocol';
+import type { Vec2 } from '@maprama/protocol';
 
 /** `[ax, az, bx, bz, width]` */
 export type Quad = [number, number, number, number, number];

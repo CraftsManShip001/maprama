@@ -1,9 +1,9 @@
 /**
- * `@diorama/engine-web`: the three.js web render engine implementing the
- * `@diorama/protocol` message contract.
+ * `@maprama/engine-web`: the three.js web render engine implementing the
+ * `@maprama/protocol` message contract.
  *
  * ```ts
- * import { createEngine, createDirectTransport } from '@diorama/engine-web';
+ * import { createEngine, createDirectTransport } from '@maprama/engine-web';
  * const transport = createDirectTransport();
  * transport.onEvent((event) => console.log(event));
  * const engine = createEngine(document.getElementById('map')!, { transport });

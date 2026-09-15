@@ -2,11 +2,11 @@
 
 #include <cstddef>
 
-namespace diorama::schemas {
+namespace maprama::schemas {
 
 namespace {
 
-using namespace diorama::validate;  // NOLINT: mirrors the TS module's flat imports
+using namespace maprama::validate;  // NOLINT: mirrors the TS module's flat imports
 
 constexpr double kMaxSafeInteger = 9007199254740991.0;
 
@@ -308,4 +308,4 @@ const validate::Check& themePreset() { return all().themePreset; }
 const validate::Check& engineCommand() { return all().engineCommand; }
 const validate::Check& engineEvent() { return all().engineEvent; }
 
-}  // namespace diorama::schemas
+}  // namespace maprama::schemas

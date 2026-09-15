@@ -56,7 +56,7 @@ export function registerWebhookRoutes(app: Hono<AppEnv>, deps: ServiceDeps): voi
       type: 'webhook.test' as const,
       createdAt: deps.clock.now(),
       appId,
-      data: { message: 'Test event from Diorama' },
+      data: { message: 'Test event from Maprama' },
     };
     const attempts = await deliverWebhook(deps, endpoint, event);
     return c.json({

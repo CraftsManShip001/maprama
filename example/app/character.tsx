@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Character, useCharacterPosition, type DioramaMapRef } from '@diorama/react-native';
-import type { LngLat, LocationSourceKind } from '@diorama/protocol';
+import { Character, useCharacterPosition, type MapramaViewRef } from '@maprama/react-native';
+import type { LngLat, LocationSourceKind } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, useEventLog } from '../src/components/ui';
 import { SAMPLE_CHARACTER_MODEL_URI } from '../src/data/sampleModel';
@@ -13,7 +13,7 @@ const SOURCES: readonly LocationSourceKind[] = ['simulated', 'device', 'external
 const STEP_METERS = 10;
 
 export default function CharacterScreen() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const [model, setModel] = useState<ModelChoice>('sample');
   const [source, setSource] = useState<LocationSourceKind>('simulated');
   const [log, pushLog] = useEventLog();

@@ -1,10 +1,10 @@
-#include "diorama/Dispatcher.hpp"
+#include "maprama/Dispatcher.hpp"
 
 #include <utility>
 
-#include "diorama/WorldStore.hpp"
+#include "maprama/WorldStore.hpp"
 
-namespace diorama {
+namespace maprama {
 
 namespace {
 
@@ -86,7 +86,7 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
     case 12:  // setDropLayer -> DropSystem
     case 13:  // removeDropLayer -> DropSystem
     case 14:  // setGeofences -> GeofenceSystem
-    case 15:  // setBuildingStyle -> diorama layer building style table
+    case 15:  // setBuildingStyle -> maprama layer building style table
     case 16:  // setOverlayAnchors -> CameraController
     case 17:  // subscribe -> subscription registry (dispatcher)
     case 18:  // unsubscribe -> subscription registry (dispatcher)
@@ -155,4 +155,4 @@ void Dispatcher::ignoreNotImplemented(const protocol::CommandEnvelope& envelope,
   sink_.onLog(LogLevel::Warn, message);
 }
 
-}  // namespace diorama
+}  // namespace maprama

@@ -13,7 +13,7 @@ export interface SampleArea {
   bbox: BBox;
 }
 
-/** Sample areas for `diorama-osm sample <id>`. */
+/** Sample areas for `maprama-osm sample <id>`. */
 export const SAMPLES: Record<string, SampleArea> = {
   seongsu: {
     name: 'Seongsu-dong, Seoul',

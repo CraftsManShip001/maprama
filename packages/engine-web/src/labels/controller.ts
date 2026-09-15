@@ -10,7 +10,7 @@
  * @module
  */
 
-import type { LabelContent, LabelInfo, LabelsSpec, LabelStyle, MapUiSpec, Projection } from '@diorama/protocol';
+import type { LabelContent, LabelInfo, LabelsSpec, LabelStyle, MapUiSpec, Projection } from '@maprama/protocol';
 import type { SceneApi } from '../scene-api.js';
 import type { WorldModel } from '../world/model.js';
 import { DomLabels, ensureLabelStyles } from './dom-styles.js';
@@ -48,7 +48,7 @@ export class LabelController {
       const doc = this.scene.overlayLayer.ownerDocument;
       ensureLabelStyles(doc);
       this.layer = doc.createElement('div');
-      this.layer.className = 'dio-labels';
+      this.layer.className = 'mpr-labels';
       this.scene.overlayLayer.appendChild(this.layer);
     }
     return this.layer;

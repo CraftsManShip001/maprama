@@ -1,4 +1,4 @@
-// Diorama native core — local tangent-plane projection.
+// Maprama native core — local tangent-plane projection.
 //
 // Port of `createProjection` / `haversineMeters` (packages/protocol/src/geo.ts)
 // with identical math and operation order:
@@ -10,9 +10,9 @@
 
 #include <optional>
 
-#include "diorama/types.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 /// `DEFAULT_UNIT_METERS`.
 inline constexpr double kDefaultUnitMeters = 8.0;
@@ -57,4 +57,4 @@ class Projection {
 /// Great-circle distance in meters (haversine, `kEarthRadiusMeters`).
 double haversineMeters(const LngLat& a, const LngLat& b);
 
-}  // namespace diorama
+}  // namespace maprama

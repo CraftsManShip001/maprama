@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import { Character, DropLayer, type DioramaMapRef, type DropCollectInfo } from '@diorama/react-native';
-import type { DropType, LngLat, Rarity } from '@diorama/protocol';
+import { Character, DropLayer, type MapramaViewRef, type DropCollectInfo } from '@maprama/react-native';
+import type { DropType, LngLat, Rarity } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, EventLog, Readout, ScreenLayout, Section, Toast, Toggle, useEventLog } from '../src/components/ui';
 import { API_BASE_URL, API_KEY, DROPS_CHANNEL, probeApi } from '../src/config';
@@ -41,7 +41,7 @@ const LAYERS = [
 ] as const;
 
 export default function DropsScreen() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({ coins: true, music: true, models: true });
   const [collected, setCollected] = useState<string[]>([]);
   const [toast, setToast] = useState<{ text: string; key: number } | null>(null);
@@ -57,7 +57,7 @@ export default function DropsScreen() {
     probeApi().then((ok) => {
       if (!alive) return;
       setServiceReachable(ok);
-      pushLog(ok ? `service reachable at ${API_BASE_URL}` : `service unreachable (${API_KEY ? API_BASE_URL : 'no EXPO_PUBLIC_DIORAMA_API_KEY'}): skipped`);
+      pushLog(ok ? `service reachable at ${API_BASE_URL}` : `service unreachable (${API_KEY ? API_BASE_URL : 'no EXPO_PUBLIC_MAPRAMA_API_KEY'}): skipped`);
     });
     return () => {
       alive = false;

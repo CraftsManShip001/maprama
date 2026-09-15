@@ -1,7 +1,7 @@
 {
-  "name": "@diorama/protocol",
+  "name": "@maprama/protocol",
   "version": "0.0.0",
-  "description": "Shared contract for Diorama engines and hosts: types, message codec, geo projection and theme presets.",
+  "description": "Shared contract for Maprama engines and hosts: types, message codec, geo projection and theme presets.",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,

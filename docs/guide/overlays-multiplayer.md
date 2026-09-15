@@ -5,13 +5,13 @@
 가게 카드, 말풍선, 버튼처럼 상호작용이 필요한 UI는 엔진이 아니라 React Native 뷰로 그리고 지도 좌표에 붙입니다.
 
 ```tsx
-<DioramaMap world={world}>
+<MapramaView world={world}>
   <MapOverlay coordinate={shop.coord} anchor="bottom" offset={{ x: 0, y: -8 }} hideWhenOffscreen>
     <Pressable onPress={() => openShop(shop.id)}>
       <ShopCard shop={shop} />
     </Pressable>
   </MapOverlay>
-</DioramaMap>
+</MapramaView>
 ```
 
 | prop | 설명 |
@@ -41,14 +41,14 @@ SDK의 범위는 **클라이언트 쪽**입니다. 다른 플레이어를 `Chara
 
 ```tsx
 function World({ roomId }: { roomId: string }) {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const players = useRoomPlayers(roomId); // 앱의 실시간 스트림: { id, coord, avatarUrl, name }[]
 
   // 내 위치는 throttle해서 서버로
   useEffect(() => map.current?.subscribe('character:position', (e) => sendMyPosition(roomId, e), { id: 'me', throttleMs: 1000 }), [roomId]);
 
   return (
-    <DioramaMap ref={map} world={world} location={{ source: 'device' }}>
+    <MapramaView ref={map} world={world} location={{ source: 'device' }}>
       <Character id="me" isPlayer follow="location" />
       <CharacterLayer
         data={players}
@@ -58,7 +58,7 @@ function World({ roomId }: { roomId: string }) {
         getName={(p) => p.name}
         showNameTags
       />
-    </DioramaMap>
+    </MapramaView>
   );
 }
 ```

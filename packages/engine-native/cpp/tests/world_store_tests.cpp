@@ -1,29 +1,29 @@
 // WorldStore: validateWorldData parity, typed conversion, semantic warnings.
 #include <string>
 
-#include "diorama/WorldStore.hpp"
-#include "diorama/protocol.hpp"
+#include "maprama/WorldStore.hpp"
+#include "maprama/protocol.hpp"
 #include "harness.hpp"
 
 namespace {
-using diorama::json::Value;
+using maprama::json::Value;
 }  // namespace
 
-DIORAMA_TEST(world_store_matches_validate_world_data) {
-  const Value fixture = diorama::test::loadFixture(ctx, "world.json");
+MAPRAMA_TEST(world_store_matches_validate_world_data) {
+  const Value fixture = maprama::test::loadFixture(ctx, "world.json");
   long okCases = 0;
   bool sawRealSample = false;
   for (const Value& c : fixture.find("cases")->items()) {
     const std::string& name = c.find("name")->asString();
     std::string input;
     if (const Value* path = c.find("inputPath")) {
-      input = diorama::test::readFile(path->asString());
+      input = maprama::test::readFile(path->asString());
       sawRealSample = true;
     } else {
       input = c.find("input")->asString();
     }
-    auto store = diorama::createWorldStore();
-    diorama::Result<diorama::WorldLoadReport> r = store->loadJson(input);
+    auto store = maprama::createWorldStore();
+    maprama::Result<maprama::WorldLoadReport> r = store->loadJson(input);
 
     if (!c.find("ok")->asBool()) {
       const std::string& expected = c.find("error")->asString();
@@ -35,8 +35,8 @@ DIORAMA_TEST(world_store_matches_validate_world_data) {
     ++okCases;
     if (!ctx.check(r.ok(), "world [" + name + "]: expected ok, got \"" + r.error + "\"")) continue;
     const Value& s = *c.find("summary");
-    const diorama::WorldLoadReport& report = *r.value;
-    const diorama::WorldData& w = *store->world();
+    const maprama::WorldLoadReport& report = *r.value;
+    const maprama::WorldData& w = *store->world();
     const auto count = [&s](const char* key) { return static_cast<std::size_t>(s.find(key)->asNumber()); };
     ctx.check(w.name == s.find("name")->asString(), "world [" + name + "]: name");
     ctx.check(report.roads == count("roads") && w.roads.size() == count("roads"), "world [" + name + "]: roads");
@@ -57,28 +57,28 @@ DIORAMA_TEST(world_store_matches_validate_world_data) {
   if (!sawRealSample) std::cout << "    note: tools/osm/samples/seongsu.world.json case not present in fixtures\n";
 }
 
-DIORAMA_TEST(world_store_typed_conversion_and_warnings) {
-  const Value fixture = diorama::test::loadFixture(ctx, "world.json");
+MAPRAMA_TEST(world_store_typed_conversion_and_warnings) {
+  const Value fixture = maprama::test::loadFixture(ctx, "world.json");
   const std::string& sample = fixture.find("cases")->items().at(0).find("input")->asString();
-  auto store = diorama::createWorldStore();
-  diorama::Result<diorama::WorldLoadReport> r = store->loadJson(sample);
+  auto store = maprama::createWorldStore();
+  maprama::Result<maprama::WorldLoadReport> r = store->loadJson(sample);
   if (!ctx.check(r.ok(), "sample world loads: " + r.error)) return;
 
-  const diorama::BuildingFootprint* b1 = store->findBuilding("b1");
+  const maprama::BuildingFootprint* b1 = store->findBuilding("b1");
   ctx.check(b1 != nullptr && b1->footprint.size() == 3 && b1->height == 3 && b1->levels == 4.0 &&
-                b1->kind == diorama::BuildingKind::Glass && b1->name == std::string("Tower"),
+                b1->kind == maprama::BuildingKind::Glass && b1->name == std::string("Tower"),
             "building b1 converted");
-  const diorama::Road* r1 = store->findRoad("r1");
-  ctx.check(r1 != nullptr && r1->cls == diorama::RoadClass::Arterial && r1->bridge == false && r1->pts.size() == 2,
+  const maprama::Road* r1 = store->findRoad("r1");
+  ctx.check(r1 != nullptr && r1->cls == maprama::RoadClass::Arterial && r1->bridge == false && r1->pts.size() == 2,
             "road r1 converted");
-  const diorama::WorldData& w = *store->world();
-  ctx.check(w.pois.size() == 1 && w.pois[0].cat == diorama::PoiCategory::Cafe && w.pois[0].z == 2, "poi converted");
+  const maprama::WorldData& w = *store->world();
+  ctx.check(w.pois.size() == 1 && w.pois[0].cat == maprama::PoiCategory::Cafe && w.pois[0].z == 2, "poi converted");
   ctx.check(w.districts.size() == 1 && w.districts[0].water == false, "district converted");
   ctx.check(r.value->warnings.empty(), "sample world has no warnings");
-  ctx.check(diorama::shoelaceArea2(b1->footprint) > 0, "sample footprint has positive shoelace area");
+  ctx.check(maprama::shoelaceArea2(b1->footprint) > 0, "sample footprint has positive shoelace area");
 
   // Duplicate ids + negative winding + inverted bounds produce warnings but still load.
-  Value world = diorama::json::parse(sample).value;
+  Value world = maprama::json::parse(sample).value;
   Value& buildings = *world.find("buildings");
   Value dup = buildings.items()[0];
   Value cw = Value::object({{"id", "cw"},
@@ -87,16 +87,16 @@ DIORAMA_TEST(world_store_typed_conversion_and_warnings) {
   buildings.push(dup);
   buildings.push(cw);
   world.find("bounds")->set("minX", 100);
-  diorama::Result<diorama::WorldLoadReport> warned = store->load(world);
+  maprama::Result<maprama::WorldLoadReport> warned = store->load(world);
   ctx.check(warned.ok() && warned.value->warnings.size() == 3 && warned.value->negativeAreaFootprints == 1,
             "duplicate id, negative winding and inverted bounds warn (" +
                 std::to_string(warned.ok() ? warned.value->warnings.size() : 0) + " warnings)");
 
   // A failed load keeps the previous world.
-  diorama::Result<diorama::WorldLoadReport> bad = store->loadJson(R"({"version":2})");
+  maprama::Result<maprama::WorldLoadReport> bad = store->loadJson(R"({"version":2})");
   ctx.check(!bad.ok() && bad.error == "$.version: expected 1", "invalid world rejected: " + bad.error);
   ctx.check(store->loaded() && store->findBuilding("cw") != nullptr, "previous world kept after failed load");
-  diorama::Result<diorama::WorldLoadReport> syntax = store->loadJson("{");
+  maprama::Result<maprama::WorldLoadReport> syntax = store->loadJson("{");
   ctx.check(!syntax.ok() && syntax.error.rfind("$: invalid JSON: ", 0) == 0, "syntax error prefix");
   store->clear();
   ctx.check(!store->loaded() && store->world() == nullptr && store->projection() == nullptr, "clear()");

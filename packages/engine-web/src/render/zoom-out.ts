@@ -11,7 +11,7 @@
  */
 
 import { Group, Mesh, type Fog, type MeshBasicMaterial } from 'three';
-import type { RoadClass, ZoomOutBehavior } from '@diorama/protocol';
+import type { RoadClass, ZoomOutBehavior } from '@maprama/protocol';
 import { clamp, smooth01 } from '../util/math.js';
 import { ROAD_W } from '../world/graph.js';
 import type { WorldModel } from '../world/model.js';

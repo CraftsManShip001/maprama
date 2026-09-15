@@ -5,7 +5,7 @@
  * @module
  */
 
-import { decodeEvent, encodeCommand, type EngineCommand, type EngineEvent } from '@diorama/protocol';
+import { decodeEvent, encodeCommand, type EngineCommand, type EngineEvent } from '@maprama/protocol';
 
 /** Engine-side view of a message channel. */
 export interface Transport {

@@ -3,7 +3,7 @@
  * OpenStreetMap by `tools/osm` (ODbL; the map shows "© OpenStreetMap
  * contributors" through `ui.attribution`). Plus small geo helpers.
  */
-import { createProjection, haversineMeters, type LngLat, type WorldData } from '@diorama/protocol';
+import { createProjection, haversineMeters, type LngLat, type WorldData } from '@maprama/protocol';
 import seongsuJson from '../../../tools/osm/samples/seongsu.world.json';
 
 export const SEONGSU_WORLD = seongsuJson as unknown as WorldData;

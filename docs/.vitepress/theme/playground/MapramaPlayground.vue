@@ -1,21 +1,21 @@
 <script setup lang="ts">
 /**
- * Interactive playground: runs the real `@diorama/engine-web` in the page via
+ * Interactive playground: runs the real `@maprama/engine-web` in the page via
  * `createEngine` + the in-page direct transport, drives it with protocol
- * commands, and mirrors the state as `@diorama/react-native` JSX and theme JSON.
+ * commands, and mirrors the state as `@maprama/react-native` JSX and theme JSON.
  *
  * The engine implements labels, characters/travel and drops. If an engine build
  * answers a command with `unsupported` (or the legacy `NOT_IMPLEMENTED`), the
  * matching control group shows a short note instead of a console error, and
  * the rest of the map keeps running.
  *
- * `window.__dioramaPlayground` exposes the engine, the reactive state and a
+ * `window.__mapramaPlayground` exposes the engine, the reactive state and a
  * small event probe for `scripts/screenshot.mjs`.
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { withBase } from 'vitepress';
-import type { DirectTransport, EngineHandle } from '@diorama/engine-web';
-import type { DropSpec, EngineCommand, EngineEvent, LabelInfo, LngLat, TravelMode } from '@diorama/protocol';
+import type { DirectTransport, EngineHandle } from '@maprama/engine-web';
+import type { DropSpec, EngineCommand, EngineEvent, LabelInfo, LngLat, TravelMode } from '@maprama/protocol';
 import {
   OPTIONS,
   WORLDS,
@@ -42,8 +42,8 @@ interface PlaygroundProbe {
 
 declare global {
   interface Window {
-    __DIORAMA_PLAYGROUND_READY__?: boolean;
-    __dioramaPlayground?: {
+    __MAPRAMA_PLAYGROUND_READY__?: boolean;
+    __mapramaPlayground?: {
       engine: EngineHandle;
       transport: DirectTransport;
       state: PlaygroundState;
@@ -184,7 +184,7 @@ function loadWorld(): void {
   const token = ++loadToken;
   disposeFrame?.();
   disposeFrame = null;
-  window.__DIORAMA_PLAYGROUND_READY__ = false;
+  window.__MAPRAMA_PLAYGROUND_READY__ = false;
   status.value = 'loading';
   statusText.value = '월드를 불러오는 중…';
   traveling.value = false;
@@ -215,7 +215,7 @@ function loadWorld(): void {
       disposeFrame?.();
       disposeFrame = null;
       status.value = 'ready';
-      window.__DIORAMA_PLAYGROUND_READY__ = true;
+      window.__MAPRAMA_PLAYGROUND_READY__ = true;
     }
   });
 }
@@ -332,12 +332,12 @@ async function copy(kind: 'jsx' | 'theme'): Promise<void> {
 
 onMounted(async () => {
   try {
-    const mod = await import('@diorama/engine-web');
+    const mod = await import('@maprama/engine-web');
     if (unmounted || !mapEl.value) return;
     transport = mod.createDirectTransport();
     transport.onEvent((event) => onEvent(event));
     engine = mod.createEngine(mapEl.value, { transport });
-    window.__dioramaPlayground = { engine, transport, state, probe, travelTo: startTravel };
+    window.__mapramaPlayground = { engine, transport, state, probe, travelTo: startTravel };
     loadWorld();
   } catch (e) {
     status.value = 'error';
@@ -353,7 +353,7 @@ onBeforeUnmount(() => {
   engine?.destroy();
   engine = null;
   transport = null;
-  window.__DIORAMA_PLAYGROUND_READY__ = false;
+  window.__MAPRAMA_PLAYGROUND_READY__ = false;
 });
 
 watch(() => state.world, () => loadWorld());
@@ -373,7 +373,7 @@ watch(() => [state.dropType, state.dropRarity], () => sendDrops());
 </script>
 
 <template>
-  <div class="dio-pg" :class="`is-${variant}`">
+  <div class="mpr-pg" :class="`is-${variant}`">
     <div class="stage">
       <div ref="mapEl" class="map" />
       <div v-if="status !== 'ready'" class="veil" role="status">
@@ -521,7 +521,7 @@ watch(() => [state.dropType, state.dropRarity], () => sendDrops());
 </template>
 
 <style scoped>
-.dio-pg {
+.mpr-pg {
   --pg-radius: 16px;
   display: grid;
   gap: 16px;
@@ -529,7 +529,7 @@ watch(() => [state.dropType, state.dropRarity], () => sendDrops());
   grid-template-areas: 'stage panel' 'code code';
   margin: 8px 0 24px;
 }
-.dio-pg.is-hero {
+.mpr-pg.is-hero {
   display: block;
   width: 100%;
   margin: 0;
@@ -541,7 +541,7 @@ watch(() => [state.dropType, state.dropRarity], () => sendDrops());
   border-radius: var(--pg-radius);
   overflow: hidden;
   background: linear-gradient(160deg, #dfe6fd, #eff0f5);
-  box-shadow: var(--dio-lift);
+  box-shadow: var(--mpr-lift);
   height: clamp(420px, 78vh, 720px);
 }
 .is-full .stage {
@@ -661,7 +661,7 @@ fieldset {
   gap: 8px;
 }
 legend {
-  font-family: var(--dio-display);
+  font-family: var(--mpr-display);
   font-size: 16px;
   padding: 0 6px;
   margin-left: -6px;
@@ -774,7 +774,7 @@ input:focus-visible {
   padding: 7px 9px;
   border-radius: 8px;
   background: rgba(227, 162, 59, 0.14);
-  color: var(--dio-mod);
+  color: var(--mpr-mod);
 }
 
 .code {
@@ -811,7 +811,7 @@ pre :deep(.tok-n) { color: #f6a9c9; }
 pre :deep(.tok-t) { color: #8fe0c6; }
 
 @media (max-width: 960px) {
-  .dio-pg {
+  .mpr-pg {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: 'stage' 'panel' 'code';
   }

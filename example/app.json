@@ -1,25 +1,25 @@
 {
   "expo": {
-    "name": "Diorama Catalog",
-    "slug": "diorama-catalog",
+    "name": "Maprama Catalog",
+    "slug": "maprama-catalog",
     "version": "0.0.0",
     "orientation": "portrait",
-    "scheme": "diorama-catalog",
+    "scheme": "maprama-catalog",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "dev.diorama.catalog",
+      "bundleIdentifier": "dev.maprama.catalog",
       "supportsTablet": false
     },
     "android": {
-      "package": "dev.diorama.catalog"
+      "package": "dev.maprama.catalog"
     },
     "plugins": [
       "expo-router",
       [
-        "@diorama/react-native",
+        "@maprama/react-native",
         {
           "features": ["characters", "drops", "labels", "travel"],
-          "locationPermissionText": "Diorama Catalog shows your position on the 2.5D map."
+          "locationPermissionText": "Maprama Catalog shows your position on the 2.5D map."
         }
       ]
     ]

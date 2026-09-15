@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useId, useMemo } from 'react';
-import type { CharacterSpec } from '@diorama/protocol';
+import type { CharacterSpec } from '@maprama/protocol';
 import { useMapContext } from '../context';
 import { resolveModel } from '../model';
 import type { CharacterProps } from '../types';

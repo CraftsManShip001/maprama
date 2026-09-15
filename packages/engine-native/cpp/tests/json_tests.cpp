@@ -1,16 +1,16 @@
 // JS-compatible JSON parsing and formatting.
 #include <string>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 #include "harness.hpp"
 
 namespace {
-using diorama::json::Value;
-namespace json = diorama::json;
+using maprama::json::Value;
+namespace json = maprama::json;
 }  // namespace
 
-DIORAMA_TEST(json_number_formatting_matches_js) {
-  const Value fixture = diorama::test::loadFixture(ctx, "json-format.json");
+MAPRAMA_TEST(json_number_formatting_matches_js) {
+  const Value fixture = maprama::test::loadFixture(ctx, "json-format.json");
   for (const Value& c : fixture.find("numbers")->items()) {
     const std::string& text = c.find("text")->asString();
     json::ParseResult parsed = json::parse(text);
@@ -24,8 +24,8 @@ DIORAMA_TEST(json_number_formatting_matches_js) {
   }
 }
 
-DIORAMA_TEST(json_value_stringify_matches_js) {
-  const Value fixture = diorama::test::loadFixture(ctx, "json-format.json");
+MAPRAMA_TEST(json_value_stringify_matches_js) {
+  const Value fixture = maprama::test::loadFixture(ctx, "json-format.json");
   for (const Value& c : fixture.find("values")->items()) {
     const std::string& text = c.find("text")->asString();
     json::ParseResult parsed = json::parse(text);
@@ -36,7 +36,7 @@ DIORAMA_TEST(json_value_stringify_matches_js) {
   }
 }
 
-DIORAMA_TEST(json_parser_limits_and_ordering) {
+MAPRAMA_TEST(json_parser_limits_and_ordering) {
   const auto nested = [](std::size_t depth) { return std::string(depth, '[') + std::string(depth, ']'); };
   ctx.check(json::parse(nested(json::kDefaultMaxDepth)).ok, "nesting at the depth limit parses");
   json::ParseResult tooDeep = json::parse(nested(json::kDefaultMaxDepth + 1));

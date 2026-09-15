@@ -1,27 +1,27 @@
 import { useState, type ReactNode, type RefObject } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { DioramaMap, type DioramaErrorEvent, type DioramaMapProps, type DioramaMapRef } from '@diorama/react-native';
+import { MapramaView, type MapramaErrorEvent, type MapramaViewProps, type MapramaViewRef } from '@maprama/react-native';
 
-export interface DemoMapProps extends Omit<DioramaMapProps, 'style' | 'testID' | 'children'> {
-  mapRef?: RefObject<DioramaMapRef | null>;
+export interface DemoMapProps extends Omit<MapramaViewProps, 'style' | 'testID' | 'children'> {
+  mapRef?: RefObject<MapramaViewRef | null>;
   children?: ReactNode;
 }
 
 /**
- * `DioramaMap` plus a status badge used by the Maestro flows: the text of
+ * `MapramaView` plus a status badge used by the Maestro flows: the text of
  * `testID="engine-status"` becomes `engine ready` after `onReady`. The last
  * error is shown under it (`testID="engine-last-error"`).
  */
 export function DemoMap({ mapRef, onReady, onError, ui, children, ...rest }: DemoMapProps) {
   const [status, setStatus] = useState('engine loading');
-  const [lastError, setLastError] = useState<DioramaErrorEvent | null>(null);
+  const [lastError, setLastError] = useState<MapramaErrorEvent | null>(null);
   return (
     <View style={styles.wrap}>
-      <DioramaMap
+      <MapramaView
         {...rest}
         ref={mapRef}
         style={StyleSheet.absoluteFill}
-        testID="diorama-map"
+        testID="maprama-map"
         ui={{ attribution: true, scaleBar: true, ...ui }}
         onReady={(event) => {
           setStatus('engine ready');
@@ -34,7 +34,7 @@ export function DemoMap({ mapRef, onReady, onError, ui, children, ...rest }: Dem
         }}
       >
         {children}
-      </DioramaMap>
+      </MapramaView>
       <View pointerEvents="none" style={styles.badge}>
         <Text testID="engine-status" style={styles.badgeText}>
           {status}

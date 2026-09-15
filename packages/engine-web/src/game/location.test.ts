@@ -1,4 +1,4 @@
-import type { WorldData } from '@diorama/protocol';
+import type { WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../util/math.js';
 import { loadWorldData } from '../world/data.js';

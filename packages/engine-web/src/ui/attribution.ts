@@ -10,7 +10,7 @@ export class Attribution {
 
   constructor(parent: HTMLElement) {
     this.el = parent.ownerDocument.createElement('div');
-    this.el.className = 'dio-attrib';
+    this.el.className = 'mpr-attrib';
     this.el.hidden = true;
     parent.appendChild(this.el);
   }

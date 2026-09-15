@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, render } from '@testing-library/react-native';
-import type { DropSpec, EngineEvent, LngLat } from '@diorama/protocol';
-import { Character, DioramaMap, DropLayer, shouldRestoreRejectedDrop, type DioramaMapProps, type ServiceDropLayerProps } from '../index';
+import type { DropSpec, EngineEvent, LngLat } from '@maprama/protocol';
+import { Character, MapramaView, DropLayer, shouldRestoreRejectedDrop, type MapramaViewProps, type ServiceDropLayerProps } from '../index';
 import { MAX_RETRY_AFTER_MS, MIN_RETRY_AFTER_MS, NearbyDropsTracker, isRetryableFetchError } from '../components/DropLayer';
 import { DropsServiceError, fetchNearbyDrops, parseRetryAfterMs, verifyDropCollect } from '../service/drops';
 import { READY, clearPosted, commands, commandsOf, emit, flushPromises, nextFrame, webViewInstances } from './helpers';
@@ -90,7 +90,7 @@ describe('DropLayer source="data"', () => {
     ];
     const onCollect = jest.fn();
     const tree = (data: Track[]) => (
-      <DioramaMap world={WORLD}>
+      <MapramaView world={WORLD}>
         <DropLayer
           id="music"
           data={data}
@@ -102,7 +102,7 @@ describe('DropLayer source="data"', () => {
           collectRadiusMeters={15}
           onCollect={onCollect}
         />
-      </DioramaMap>
+      </MapramaView>
     );
     const { rerender, unmount } = await render(tree(tracks));
     await emit(READY);
@@ -138,7 +138,7 @@ describe('DropLayer source="data"', () => {
     expect(commandsOf('setDropLayer')[0]!.drops.map((d) => d.id)).toEqual(['t1']);
 
     clearPosted();
-    await rerender(<DioramaMap world={WORLD} />);
+    await rerender(<MapramaView world={WORLD} />);
     await nextFrame();
     expect(commands()).toEqual([{ type: 'removeDropLayer', layerId: 'music' }]);
     await unmount();
@@ -160,13 +160,13 @@ describe('DropLayer source="service"', () => {
     speedMps: 1,
   });
 
-  function renderLayer(layer: Omit<Partial<ServiceDropLayerProps>, 'source'> = {}, map: Partial<DioramaMapProps> = {}) {
+  function renderLayer(layer: Omit<Partial<ServiceDropLayerProps>, 'source'> = {}, map: Partial<MapramaViewProps> = {}) {
     return render(layerTree(layer, map));
   }
 
-  function layerTree(layer: Omit<Partial<ServiceDropLayerProps>, 'source'> = {}, map: Partial<DioramaMapProps> = {}) {
+  function layerTree(layer: Omit<Partial<ServiceDropLayerProps>, 'source'> = {}, map: Partial<MapramaViewProps> = {}) {
     return (
-      <DioramaMap world={WORLD} {...map}>
+      <MapramaView world={WORLD} {...map}>
         <Character id="me" isPlayer follow="location" />
         <DropLayer
           id="coins"
@@ -178,7 +178,7 @@ describe('DropLayer source="service"', () => {
           positionThrottleMs={0}
           {...layer}
         />
-      </DioramaMap>
+      </MapramaView>
     );
   }
 

@@ -22,7 +22,7 @@ import {
   type BufferGeometry,
   type Material,
 } from 'three';
-import type { RoadClass, Vec2 } from '@diorama/protocol';
+import type { RoadClass, Vec2 } from '@maprama/protocol';
 import { mixHex, mulberry32, scaleHex } from '../util/math.js';
 import { ROAD_W } from '../world/graph.js';
 import { bbox, pointInPolygon, signedArea } from '../world/polygon.js';

@@ -6,7 +6,7 @@
 #   <maplibre-clone>  path to a git clone of maplibre/maplibre-native (never cloned by these scripts)
 #   --patches DIR     patch queue directory (default: packages/engine-native/patches)
 #   --base REF        upstream ref to build on (default: first non-comment line of DIR/UPSTREAM)
-#   --branch NAME     branch created/reset at REF (default: diorama/patched)
+#   --branch NAME     branch created/reset at REF (default: maprama/patched)
 #
 # Applies DIR/*.patch in lexical order with `git am --3way`. Refuses to run on a dirty work tree
 # or while a previous `git am` is in progress. On conflict it stops, leaves the `git am` session
@@ -19,7 +19,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 patches="$(cd "$script_dir/../.." && pwd)/patches"
 clone=""
 base=""
-branch="diorama/patched"
+branch="maprama/patched"
 while [ $# -gt 0 ]; do
   case "$1" in
     --patches) patches="${2:?--patches needs a directory}"; shift 2 ;;

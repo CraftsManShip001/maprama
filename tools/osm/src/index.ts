@@ -1,5 +1,5 @@
 /**
- * `@diorama/osm`: OpenStreetMap (Overpass) → Diorama `WorldData` builder.
+ * `@maprama/osm`: OpenStreetMap (Overpass) → Maprama `WorldData` builder.
  *
  * @packageDocumentation
  */

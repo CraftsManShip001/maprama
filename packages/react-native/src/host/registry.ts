@@ -1,8 +1,8 @@
 /**
- * Engine host registry. `DioramaMap` renders the host registered for its
+ * Engine host registry. `MapramaView` renders the host registered for its
  * `engine` prop (default `'web'`). A future native engine package calls
  * `registerEngineHost('native', NativeEngineHost)` and apps opt in with
- * `<DioramaMap engine="native">` — no other app code changes.
+ * `<MapramaView engine="native">` — no other app code changes.
  *
  * @module
  */

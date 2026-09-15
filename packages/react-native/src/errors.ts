@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { EngineErrorCode } from '@diorama/protocol';
+import type { EngineErrorCode } from '@maprama/protocol';
 
 /**
  * Error codes produced by the React Native host itself (engine codes such as
@@ -34,16 +34,16 @@ export type HostErrorCode =
   | 'listener_error';
 
 /** Any error code the library can report. */
-export type DioramaErrorCode = HostErrorCode | EngineErrorCode;
+export type MapramaErrorCode = HostErrorCode | EngineErrorCode;
 
-/** Error thrown by rejected promises of {@link DioramaMapRef} methods. */
-export class DioramaError extends Error {
-  /** Stable error code, see {@link DioramaErrorCode}. */
-  readonly code: DioramaErrorCode;
+/** Error thrown by rejected promises of {@link MapramaViewRef} methods. */
+export class MapramaError extends Error {
+  /** Stable error code, see {@link MapramaErrorCode}. */
+  readonly code: MapramaErrorCode;
 
-  constructor(code: DioramaErrorCode, message: string) {
+  constructor(code: MapramaErrorCode, message: string) {
     super(message);
-    this.name = 'DioramaError';
+    this.name = 'MapramaError';
     this.code = code;
   }
 }
@@ -53,6 +53,6 @@ export class DioramaError extends Error {
  * predate the protocol's `unsupported` code report `NOT_IMPLEMENTED`; both mean
  * "this engine does not implement the command".
  */
-export function normalizeErrorCode(code: string): DioramaErrorCode {
+export function normalizeErrorCode(code: string): MapramaErrorCode {
   return code === 'NOT_IMPLEMENTED' ? 'unsupported' : code;
 }

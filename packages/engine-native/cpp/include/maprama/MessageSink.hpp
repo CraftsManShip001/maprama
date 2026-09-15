@@ -1,13 +1,13 @@
-// Diorama native core — outbound message path (engine -> host).
+// Maprama native core — outbound message path (engine -> host).
 #pragma once
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
-namespace diorama {
+namespace maprama {
 
 enum class LogLevel : std::uint8_t { Debug, Info, Warn, Error };
 
@@ -35,4 +35,4 @@ class EventEmitter {
   virtual void emit(json::Value event) = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

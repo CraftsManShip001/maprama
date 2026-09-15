@@ -1,16 +1,16 @@
 /**
- * `@diorama/react-native`: a 2.5D game map for React Native.
+ * `@maprama/react-native`: a 2.5D game map for React Native.
  *
- * - {@link DioramaMap} with {@link Character}, {@link CharacterLayer}, {@link DropLayer},
+ * - {@link MapramaView} with {@link Character}, {@link CharacterLayer}, {@link DropLayer},
  *   {@link Geofence} and {@link MapOverlay} children.
- * - Imperative API via `ref` ({@link DioramaMapRef}) or {@link useDioramaMap}.
+ * - Imperative API via `ref` ({@link MapramaViewRef}) or {@link useMapramaView}.
  * - Opt-in continuous values with {@link useCharacterPosition} and {@link useCameraState}.
  * - Swappable engine hosts via {@link registerEngineHost}.
  *
  * @packageDocumentation
  */
 
-export { DioramaMap } from './DioramaMap';
+export { MapramaView } from './MapramaView';
 export { Character } from './components/Character';
 export { CharacterLayer } from './components/CharacterLayer';
 export {
@@ -24,11 +24,11 @@ export {
 export { Geofence } from './components/Geofence';
 export { MapOverlay } from './components/MapOverlay';
 
-export { useDioramaMap } from './hooks/useDioramaMap';
+export { useMapramaView } from './hooks/useMapramaView';
 export { useCharacterPosition, type UseCharacterPositionOptions } from './hooks/useCharacterPosition';
 export { useCameraState, type UseCameraStateOptions } from './hooks/useCameraState';
 
-export { DioramaError, normalizeErrorCode, type DioramaErrorCode, type HostErrorCode } from './errors';
+export { MapramaError, normalizeErrorCode, type MapramaErrorCode, type HostErrorCode } from './errors';
 export { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_THROTTLE_MS, DEFAULT_TRAVEL_START_TIMEOUT_MS } from './ref';
 export { resolveModel } from './model';
 
@@ -63,15 +63,15 @@ export type {
   CharacterProps,
   DataDropLayerProps,
   DeviceLocationProvider,
-  DioramaBuildingPressEvent,
-  DioramaErrorEvent,
-  DioramaLabelsProps,
-  DioramaLocationProps,
-  DioramaMapProps,
-  DioramaMapRef,
-  DioramaMapRefLike,
-  DioramaPressEvent,
-  DioramaReadyEvent,
+  MapramaBuildingPressEvent,
+  MapramaErrorEvent,
+  MapramaLabelsProps,
+  MapramaLocationProps,
+  MapramaViewProps,
+  MapramaViewRef,
+  MapramaViewRefLike,
+  MapramaPressEvent,
+  MapramaReadyEvent,
   DropCollectInfo,
   DropCollectRejectedInfo,
   DropCollectVerifiedInfo,
@@ -109,4 +109,4 @@ export type {
   ThemeSpec,
   TravelMode,
   WorldSource,
-} from '@diorama/protocol';
+} from '@maprama/protocol';

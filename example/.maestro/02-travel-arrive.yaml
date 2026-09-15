@@ -2,7 +2,7 @@
 # travel:arrive, then relaunch and check that the near preset (≈75 m of road) arrives with a two-digit length.
 # Taps cap Maestro's wait-to-settle: the map keeps animating, so an uncapped tap can block for 20+ s and
 # return after the walk has already ended.
-appId: dev.diorama.catalog
+appId: dev.maprama.catalog
 name: Travel arrives
 tags:
   - travel

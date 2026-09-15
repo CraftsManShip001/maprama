@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { haversineMeters, validateWorldData, type WorldData } from '@diorama/protocol';
+import { haversineMeters, validateWorldData, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { createKey } from '../scripts/create-key.js';
 import { worldSeedSql } from '../scripts/seed-from-world.js';

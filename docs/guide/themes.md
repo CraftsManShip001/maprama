@@ -3,7 +3,7 @@
 테마는 **프리셋 하나로 시작해서 필요한 값만 덮어쓰는** 방식입니다. `theme` prop이 바뀌면 `setTheme` 명령 하나가 엔진으로 갑니다.
 
 ```tsx
-<DioramaMap
+<MapramaView
   theme={{
     base: 'urban',
     timeOfDay: 'dusk',
@@ -34,8 +34,8 @@
 프리셋의 원본 데이터는 JSON으로도 배포됩니다.
 
 ```ts
-import urban from '@diorama/protocol/themes/urban.json';
-<DioramaMap theme={{ base: urban, timeOfDay: 'night' }} />
+import urban from '@maprama/protocol/themes/urban.json';
+<MapramaView theme={{ base: urban, timeOfDay: 'night' }} />
 ```
 
 ## 옵션
@@ -62,7 +62,7 @@ import urban from '@diorama/protocol/themes/urban.json';
 `resolveTheme(spec)`이 모든 값을 확정합니다. 우선순위는 **spec 필드 → `PRESET_DEFAULTS[base]` → `BASE_THEME_DEFAULTS`** 입니다. 엔진은 이 결과만 봅니다.
 
 ```ts
-import { resolveTheme } from '@diorama/protocol';
+import { resolveTheme } from '@maprama/protocol';
 
 const t = resolveTheme({ base: 'toy', timeOfDay: 'night' });
 t.buildings.massing; // 프리셋 기본값

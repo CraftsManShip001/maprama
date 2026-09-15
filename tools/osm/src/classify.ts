@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { BuildingKind, PoiCategory, RoadClass } from '@diorama/protocol';
+import type { BuildingKind, PoiCategory, RoadClass } from '@maprama/protocol';
 import type { Tags } from './types.js';
 
 /** Storey height used to convert floor counts to meters. */

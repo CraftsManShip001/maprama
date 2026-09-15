@@ -1,14 +1,14 @@
 {
-  "name": "@diorama/osm",
+  "name": "@maprama/osm",
   "version": "0.0.0",
-  "description": "Builds Diorama WorldData JSON from OpenStreetMap (Overpass) data, with optional Korean national building heights.",
+  "description": "Builds Maprama WorldData JSON from OpenStreetMap (Overpass) data, with optional Korean national building heights.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "diorama-osm": "./dist/bin.js"
+    "maprama-osm": "./dist/bin.js"
   },
   "exports": {
     ".": {
@@ -31,7 +31,7 @@
     "sample:seongsu": "node dist/bin.js sample seongsu"
   },
   "dependencies": {
-    "@diorama/protocol": "0.0.0",
+    "@maprama/protocol": "0.0.0",
     "@turf/helpers": "7.4.0",
     "@turf/intersect": "7.4.0"
   },

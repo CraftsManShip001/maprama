@@ -1,5 +1,5 @@
-Diorama (codename; final project name TBD)
-Copyright 2026 The Diorama Authors
+Maprama
+Copyright 2026 The Maprama Authors
 
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file for the full license text.
@@ -37,7 +37,7 @@ and are available at the URLs below.
 
 three.js (three) - MIT License
   Copyright (c) 2010-2026 three.js authors. https://github.com/mrdoob/three.js
-  Bundled into @diorama/engine-web (including the GLTFLoader, DRACOLoader and
+  Bundled into @maprama/engine-web (including the GLTFLoader, DRACOLoader and
   meshopt decoder example modules).
 
 glTF Transform (@gltf-transform/core, /extensions, /functions) - MIT License
@@ -50,7 +50,7 @@ meshoptimizer (meshoptimizer) - MIT License
 
 Draco (draco3dgltf) - Apache License 2.0
   https://github.com/google/draco
-  Used by tools/assets. @diorama/engine-web loads the Draco decoder at runtime
+  Used by tools/assets. @maprama/engine-web loads the Draco decoder at runtime
   from gstatic.com only for Draco-compressed models; it is not bundled.
 
 PMTiles (pmtiles) - BSD 3-Clause License

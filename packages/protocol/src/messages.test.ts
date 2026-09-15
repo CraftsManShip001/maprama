@@ -151,7 +151,7 @@ const commands: CommandFixtures = {
 };
 
 const events: EventFixtures = {
-  ready: [{ type: 'ready', engine: { name: '@diorama/engine-web', version: '0.0.0', kind: 'web' } }],
+  ready: [{ type: 'ready', engine: { name: '@maprama/engine-web', version: '0.0.0', kind: 'web' } }],
   error: [{ type: 'error', code: 'model_load_failed', message: 'GLB 404', fatal: false }],
   labelsIndex: [
     {

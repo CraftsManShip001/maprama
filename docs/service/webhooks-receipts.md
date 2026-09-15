@@ -8,11 +8,11 @@
 둘 다 앱 서버에서 검증한 뒤에 보상을 지급하세요.
 
 ```
-기기 ── drop:collect ──▶ @diorama/react-native ── POST /v1/drops/collect ──▶ 서비스
+기기 ── drop:collect ──▶ @maprama/react-native ── POST /v1/drops/collect ──▶ 서비스
   ▲                                                                        │
   │ onCollectVerified { receipt }                                          │ 검증 성공
   │                                                                        ▼
-앱 ── receipt ──▶ 앱 서버 ◀── POST drop.collected (Diorama-Signature) ── 웹훅 전송
+앱 ── receipt ──▶ 앱 서버 ◀── POST drop.collected (Maprama-Signature) ── 웹훅 전송
                    │
                    └─ verifyReceipt / verifyWebhookSignature → claims.userId 대조 → 멱등 지급
 ```
@@ -21,17 +21,17 @@
 
 | 비밀키 | 얻는 곳 | 용도 |
 | --- | --- | --- |
-| 웹훅 서명 비밀 `whsec_...` | `POST /v1/webhooks` 응답 (처음 만들 때 또는 `rotateSecret: true`) | `Diorama-Signature` 검증 |
+| 웹훅 서명 비밀 `whsec_...` | `POST /v1/webhooks` 응답 (처음 만들 때 또는 `rotateSecret: true`) | `Maprama-Signature` 검증 |
 | 영수증 비밀 `receiptSecret` | `GET /v1/receipts/secret` (admin) 또는 `POST /v1/webhooks` 응답 | `verifyReceipt` |
 
-영수증 비밀은 `HMAC-SHA256(RECEIPT_SECRET, "diorama-receipt:v1:" + appId)`로 앱마다 따로 파생되므로 한 앱이 다른 앱의 영수증을 위조할 수 없습니다.
+영수증 비밀은 `HMAC-SHA256(RECEIPT_SECRET, "maprama-receipt:v1:" + appId)`로 앱마다 따로 파생되므로 한 앱이 다른 앱의 영수증을 위조할 수 없습니다.
 
 ## 웹훅 등록
 
 ```sh
 curl -X POST https://api.example/v1/webhooks \
   -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
-  -d '{"url":"https://game.example.com/diorama/webhook"}'
+  -d '{"url":"https://game.example.com/maprama/webhook"}'
 ```
 
 - 앱마다 엔드포인트 하나. 처음 만들 때 `whsec_...` 서명 비밀이 생깁니다.
@@ -41,7 +41,7 @@ curl -X POST https://api.example/v1/webhooks \
 ```sh
 curl -X POST https://api.example/v1/webhooks \
   -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
-  -d '{"url":"https://game.example.com/diorama/webhook","rotateSecret":true}'
+  -d '{"url":"https://game.example.com/maprama/webhook","rotateSecret":true}'
 ```
 
 - `POST /v1/webhooks/test`는 `webhook.test` 이벤트를 동기로 보내고 시도 결과를 돌려줍니다.
@@ -56,32 +56,32 @@ curl -X POST https://api.example/v1/webhooks \
 ## 전송 형식
 
 ```http
-POST /diorama/webhook
+POST /maprama/webhook
 Content-Type: application/json
-Diorama-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>
-Diorama-Event: drop.collected | webhook.test
-Diorama-Delivery: evt_...
+Maprama-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>
+Maprama-Event: drop.collected | webhook.test
+Maprama-Delivery: evt_...
 ```
 
 최대 3회 시도(1초, 4초 백오프), 시도마다 8초 타임아웃, 리다이렉트는 따라가지 않습니다.
 
 ## Node 앱 서버에서 검증
 
-`@diorama/api/verify`는 의존성 없는 Web Crypto 함수만 담고 있어서 Node, Workers, Deno 어디서나 씁니다.
+`@maprama/api/verify`는 의존성 없는 Web Crypto 함수만 담고 있어서 Node, Workers, Deno 어디서나 씁니다.
 
 ```ts
 import express from 'express';
-import { verifyWebhookSignature, verifyReceipt } from '@diorama/api/verify';
+import { verifyWebhookSignature, verifyReceipt } from '@maprama/api/verify';
 
 const app = express();
 
-app.post('/diorama/webhook', express.text({ type: 'application/json' }), async (req, res) => {
-  const sig = await verifyWebhookSignature(req.body, req.get('Diorama-Signature'), process.env.DIORAMA_WEBHOOK_SECRET!);
+app.post('/maprama/webhook', express.text({ type: 'application/json' }), async (req, res) => {
+  const sig = await verifyWebhookSignature(req.body, req.get('Maprama-Signature'), process.env.MAPRAMA_WEBHOOK_SECRET!);
   if (!sig.ok) return res.status(400).send(sig.reason); // 'malformed' | 'mismatch' | 'expired'
 
   const event = JSON.parse(req.body);
   if (event.type === 'drop.collected') {
-    const receipt = await verifyReceipt(event.data.receipt, process.env.DIORAMA_RECEIPT_SECRET!);
+    const receipt = await verifyReceipt(event.data.receipt, process.env.MAPRAMA_RECEIPT_SECRET!);
     if (receipt.ok) await grantReward(receipt.claims.userId, receipt.claims.dropId, receipt.claims.payload);
   }
   res.sendStatus(204);
@@ -96,7 +96,7 @@ app.post('/diorama/webhook', express.text({ type: 'application/json' }), async (
 
 ```ts
 app.post('/rewards/claim', requireSession, async (req, res) => {
-  const r = await verifyReceipt(req.body.receipt, process.env.DIORAMA_RECEIPT_SECRET!);
+  const r = await verifyReceipt(req.body.receipt, process.env.MAPRAMA_RECEIPT_SECRET!);
   if (!r.ok) return res.status(400).json({ error: r.reason }); // 'malformed' | 'mismatch'
   if (r.claims.userId !== req.session.userId) return res.status(403).end();
   await grantRewardOnce(r.claims.dropId, r.claims.userId, r.claims.payload);

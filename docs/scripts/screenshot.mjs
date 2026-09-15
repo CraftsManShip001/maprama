@@ -4,14 +4,14 @@
 //
 // Serves .vitepress/dist on 127.0.0.1 (clean URLs), drives headless Chrome over
 // the DevTools protocol (SwiftShader WebGL), waits for
-// `window.__DIORAMA_PLAYGROUND_READY__`, runs the page's scenario and writes a
+// `window.__MAPRAMA_PLAYGROUND_READY__`, runs the page's scenario and writes a
 // PNG per page. Scenarios:
 //   labels  holo label cards become visible after `labelsIndex`;
 //   travel  a walk → car → walk trip emits `travel:start`, the player moves
 //           (captured mid-route), then `travel:arrive` arrives;
 //   drops   the demo layer renders 8 drops with rarity beams/rings, and the JSX
 //           panel for `source="service"` includes `userId` and only props that
-//           exist in `@diorama/react-native`.
+//           exist in `@maprama/react-native`.
 // Exits 1 when a page logs a console error, throws, logs a browser error
 // entry, shows an `unsupported` note, fails its scenario, or never becomes
 // ready. Chrome and the server are always shut down before exit.
@@ -42,10 +42,10 @@ const PAGES = [
   { name: 'playground-drops', path: '/playground/', width: 1280, height: 1500, scenario: 'drops' },
 ];
 
-// Props per component, from packages/react-native/src/types.ts (DioramaMapProps + ref,
+// Props per component, from packages/react-native/src/types.ts (MapramaViewProps + ref,
 // CharacterProps, DataDropLayerProps | ServiceDropLayerProps). The JSX panel may only use these.
 const RN_PROPS = {
-  DioramaMap: ['ref', 'key', 'world', 'theme', 'labels', 'ui', 'camera', 'location', 'engine', 'requestTimeoutMs', 'travelStartTimeoutMs', 'onReady', 'onPress', 'onBuildingPress', 'onError', 'style', 'testID'],
+  MapramaView: ['ref', 'key', 'world', 'theme', 'labels', 'ui', 'camera', 'location', 'engine', 'requestTimeoutMs', 'travelStartTimeoutMs', 'onReady', 'onPress', 'onBuildingPress', 'onError', 'style', 'testID'],
   Character: ['key', 'id', 'isPlayer', 'model', 'animations', 'follow', 'position', 'name', 'color', 'scale', 'showNameTag'],
   DropLayer: ['key', 'id', 'collectRadiusMeters', 'collectorIds', 'onCollect', 'source', 'data', 'getId', 'getCoordinate', 'getType', 'getRarity', 'getValue', 'getModel', 'getPayload',
     'channel', 'apiKey', 'baseUrl', 'userId', 'radiusMeters', 'refetchDistanceMeters', 'characterId', 'positionThrottleMs', 'onCollectVerified', 'onCollectRejected'],
@@ -56,7 +56,7 @@ function jsxProps(src) {
   let s = src.replace(/"[^"\n]*"/g, '""');
   for (let prev = ''; prev !== s;) { prev = s; s = s.replace(/\{[^{}]*\}/g, ''); }
   const out = [];
-  for (const m of s.matchAll(/<(DioramaMap|Character|DropLayer)\b([^>]*)>/g)) {
+  for (const m of s.matchAll(/<(MapramaView|Character|DropLayer)\b([^>]*)>/g)) {
     for (const a of m[2].matchAll(/([A-Za-z]+)(?==|\s|\/|$)/g)) out.push([m[1], a[1]]);
   }
   return out;
@@ -81,7 +81,7 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const profile = mkdtempSync(join(tmpdir(), 'diorama-docs-shot-'));
+const profile = mkdtempSync(join(tmpdir(), 'maprama-docs-shot-'));
 const chrome = spawn(CHROME, [
   '--headless=new', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist',
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check',
@@ -140,26 +140,26 @@ async function waitFor(expression, sessionId, timeoutMs, stepMs = 250) {
   }
 }
 
-const PG = 'window.__dioramaPlayground';
+const PG = 'window.__mapramaPlayground';
 /** Meters between the player's start and latest reported position. */
 const MOVED = `(() => { const p = ${PG}.probe; if (!p.position || !p.start) return 0;
   const k = 111320, dx = (p.position.lng - p.start.lng) * k * Math.cos(p.start.lat * Math.PI / 180), dz = (p.position.lat - p.start.lat) * k;
   return Math.round(Math.hypot(dx, dz)); })()`;
-const JSX_TEXT = `document.querySelector('.dio-pg .code pre')?.textContent || ''`;
+const JSX_TEXT = `document.querySelector('.mpr-pg .code pre')?.textContent || ''`;
 
 function checkJsx(jsx) {
   const bad = jsxProps(jsx).filter(([c, p]) => !RN_PROPS[c].includes(p)).map(([c, p]) => `${c}.${p}`);
-  return bad.length ? `JSX uses props that @diorama/react-native does not have: ${bad.join(', ')}` : null;
+  return bad.length ? `JSX uses props that @maprama/react-native does not have: ${bad.join(', ')}` : null;
 }
 
 const SCENARIOS = {
   async labels(sessionId) {
-    const visible = await waitFor(`document.querySelectorAll('.dio-pg .dio-hl.on').length`, sessionId, 20000);
+    const visible = await waitFor(`document.querySelectorAll('.mpr-pg .mpr-hl.on').length`, sessionId, 20000);
     const index = await evaluate(`${PG}.probe.events.labelsIndex || 0`, sessionId);
     if (!index) return { error: 'no labelsIndex event' };
     if (!visible) return { error: 'no holo label card became visible', info: { labelsIndex: index } };
     await sleep(800); // let the dot → line → panel pop-in finish
-    const titles = await evaluate(`[...document.querySelectorAll('.dio-pg .dio-hl.on b')].slice(0, 6).map((b) => b.textContent)`, sessionId);
+    const titles = await evaluate(`[...document.querySelectorAll('.mpr-pg .mpr-hl.on b')].slice(0, 6).map((b) => b.textContent)`, sessionId);
     return { info: { labelsIndex: index, holoVisible: visible, titles } };
   },
 
@@ -237,17 +237,17 @@ async function capture(page) {
     let ready = false;
     const deadline = Date.now() + PAGE_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      if ((await evaluate('window.__DIORAMA_PLAYGROUND_READY__ === true', sessionId)) === true) { ready = true; break; }
+      if ((await evaluate('window.__MAPRAMA_PLAYGROUND_READY__ === true', sessionId)) === true) { ready = true; break; }
       if (errors.length) break;
       await sleep(500);
     }
     if (ready && page.world) {
       // switch the playground world through its reactive state and wait for the new world to render
-      await evaluate(`window.__dioramaPlayground.state.world = ${JSON.stringify(page.world)}`, sessionId);
+      await evaluate(`window.__mapramaPlayground.state.world = ${JSON.stringify(page.world)}`, sessionId);
       await sleep(500);
       ready = false;
       while (Date.now() < deadline) {
-        if ((await evaluate('window.__DIORAMA_PLAYGROUND_READY__ === true', sessionId)) === true) { ready = true; break; }
+        if ((await evaluate('window.__MAPRAMA_PLAYGROUND_READY__ === true', sessionId)) === true) { ready = true; break; }
         if (errors.length) break;
         await sleep(500);
       }
@@ -268,10 +268,10 @@ async function capture(page) {
     if (ready) {
       Object.assign(info, await evaluate(`({
         unsupported: [...document.querySelectorAll('[data-unsupported]')].map((e) => e.dataset.unsupported),
-        log: [...document.querySelectorAll('.dio-pg .log li')].map((e) => e.textContent),
-        canvas: !!document.querySelector('.dio-pg canvas'),
-        map: (() => { const r = document.querySelector('.dio-pg .map')?.getBoundingClientRect(); return r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null; })(),
-        jsx: (document.querySelector('.dio-pg .code pre')?.textContent || '').split('\\n').length,
+        log: [...document.querySelectorAll('.mpr-pg .log li')].map((e) => e.textContent),
+        canvas: !!document.querySelector('.mpr-pg canvas'),
+        map: (() => { const r = document.querySelector('.mpr-pg .map')?.getBoundingClientRect(); return r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null; })(),
+        jsx: (document.querySelector('.mpr-pg .code pre')?.textContent || '').split('\\n').length,
       })`, sessionId));
       if (info.unsupported.length) errors.push(`unsupported notes shown: ${info.unsupported.join(', ')}`);
       await sleep(300);

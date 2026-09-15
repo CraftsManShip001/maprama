@@ -3,12 +3,12 @@
  *
  * Winding convention: a ring is "counter-clockwise" when its shoelace signed
  * area, computed over `[x, z]` exactly as stored, is positive. This matches the
- * `@diorama/protocol` test fixtures (e.g. `[[1,1],[5,1],[5,5],[1,5]]`).
+ * `@maprama/protocol` test fixtures (e.g. `[[1,1],[5,1],[5,5],[1,5]]`).
  *
  * @module
  */
 
-import type { Vec2 } from '@diorama/protocol';
+import type { Vec2 } from '@maprama/protocol';
 
 /** Axis-aligned rectangle in world units. */
 export interface Rect {

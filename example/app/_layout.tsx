@@ -6,7 +6,7 @@ export default function RootLayout() {
     <>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerBackTitle: 'Catalog' }}>
-        <Stack.Screen name="index" options={{ title: 'Diorama Catalog' }} />
+        <Stack.Screen name="index" options={{ title: 'Maprama Catalog' }} />
         <Stack.Screen name="themes" options={{ title: 'Themes' }} />
         <Stack.Screen name="world" options={{ title: 'Real data vs procedural' }} />
         <Stack.Screen name="character" options={{ title: 'Character & location' }} />

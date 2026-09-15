@@ -1,4 +1,4 @@
-import { RARITIES, haversineMeters } from '@diorama/protocol';
+import { RARITIES, haversineMeters } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createMemoryDeps } from '../src/adapters/memory/index.js';

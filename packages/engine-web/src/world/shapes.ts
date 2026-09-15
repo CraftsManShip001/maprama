@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { BuildingKind } from '@diorama/protocol';
+import type { BuildingKind } from '@maprama/protocol';
 import { mulberry32 } from '../util/math.js';
 import type { MassShape, RoofKind } from './model.js';
 

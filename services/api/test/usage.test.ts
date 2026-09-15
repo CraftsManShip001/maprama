@@ -20,14 +20,14 @@ describe('usage metering', () => {
 
     const r1 = await h.request('/v1/search?q=a', { key });
     expect(r1.status).toBe(200);
-    expect(r1.headers.get('X-Diorama-Usage')).toBe('5/12');
+    expect(r1.headers.get('X-Maprama-Usage')).toBe('5/12');
     expect(r1.headers.get('X-RateLimit-Remaining')).toBe('7');
     expect((await h.request('/v1/search?q=a', { key })).status).toBe(200);
 
     const r3 = await h.request('/v1/search?q=a', { key });
     expect(r3.status).toBe(429);
     expect((await json<{ error: { code: string } }>(r3)).error.code).toBe('QUOTA_EXCEEDED');
-    expect(r3.headers.get('X-Diorama-Usage')).toBe('10/12');
+    expect(r3.headers.get('X-Maprama-Usage')).toBe('10/12');
     expect(r3.headers.get('X-RateLimit-Remaining')).toBe('2');
 
     const usage = await json<UsageJson>(await h.request('/v1/usage', { key }));

@@ -19,7 +19,7 @@ import {
   type Station,
   type Vec2,
   type WorldData,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import {
   classifyKind,
   classifyPoi,
@@ -61,7 +61,7 @@ export const KR_ATTRIBUTION = '건물 높이: 국가공간정보포털 GIS건물
 export interface BuildWorldOptions {
   /** Human-readable world name. */
   name: string;
-  /** Clip box. Defaults to `raw.diorama.bbox`, else the extent of the raw elements. */
+  /** Clip box. Defaults to `raw.maprama.bbox`, else the extent of the raw elements. */
   bbox?: BBox;
   /** World origin. Defaults to the bbox center. */
   origin?: LngLat;
@@ -188,7 +188,7 @@ function wayPoints(el: OverpassElement): OverpassLatLon[] {
 export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOptions): BuildWorldResult {
   if (!raw || !Array.isArray(raw.elements)) throw new TypeError('buildWorld: raw must be an Overpass JSON object with elements[]');
   const unitMeters = options.unitMeters ?? DEFAULT_UNIT_METERS;
-  const bbox = options.bbox ?? raw.diorama?.bbox ?? inferBBox(raw);
+  const bbox = options.bbox ?? raw.maprama?.bbox ?? inferBBox(raw);
   assertBBox(bbox);
   const origin: LngLat = options.origin ?? { lat: (bbox.south + bbox.north) / 2, lng: (bbox.west + bbox.east) / 2 };
   const projection = createProjection({ origin, unitMeters });

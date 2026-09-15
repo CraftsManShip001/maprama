@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LABEL_ICONS, validateEngineEvent, type WorldData } from '@diorama/protocol';
+import { LABEL_ICONS, validateEngineEvent, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { projectionFor } from '../engine/requests.js';
 import { loadWorldData } from '../world/data.js';

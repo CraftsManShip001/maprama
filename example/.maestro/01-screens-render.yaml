@@ -1,5 +1,5 @@
 # Launch → every catalog screen renders and its engine reports ready.
-appId: dev.diorama.catalog
+appId: dev.maprama.catalog
 name: Every screen renders with engine ready
 tags:
   - smoke

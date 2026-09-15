@@ -1,4 +1,4 @@
-// Diorama native core — circular geofences.
+// Maprama native core — circular geofences.
 //
 // Commands: setGeofences.
 // Events:   geofence:enter, geofence:exit.
@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class CharacterSystem;
 
@@ -30,4 +30,4 @@ class GeofenceSystem {
   virtual std::size_t geofenceCount() const = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

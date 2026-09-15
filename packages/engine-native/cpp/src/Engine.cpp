@@ -1,12 +1,12 @@
-#include "diorama/Engine.hpp"
+#include "maprama/Engine.hpp"
 
 #include <mutex>
 #include <utility>
 
-#include "diorama/Dispatcher.hpp"
-#include "diorama/WorldStore.hpp"
+#include "maprama/Dispatcher.hpp"
+#include "maprama/WorldStore.hpp"
 
-namespace diorama {
+namespace maprama {
 
 namespace {
 
@@ -89,4 +89,4 @@ std::unique_ptr<Engine> createEngine(std::shared_ptr<MessageSink> sink, EngineCo
   return std::make_unique<CoreEngine>(std::move(sink), std::move(config));
 }
 
-}  // namespace diorama
+}  // namespace maprama

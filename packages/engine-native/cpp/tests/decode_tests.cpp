@@ -1,23 +1,23 @@
-// decodeCommand / decodeEvent conformance against golden results from @diorama/protocol.
+// decodeCommand / decodeEvent conformance against golden results from @maprama/protocol.
 #include <string>
 
-#include "diorama/protocol.hpp"
+#include "maprama/protocol.hpp"
 #include "harness.hpp"
 
 namespace {
 
-using diorama::json::Value;
-namespace json = diorama::json;
-namespace protocol = diorama::protocol;
+using maprama::json::Value;
+namespace json = maprama::json;
+namespace protocol = maprama::protocol;
 
 const std::string kInvalidJsonPrefix = "$: invalid JSON: ";
 
 bool startsWith(const std::string& s, const std::string& prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
 
-void runDecodeFixture(diorama::test::Context& ctx, const char* file,
+void runDecodeFixture(maprama::test::Context& ctx, const char* file,
                       protocol::DecodeResult<protocol::Envelope> (*decodeText)(std::string_view),
                       protocol::DecodeResult<protocol::Envelope> (*decodeValue)(Value)) {
-  const Value fixture = diorama::test::loadFixture(ctx, file);
+  const Value fixture = maprama::test::loadFixture(ctx, file);
   const auto& cases = fixture.find("cases")->items();
   ctx.check(cases.size() > 100, std::string(file) + " has cases");
   long valid = 0;
@@ -45,8 +45,8 @@ void runDecodeFixture(diorama::test::Context& ctx, const char* file,
         continue;
       }
       ctx.check(!r.ok && r.error == expected,
-                std::string(file) + " [" + name + "]: expected error\n      " + diorama::test::truncate(expected, 400) +
-                    "\n      got\n      " + (r.ok ? std::string("ok") : diorama::test::truncate(r.error, 400)));
+                std::string(file) + " [" + name + "]: expected error\n      " + maprama::test::truncate(expected, 400) +
+                    "\n      got\n      " + (r.ok ? std::string("ok") : maprama::test::truncate(r.error, 400)));
     }
 
     // Object path (pre-parsed envelope) must agree with the text path whenever the text is valid JSON.
@@ -61,15 +61,15 @@ void runDecodeFixture(diorama::test::Context& ctx, const char* file,
 
 }  // namespace
 
-DIORAMA_TEST(decode_command_conformance) {
+MAPRAMA_TEST(decode_command_conformance) {
   runDecodeFixture(ctx, "decode-command.json", &protocol::decodeCommand, &protocol::decodeCommandValue);
 }
 
-DIORAMA_TEST(decode_event_conformance) {
+MAPRAMA_TEST(decode_event_conformance) {
   runDecodeFixture(ctx, "decode-event.json", &protocol::decodeEvent, &protocol::decodeEventValue);
 }
 
-DIORAMA_TEST(encode_roundtrip) {
+MAPRAMA_TEST(encode_roundtrip) {
   const Value msg = Value::object({{"type", "cancelTravel"}, {"characterId", "player"}});
   const std::string text = protocol::encodeCommand(msg, 42);
   ctx.check(text == R"({"v":1,"seq":42,"kind":"cmd","msg":{"type":"cancelTravel","characterId":"player"}})",

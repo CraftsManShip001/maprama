@@ -1,5 +1,5 @@
 /**
- * The map controller: implements {@link DioramaMapRef} on top of an
+ * The map controller: implements {@link MapramaViewRef} on top of an
  * {@link EngineHost}. It owns the pre-ready command queue, request/response
  * correlation by `requestId`, the travel promise lifecycle, reference-counted
  * subscriptions and event fan-out.
@@ -24,13 +24,13 @@ import type {
   SubscriptionTopic,
   TravelLeg,
   TravelMode,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import { throttle } from './batching';
-import { DioramaError, normalizeErrorCode, type DioramaErrorCode } from './errors';
+import { MapramaError, normalizeErrorCode, type MapramaErrorCode } from './errors';
 import type { EngineHost } from './host/EngineHost';
 import type {
-  DioramaErrorEvent,
-  DioramaMapRef,
+  MapramaErrorEvent,
+  MapramaViewRef,
   EngineEventOf,
   RequestOptions,
   SubscribeOptions,
@@ -52,7 +52,7 @@ export interface MapControllerOptions {
   /** Called after `init` and the queue were sent. `isReload` is true for every `ready` after the first. */
   onReady?: (engine: EngineInfo, isReload: boolean) => void;
   /** Receives engine `error` events (codes normalised) and host-side errors. */
-  onError?: (error: DioramaErrorEvent) => void;
+  onError?: (error: MapramaErrorEvent) => void;
   /** Called before every imperative command so pending declarative changes go out first. */
   beforeImperativeSend?: () => void;
   /** Static default request timeout (used when `getTimeouts` returns none). */
@@ -61,13 +61,13 @@ export interface MapControllerOptions {
   travelStartTimeoutMs?: number;
   /** Current timeout defaults (e.g. from the latest props); read every time a timer is armed. */
   getTimeouts?: () => { requestTimeoutMs?: number | undefined; travelStartTimeoutMs?: number | undefined };
-  /** Implements {@link DioramaMapRef.refreshLabelContent}. */
+  /** Implements {@link MapramaViewRef.refreshLabelContent}. */
   refreshLabelContent?: () => void;
 }
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
-  reject: (error: DioramaError) => void;
+  reject: (error: MapramaError) => void;
   timer: ReturnType<typeof setTimeout> | null;
   /** Per-call `timeoutMs`; the map default is read when the timer is armed. */
   timeoutOverride: number | undefined;
@@ -79,7 +79,7 @@ interface PendingTravel {
   legs: TravelLeg[];
   started: boolean;
   resolve: (value: TravelResult) => void;
-  reject: (error: DioramaError) => void;
+  reject: (error: MapramaError) => void;
   startTimer: ReturnType<typeof setTimeout> | null;
   totalTimer: ReturnType<typeof setTimeout> | null;
   /** Per-call `startTimeoutMs`; the map default is read when the timer is armed. */
@@ -108,8 +108,8 @@ const nextId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** Implementation of {@link DioramaMapRef}. */
-export class MapController implements DioramaMapRef {
+/** Implementation of {@link MapramaViewRef}. */
+export class MapController implements MapramaViewRef {
   private host: EngineHost | null = null;
   private offHost: (() => void) | null = null;
   private initialized = false;
@@ -177,17 +177,17 @@ export class MapController implements DioramaMapRef {
   }
 
   /** Reports a host-side error through `onError`. */
-  reportError(error: DioramaErrorEvent): void {
+  reportError(error: MapramaErrorEvent): void {
     this.options.onError?.(error);
   }
 
   /**
    * Reports an engine host failure through `onError`. A fatal failure (e.g.
    * `host_load_failed`, or no host registered) also rejects every pending
-   * request and travel with a {@link DioramaError} carrying the host's code,
+   * request and travel with a {@link MapramaError} carrying the host's code,
    * because the engine will not answer them.
    */
-  reportHostError(error: DioramaErrorEvent): void {
+  reportHostError(error: MapramaErrorEvent): void {
     if (error.fatal && !this.disposed) this.rejectPending(error.code, error.message);
     this.options.onError?.(error);
   }
@@ -208,7 +208,7 @@ export class MapController implements DioramaMapRef {
         this.requests.delete(event.requestId);
         if (pending.timer) clearTimeout(pending.timer);
         if (event.ok) pending.resolve(event.result);
-        else pending.reject(new DioramaError(normalizeErrorCode(event.error.code), event.error.message));
+        else pending.reject(new MapramaError(normalizeErrorCode(event.error.code), event.error.message));
         break;
       }
       case 'travel:start': {
@@ -227,7 +227,7 @@ export class MapController implements DioramaMapRef {
       }
       case 'travel:cancel': {
         const travel = this.takeTravel(event.requestId);
-        travel?.reject(new DioramaError('travel_cancelled', `travel ${event.requestId} of "${event.characterId}" was cancelled`));
+        travel?.reject(new MapramaError('travel_cancelled', `travel ${event.requestId} of "${event.characterId}" was cancelled`));
         break;
       }
       default:
@@ -329,7 +329,7 @@ export class MapController implements DioramaMapRef {
   }
 
   travel(characterId: string, to: LngLat, modes: TravelMode | TravelMode[] = ['walk'], options: TravelOptions = {}): Promise<TravelResult> {
-    if (this.disposed) return Promise.reject(new DioramaError('unmounted', 'the map was unmounted'));
+    if (this.disposed) return Promise.reject(new MapramaError('unmounted', 'the map was unmounted'));
     const requestId = nextId('travel');
     const modeList = Array.isArray(modes) ? modes : [modes];
     return new Promise<TravelResult>((resolve, reject) => {
@@ -352,7 +352,7 @@ export class MapController implements DioramaMapRef {
   }
 
   request<M extends RequestMethod>(method: M, params: RequestParamsMap[M], options: RequestOptions = {}): Promise<RequestResultMap[M]> {
-    if (this.disposed) return Promise.reject(new DioramaError('unmounted', 'the map was unmounted'));
+    if (this.disposed) return Promise.reject(new MapramaError('unmounted', 'the map was unmounted'));
     const requestId = nextId('req');
     return new Promise<RequestResultMap[M]>((resolve, reject) => {
       const pending: PendingRequest = {
@@ -480,7 +480,7 @@ export class MapController implements DioramaMapRef {
       this.requests.delete(requestId);
       if (!delivered) this.dropQueued('request', requestId);
       pending.reject(
-        new DioramaError(
+        new MapramaError(
           'timeout',
           delivered
             ? `request "${pending.method}" timed out after ${timeoutMs} ms`
@@ -495,7 +495,7 @@ export class MapController implements DioramaMapRef {
     const fail = (message: string): void => {
       if (this.travels.get(requestId) !== travel) return;
       this.takeTravel(requestId);
-      travel.reject(new DioramaError('timeout', message));
+      travel.reject(new MapramaError('timeout', message));
       if (delivered) this.sendCommand({ type: 'cancelTravel', characterId: travel.characterId });
       else this.dropQueued('travel', requestId);
     };
@@ -530,17 +530,17 @@ export class MapController implements DioramaMapRef {
     return travel;
   }
 
-  private rejectPending(code: DioramaErrorCode, message: string): void {
+  private rejectPending(code: MapramaErrorCode, message: string): void {
     // Rejected work must not reach an engine that becomes ready later.
     this.queue = this.queue.filter((c) => c.type !== 'request' && c.type !== 'travel');
     for (const [requestId, pending] of [...this.requests]) {
       this.requests.delete(requestId);
       if (pending.timer) clearTimeout(pending.timer);
-      pending.reject(new DioramaError(code, `request "${pending.method}": ${message}`));
+      pending.reject(new MapramaError(code, `request "${pending.method}": ${message}`));
     }
     for (const requestId of [...this.travels.keys()]) {
       const travel = this.takeTravel(requestId);
-      travel?.reject(new DioramaError(code, `travel ${requestId}: ${message}`));
+      travel?.reject(new MapramaError(code, `travel ${requestId}: ${message}`));
     }
   }
 }

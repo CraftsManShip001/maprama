@@ -7,7 +7,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { serve } from '@hono/node-server';
-import { validateWorldData, type WorldData } from '@diorama/protocol';
+import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { createApp } from '../app.js';
 import { createMemoryDeps } from '../adapters/memory/index.js';
 import { BLOB_KEYS, PLAN_DEFAULT_QUOTA } from '../config.js';
@@ -50,4 +50,4 @@ for (const role of ['client', 'admin'] as const) {
   console.log(`${role} key (dev only): ${key}`);
 }
 
-serve({ fetch: createApp(deps).fetch, port }, (info) => console.log(`diorama-api listening on http://localhost:${info.port}`));
+serve({ fetch: createApp(deps).fetch, port }, (info) => console.log(`maprama-api listening on http://localhost:${info.port}`));

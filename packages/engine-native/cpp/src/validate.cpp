@@ -3,7 +3,7 @@
 #include <cfloat>
 #include <cmath>
 
-namespace diorama::validate {
+namespace maprama::validate {
 
 namespace {
 
@@ -235,4 +235,4 @@ RunResult run(const Check& check, const Value* value, const std::string& path) {
   return RunResult{false, std::move(*err)};
 }
 
-}  // namespace diorama::validate
+}  // namespace maprama::validate

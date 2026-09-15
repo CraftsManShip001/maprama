@@ -4,7 +4,7 @@
  * and screen ⇄ world projection. Uses three.js math only (no WebGL), so it
  * works in node tests.
  *
- * Conventions (match `@diorama/protocol` `CameraSpec`):
+ * Conventions (match `@maprama/protocol` `CameraSpec`):
  * - `pitch` degrees, 0 = straight down, clamped to 0–60.
  * - `bearing` degrees clockwise from north = the compass direction at the top of the screen.
  * - `distance` world units here (the protocol uses meters; convert with `unitMeters`), clamped to 14–150.

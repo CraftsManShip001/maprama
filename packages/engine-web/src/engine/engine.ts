@@ -19,7 +19,7 @@ import {
   type SubscriptionTopic,
   type ThemeSpec,
   type WorldSource,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import { Group, type Fog } from 'three';
 import { Dispatcher, EngineError, UNSUPPORTED } from '../bridge/dispatcher.js';
 import { EventEmitter, type EventListener } from '../bridge/emitter.js';
@@ -102,9 +102,9 @@ export class Engine implements EngineHandle {
     this.reduceMotion = !!win?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     this.cam.reduceMotion = this.reduceMotion;
 
-    container.classList.add('dio-root');
+    container.classList.add('mpr-root');
     if (win && win.getComputedStyle(container).position === 'static') container.style.position = 'relative';
-    if (this.reduceMotion) container.classList.add('dio-reduce-motion');
+    if (this.reduceMotion) container.classList.add('mpr-reduce-motion');
     const canvas = container.ownerDocument.createElement('canvas');
     canvas.setAttribute('aria-label', 'Map');
     container.appendChild(canvas);
@@ -176,7 +176,7 @@ export class Engine implements EngineHandle {
     this.overlays?.dispose();
     this.core?.renderer.domElement.remove();
     this.emitter.clear();
-    this.container.classList.remove('dio-root', 'dio-reduce-motion');
+    this.container.classList.remove('mpr-root', 'mpr-reduce-motion');
   }
 
   // ---------------------------------------------------------------------------

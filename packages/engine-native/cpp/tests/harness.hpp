@@ -10,9 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
-namespace diorama::test {
+namespace maprama::test {
 
 struct Context {
   std::string fixturesDir;
@@ -53,10 +53,10 @@ struct Register {
   Register(const char* name, TestFn fn) { registry().emplace_back(name, fn); }
 };
 
-#define DIORAMA_TEST(name)                                           \
-  static void name(::diorama::test::Context& ctx);                   \
-  static ::diorama::test::Register register_##name(#name, name);     \
-  static void name(::diorama::test::Context& ctx)
+#define MAPRAMA_TEST(name)                                           \
+  static void name(::maprama::test::Context& ctx);                   \
+  static ::maprama::test::Register register_##name(#name, name);     \
+  static void name(::maprama::test::Context& ctx)
 
 std::string readFile(const std::string& path);
 /// Loads and parses `<fixturesDir>/<file>`; throws std::runtime_error when missing or invalid.
@@ -66,4 +66,4 @@ inline std::string truncate(const std::string& s, std::size_t max = 160) {
   return s.size() <= max ? s : s.substr(0, max) + "...";
 }
 
-}  // namespace diorama::test
+}  // namespace maprama::test

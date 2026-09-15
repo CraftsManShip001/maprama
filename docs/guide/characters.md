@@ -5,7 +5,7 @@
 ## `Character`
 
 ```tsx
-<DioramaMap world={world}>
+<MapramaView world={world}>
   <Character
     id="me"
     isPlayer
@@ -17,7 +17,7 @@
     scale={1}
     showNameTag
   />
-</DioramaMap>
+</MapramaView>
 ```
 
 | prop | 설명 |
@@ -95,11 +95,11 @@
 
 ## CLI로 검사하고 최적화하기
 
-`diorama` CLI가 규칙에 맞는지 검사하고, 크기를 줄이고, 클립 매핑을 제안합니다.
+`maprama` CLI가 규칙에 맞는지 검사하고, 크기를 줄이고, 클립 매핑을 제안합니다.
 
 ```sh
-diorama inspect hero.glb
-diorama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8 --face +z
+maprama inspect hero.glb
+maprama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8 --face +z
 ```
 
 `optimize` 결과에 `suggestedAnimations`가 있으면 그대로 `animations` prop에 넣으세요.
@@ -108,7 +108,7 @@ diorama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8 --
 "suggestedAnimations": { "walk": "Armature|Walking" }
 ```
 
-옵션 전체는 [diorama (glTF 에셋)](/tools/assets)에 있어요.
+옵션 전체는 [maprama (glTF 에셋)](/tools/assets)에 있어요.
 
 ### 압축
 

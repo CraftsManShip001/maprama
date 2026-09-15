@@ -16,7 +16,7 @@ describe('authentication', () => {
 
   it('rejects unknown, malformed and revoked keys with 401 INVALID_KEY', async () => {
     const h = createHarness();
-    const unknown = `dio_${'A'.repeat(43)}`;
+    const unknown = `mpr_${'A'.repeat(43)}`;
     expect((await json<ErrorJson>(await h.request('/v1/search?q=a', { key: unknown }))).error.code).toBe('INVALID_KEY');
     expect((await json<ErrorJson>(await h.request('/v1/search?q=a', { key: 'not-a-key' }))).error.code).toBe('INVALID_KEY');
     const revoked = await h.addKey({ revoked: true });
@@ -62,7 +62,7 @@ describe('authentication', () => {
     expect((await h.request('/v1/drops/campaigns', { key: server, method: 'POST', body: campaignBody() })).status).toBe(201);
     expect((await h.request('/v1/drops/campaigns', { key: admin, method: 'POST', body: campaignBody() })).status).toBe(201);
 
-    const hook = { url: 'https://example.com/hooks/diorama' };
+    const hook = { url: 'https://example.com/hooks/maprama' };
     expect((await h.request('/v1/webhooks', { key: client, method: 'POST', body: hook })).status).toBe(403);
     expect((await h.request('/v1/webhooks', { key: server, method: 'POST', body: hook })).status).toBe(403);
     expect((await h.request('/v1/webhooks', { key: admin, method: 'POST', body: hook })).status).toBe(201);

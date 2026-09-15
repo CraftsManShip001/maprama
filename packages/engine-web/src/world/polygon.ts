@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { Vec2 } from '@diorama/protocol';
+import type { Vec2 } from '@maprama/protocol';
 
 /** Signed area (shoelace) in the x/z plane. Positive = counter-clockwise when +x right, +z down... see {@link isClockwiseXZ}. */
 export function signedArea(poly: readonly Vec2[]): number {

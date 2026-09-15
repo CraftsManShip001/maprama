@@ -1,7 +1,7 @@
-// Diorama native core — theme resolution (theme.ts `resolveTheme`).
+// Maprama native core — theme resolution (theme.ts `resolveTheme`).
 //
 // Interface only in the skeleton. Built-in preset data is not duplicated in
-// C++: the platform layer bundles `@diorama/protocol/themes/*.json` (emitted
+// C++: the platform layer bundles `@maprama/protocol/themes/*.json` (emitted
 // by the protocol build) and passes them to the resolver at startup.
 #pragma once
 
@@ -12,10 +12,10 @@
 #include <variant>
 #include <vector>
 
-#include "diorama/json.hpp"
-#include "diorama/types.hpp"
+#include "maprama/json.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 struct LandmarkColors {
   std::uint32_t base = 0;
@@ -107,4 +107,4 @@ class ThemeResolver {
   virtual const ThemePreset* builtInPreset(PresetName name) const = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

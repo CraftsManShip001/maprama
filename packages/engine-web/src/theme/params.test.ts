@@ -1,4 +1,4 @@
-import { PRESETS, TIMES } from '@diorama/protocol';
+import { PRESETS, TIMES } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { LIGHT_SCALE, renderParamsFor } from './params.js';
 

@@ -1,4 +1,4 @@
-import { createProjection, type WorldData } from '@diorama/protocol';
+import { createProjection, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { loadWorldData, resolveWorldSource, WorldLoadError } from './data.js';
 import { asRectangle, normalizeRing, offsetRing, signedArea } from './polygon.js';

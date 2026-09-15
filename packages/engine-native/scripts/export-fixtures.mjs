@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Exports golden conformance fixtures from the built `@diorama/protocol`
+ * Exports golden conformance fixtures from the built `@maprama/protocol`
  * package (dist) into `cpp/tests/fixtures/`. The C++ core must reproduce every
  * expected value exactly (decode results and error strings) or within 1e-6
  * (projection math).
@@ -13,12 +13,12 @@
  * - projection.json      createProjection samples (toWorld/toLngLat/...) and RangeError messages
  * - json-format.json     JS number/string/key-order formatting (JSON.stringify, String(number))
  *
- * Run `npm run build -w @diorama/protocol` first.
+ * Run `npm run build -w @maprama/protocol` first.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import * as P from '@diorama/protocol';
+import * as P from '@maprama/protocol';
 
 const outDir = fileURLToPath(new URL('../cpp/tests/fixtures/', import.meta.url));
 mkdirSync(outDir, { recursive: true });
@@ -229,7 +229,7 @@ const commandSamples = {
 };
 
 const eventSamples = {
-  ready: { type: 'ready', engine: { name: 'diorama-native', version: '0.0.0', kind: 'native' } },
+  ready: { type: 'ready', engine: { name: 'maprama-native', version: '0.0.0', kind: 'native' } },
   error: { type: 'error', code: 'unsupported', message: 'not implemented', fatal: false },
   labelsIndex: {
     type: 'labelsIndex',

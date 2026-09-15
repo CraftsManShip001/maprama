@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { LabelContent, LabelContentMode } from '@diorama/protocol';
+import type { LabelContent, LabelContentMode } from '@maprama/protocol';
 import type { CameraController } from '../core/camera.js';
 import { inFront } from './dom-styles.js';
 import { HOLO_ICONS, ICON_COLORS } from './icons.js';
@@ -45,10 +45,10 @@ export class HoloLabels {
       return e;
     };
     for (const e of entries) {
-      const root = el('div', `dio-hl dio-hl-${e.kind}`);
+      const root = el('div', `mpr-hl mpr-hl-${e.kind}`);
       root.dataset.labelId = e.id;
-      const line = el('i', 'dio-hl-line'), dot = el('i', 'dio-hl-dot'), panel = el('div', 'dio-hl-panel'), card = el('div', 'dio-hl-card');
-      const ico = el('span', 'dio-hl-ico'), txt = el('span', 'dio-hl-txt'), b = doc.createElement('b'), sm = doc.createElement('small');
+      const line = el('i', 'mpr-hl-line'), dot = el('i', 'mpr-hl-dot'), panel = el('div', 'mpr-hl-panel'), card = el('div', 'mpr-hl-card');
+      const ico = el('span', 'mpr-hl-ico'), txt = el('span', 'mpr-hl-txt'), b = doc.createElement('b'), sm = doc.createElement('small');
       txt.append(b, sm);
       card.append(ico, txt);
       panel.append(card);
@@ -139,8 +139,8 @@ export class HoloLabels {
     h.ico.style.display = c.showIcon ? '' : 'none';
     h.ico.style.setProperty('--c', ICON_COLORS[c.icon]);
     h.ico.innerHTML = HOLO_ICONS[c.icon];
-    h.card.classList.toggle('dio-hl-textonly', !c.showIcon);
-    h.card.classList.toggle('dio-hl-custom', c.custom);
+    h.card.classList.toggle('mpr-hl-textonly', !c.showIcon);
+    h.card.classList.toggle('mpr-hl-custom', c.custom);
     h.w = 0;
   }
 

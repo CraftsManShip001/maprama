@@ -1,5 +1,5 @@
 /**
- * `@diorama/assets`: inspect and optimize glTF/GLB models for Diorama engines.
+ * `@maprama/assets`: inspect and optimize glTF/GLB models for Maprama engines.
  *
  * @packageDocumentation
  */

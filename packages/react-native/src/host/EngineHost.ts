@@ -1,6 +1,6 @@
 /**
  * The engine host abstraction. A host owns a render surface (a WebView today,
- * a native view later) and moves `@diorama/protocol` messages between the
+ * a native view later) and moves `@maprama/protocol` messages between the
  * JavaScript map controller and the engine. App code never talks to a host
  * directly, so hosts can be swapped without changing app code.
  *
@@ -15,7 +15,7 @@ import {
   type EngineCommand,
   type EngineEvent,
   type EngineInfo,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 
 /** A live connection to one engine instance. */
 export interface EngineHost {
@@ -53,7 +53,7 @@ export interface EngineHostOptions {
   testID?: string;
 }
 
-/** Props every engine host component receives from `DioramaMap`. */
+/** Props every engine host component receives from `MapramaView`. */
 export interface EngineHostComponentProps {
   /** Fills the map. */
   style?: StyleProp<ViewStyle>;

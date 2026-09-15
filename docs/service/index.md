@@ -15,7 +15,7 @@ Cloudflare Workers(Hono) 위에서 D1(SQLite)과 R2로 동작합니다.
 `/v1/health`를 뺀 모든 엔드포인트는 API 키가 필요합니다.
 
 ```http
-Authorization: Bearer dio_...
+Authorization: Bearer mpr_...
 ```
 
 헤더를 붙일 수 없는 지도 클라이언트는 `GET /v1/worlds/*`와 `GET /v1/tiles/*`에서**만** `?key=`를 쓸 수 있습니다. 다른 곳에서 쿼리 키를 쓰면 `401 QUERY_KEY_NOT_ALLOWED`입니다.
@@ -26,7 +26,7 @@ Authorization: Bearer dio_...
 | `server` | 앱 백엔드 |
 | `admin` | 앱 소유자. 캠페인, 웹훅, 영수증 비밀키 |
 
-키는 `dio_` + base64url 43자이고, 서비스는 SHA-256 해시만 저장합니다. 원문 키는 로그에 남기지 않습니다.
+키는 `mpr_` + base64url 43자이고, 서비스는 SHA-256 해시만 저장합니다. 원문 키는 로그에 남기지 않습니다.
 
 ## 과금 단위
 
@@ -50,7 +50,7 @@ Authorization: Bearer dio_...
 
 - **free** 플랜: `used + weight > monthlyQuota`가 되면 `429 QUOTA_EXCEEDED`
 - **pro** 플랜: 계속 동작하고 초과분은 `overageUnits`로 기록되어 사용량 과금
-- 응답 헤더: `X-Diorama-Usage: used/quota`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+- 응답 헤더: `X-Maprama-Usage: used/quota`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`
 
 ## 오류 형식
 
@@ -82,7 +82,7 @@ Authorization: Bearer dio_...
 Cloudflare 계정 없이도 전부 로컬에서 테스트할 수 있습니다.
 
 ```sh
-npm run build -w @diorama/protocol
+npm run build -w @maprama/protocol
 cd services/api
 npm run dev:local -- --port 8787 --world seongsu=../../tools/osm/samples/seongsu.world.json
 curl -H "Authorization: Bearer $KEY" 'http://localhost:8787/v1/search?q=성수역'

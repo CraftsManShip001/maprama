@@ -16,11 +16,11 @@ export class ZoomButtons {
   constructor(parent: HTMLElement, private readonly cam: CameraController) {
     const doc = parent.ownerDocument;
     this.el = doc.createElement('div');
-    this.el.className = 'dio-zoombtns';
+    this.el.className = 'mpr-zoombtns';
     const btn = (label: string, text: string, factor: number): HTMLButtonElement => {
       const b = doc.createElement('button');
       b.type = 'button';
-      b.className = 'dio-zb';
+      b.className = 'mpr-zb';
       b.setAttribute('aria-label', label);
       b.textContent = text;
       b.addEventListener('click', (e) => {

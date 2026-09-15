@@ -1,4 +1,4 @@
-import { DROP_TYPES, RARITIES, type DropType, type JsonValue, type Rarity } from '@diorama/protocol';
+import { DROP_TYPES, RARITIES, type DropType, type JsonValue, type Rarity } from '@maprama/protocol';
 import { DROP_LIMITS } from '../config.js';
 import type { CampaignSpec, DropArea } from '../deps.js';
 import { badRequest } from '../errors.js';

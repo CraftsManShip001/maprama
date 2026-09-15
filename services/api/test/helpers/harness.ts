@@ -1,4 +1,4 @@
-import type { DropSpec, LngLat } from '@diorama/protocol';
+import type { DropSpec, LngLat } from '@maprama/protocol';
 import { expect } from 'vitest';
 import { ManualClock, createMemoryDeps, type MemoryServiceDeps } from '../../src/adapters/memory/index.js';
 import { createApp } from '../../src/app.js';

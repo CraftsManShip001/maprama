@@ -1,4 +1,4 @@
-import { validateEngineEvent } from '@diorama/protocol';
+import { validateEngineEvent } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { GeofenceTracker } from './geofences.js';
 

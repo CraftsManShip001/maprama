@@ -1,4 +1,4 @@
-import type { DropSpec } from '@diorama/protocol';
+import type { DropSpec } from '@maprama/protocol';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { DROP_LIMITS, MAX_BODY_BYTES } from '../config.js';
@@ -12,7 +12,7 @@ import { meter } from '../middleware/usage.js';
 import { randomHex } from '../util/crypto.js';
 import { defer, numberParam, readJson, type AppEnv } from '../util/http.js';
 import { deliverWebhook, newEventId } from '../webhooks/deliver.js';
-import { haversineMeters } from '@diorama/protocol';
+import { haversineMeters } from '@maprama/protocol';
 
 export const jsonBodyLimit = bodyLimit({
   maxSize: MAX_BODY_BYTES,

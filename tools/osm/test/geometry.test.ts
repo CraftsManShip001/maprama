@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Vec2 } from '@diorama/protocol';
+import type { Vec2 } from '@maprama/protocol';
 import {
   assembleRings,
   clipPolylineToRect,

@@ -1,4 +1,4 @@
-// Diorama native core — WorldData v1 storage (world.ts).
+// Maprama native core — WorldData v1 storage (world.ts).
 //
 // Holds the loaded world and its projection. Parsing validates with the exact
 // `validateWorldData` rules (same error strings) and then converts to typed
@@ -12,11 +12,11 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/Projection.hpp"
-#include "diorama/json.hpp"
-#include "diorama/types.hpp"
+#include "maprama/Projection.hpp"
+#include "maprama/json.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 struct Road {
   std::string id;
@@ -133,4 +133,4 @@ class WorldStore {
 
 std::unique_ptr<WorldStore> createWorldStore();
 
-}  // namespace diorama
+}  // namespace maprama

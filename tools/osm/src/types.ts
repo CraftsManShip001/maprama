@@ -1,6 +1,6 @@
 /**
  * Types for raw Overpass API JSON (`[out:json]` with `out geom`) and the small
- * metadata block `diorama-osm fetch` adds to the files it writes.
+ * metadata block `maprama-osm fetch` adds to the files it writes.
  *
  * @module
  */
@@ -61,7 +61,7 @@ export interface OverpassRelation {
 
 export type OverpassElement = OverpassNode | OverpassWay | OverpassRelation;
 
-/** Metadata `diorama-osm fetch` stores next to the Overpass payload. */
+/** Metadata `maprama-osm fetch` stores next to the Overpass payload. */
 export interface RawMeta {
   bbox: BBox;
   endpoint?: string;
@@ -69,7 +69,7 @@ export interface RawMeta {
   query?: string;
 }
 
-/** An Overpass JSON response (optionally with `diorama` metadata). */
+/** An Overpass JSON response (optionally with `maprama` metadata). */
 export interface OverpassResponse {
   version?: number;
   generator?: string;
@@ -77,5 +77,5 @@ export interface OverpassResponse {
   /** Overpass reports runtime errors/timeouts here while still returning HTTP 200. */
   remark?: string;
   elements: OverpassElement[];
-  diorama?: RawMeta;
+  maprama?: RawMeta;
 }

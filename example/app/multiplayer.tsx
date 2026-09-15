@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { CharacterLayer, MapOverlay } from '@diorama/react-native';
-import type { LngLat } from '@diorama/protocol';
+import { CharacterLayer, MapOverlay } from '@maprama/react-native';
+import type { LngLat } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Readout, ScreenLayout, Section, Toggle } from '../src/components/ui';
 import { SAMPLE_CHARACTER_MODEL_URI } from '../src/data/sampleModel';

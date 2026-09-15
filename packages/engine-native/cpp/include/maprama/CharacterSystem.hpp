@@ -1,4 +1,4 @@
-// Diorama native core — characters and location sources.
+// Maprama native core — characters and location sources.
 //
 // Commands: upsertCharacters, removeCharacters, setLocationSource, pushLocation.
 // Events:   character:position (subscription topic), error{model_load_failed}.
@@ -9,10 +9,10 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 /// Simulation state of one character (authoritative on the core thread).
 struct CharacterState {
@@ -57,4 +57,4 @@ class CharacterSystem {
                              AnimationName animation) = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

@@ -125,12 +125,12 @@
 
 ## 영수증과 웹훅으로 보상 지급
 
-영수증은 `base64url(canonicalJSON(claims)).base64url(HMAC-SHA256)` 형식이고, 앱마다 다른 비밀키로 서명됩니다. 앱 서버에서 `@diorama/api/verify`로 검증하세요. 영수증 비밀키는 `GET /v1/receipts/secret`(admin 키)으로 받습니다.
+영수증은 `base64url(canonicalJSON(claims)).base64url(HMAC-SHA256)` 형식이고, 앱마다 다른 비밀키로 서명됩니다. 앱 서버에서 `@maprama/api/verify`로 검증하세요. 영수증 비밀키는 `GET /v1/receipts/secret`(admin 키)으로 받습니다.
 
 ```ts
-import { verifyReceipt } from '@diorama/api/verify';
+import { verifyReceipt } from '@maprama/api/verify';
 
-const r = await verifyReceipt(receiptFromClient, process.env.DIORAMA_RECEIPT_SECRET!);
+const r = await verifyReceipt(receiptFromClient, process.env.MAPRAMA_RECEIPT_SECRET!);
 if (r.ok && r.claims.userId === session.userId) {
   await grantReward(r.claims.userId, r.claims.dropId, r.claims.payload); // dropId+userId로 멱등
 }

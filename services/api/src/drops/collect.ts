@@ -4,7 +4,7 @@
  * The SDK judges collection instantly on-device and forwards
  * `{dropId, collectId, userId, fix}`; this module decides whether it counts.
  */
-import { haversineMeters } from '@diorama/protocol';
+import { haversineMeters } from '@maprama/protocol';
 import { COLLECT_RULES } from '../config.js';
 import type { CollectFix, CollectRecord, ServiceDeps } from '../deps.js';
 import { badRequest, type ErrorCode } from '../errors.js';

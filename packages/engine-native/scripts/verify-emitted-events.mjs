@@ -9,7 +9,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { decodeEvent, ENGINE_EVENT_TYPES } from '@diorama/protocol';
+import { decodeEvent, ENGINE_EVENT_TYPES } from '@maprama/protocol';
 
 const file = process.argv[2];
 if (!file) {

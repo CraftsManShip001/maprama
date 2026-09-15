@@ -1,4 +1,4 @@
--- Diorama API schema v1 (Cloudflare D1 / SQLite 3.4x with FTS5).
+-- Maprama API schema v1 (Cloudflare D1 / SQLite 3.4x with FTS5).
 -- Apply: wrangler d1 migrations apply DB --local   (or --remote)
 -- Times are INTEGER milliseconds since the Unix epoch unless noted.
 

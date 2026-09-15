@@ -9,18 +9,18 @@
 
 import type { RenderParams } from './params.js';
 
-const STYLE_ID = 'diorama-engine-style';
+const STYLE_ID = 'maprama-engine-style';
 const CSS = `
-.dio-root{position:relative;overflow:hidden;isolation:isolate;touch-action:none;-webkit-user-select:none;user-select:none}
-.dio-root>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
-.dio-haze,.dio-vignette,.dio-grade{position:absolute;inset:0;pointer-events:none;z-index:1}
-.dio-grade{mix-blend-mode:soft-light}
-.dio-rays{position:absolute;inset:-20%;pointer-events:none;z-index:1;mix-blend-mode:screen;background:repeating-linear-gradient(118deg,rgba(255,214,150,0) 0 46px,rgba(255,214,150,.26) 46px 80px,rgba(255,214,150,0) 80px 150px);-webkit-mask-image:radial-gradient(70% 60% at 85% 12%,#000 0%,rgba(0,0,0,.45) 45%,transparent 75%);mask-image:radial-gradient(70% 60% at 85% 12%,#000 0%,rgba(0,0,0,.45) 45%,transparent 75%);filter:blur(5px);animation:dio-rays 14s ease-in-out infinite alternate}
-.dio-rays[hidden]{display:none}
-.dio-overlay{position:absolute;inset:0;pointer-events:none;z-index:3}
-@keyframes dio-rays{from{transform:translateX(-18px)}to{transform:translateX(18px)}}
-@media (prefers-reduced-motion: reduce){.dio-rays{animation:none}}
-.dio-reduce-motion .dio-rays{animation:none}
+.mpr-root{position:relative;overflow:hidden;isolation:isolate;touch-action:none;-webkit-user-select:none;user-select:none}
+.mpr-root>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+.mpr-haze,.mpr-vignette,.mpr-grade{position:absolute;inset:0;pointer-events:none;z-index:1}
+.mpr-grade{mix-blend-mode:soft-light}
+.mpr-rays{position:absolute;inset:-20%;pointer-events:none;z-index:1;mix-blend-mode:screen;background:repeating-linear-gradient(118deg,rgba(255,214,150,0) 0 46px,rgba(255,214,150,.26) 46px 80px,rgba(255,214,150,0) 80px 150px);-webkit-mask-image:radial-gradient(70% 60% at 85% 12%,#000 0%,rgba(0,0,0,.45) 45%,transparent 75%);mask-image:radial-gradient(70% 60% at 85% 12%,#000 0%,rgba(0,0,0,.45) 45%,transparent 75%);filter:blur(5px);animation:mpr-rays 14s ease-in-out infinite alternate}
+.mpr-rays[hidden]{display:none}
+.mpr-overlay{position:absolute;inset:0;pointer-events:none;z-index:3}
+@keyframes mpr-rays{from{transform:translateX(-18px)}to{transform:translateX(18px)}}
+@media (prefers-reduced-motion: reduce){.mpr-rays{animation:none}}
+.mpr-reduce-motion .mpr-rays{animation:none}
 `;
 
 const hexCss = (n: number): string => '#' + n.toString(16).padStart(6, '0');
@@ -48,12 +48,12 @@ export class MoodOverlays {
       root.appendChild(d);
       return d;
     };
-    this.haze = div('dio-haze');
-    this.vignette = div('dio-vignette');
-    this.grade = div('dio-grade');
-    this.rays = div('dio-rays');
+    this.haze = div('mpr-haze');
+    this.vignette = div('mpr-vignette');
+    this.grade = div('mpr-grade');
+    this.rays = div('mpr-rays');
     this.rays.hidden = true;
-    this.layer = div('dio-overlay');
+    this.layer = div('mpr-overlay');
   }
 
   apply(p: RenderParams): void {

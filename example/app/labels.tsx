@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { type DioramaMapRef, type LabelContentFunction } from '@diorama/react-native';
-import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, type HoloIconTile, type LabelContentMode, type LabelStyle } from '@diorama/protocol';
+import { type MapramaViewRef, type LabelContentFunction } from '@maprama/react-native';
+import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, type HoloIconTile, type LabelContentMode, type LabelStyle } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, Readout, ScreenLayout, Section, Toggle } from '../src/components/ui';
 import { SEONGSU_WORLD, STATION } from '../src/data/seongsu';
@@ -11,7 +11,7 @@ type ContentChoice = Exclude<LabelContentMode, 'custom'> | 'function';
 const CONTENT_CHOICES: readonly ContentChoice[] = [...LABEL_CONTENT_MODES.filter((m): m is Exclude<LabelContentMode, 'custom'> => m !== 'custom'), 'function'];
 
 export default function LabelsScreen() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const [enabled, setEnabled] = useState(true);
   const [style, setStyle] = useState<LabelStyle>('app');
   const [icons, setIcons] = useState<HoloIconTile>('auto');

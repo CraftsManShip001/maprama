@@ -1,4 +1,4 @@
-// Diorama native core — routing and travel.
+// Maprama native core — routing and travel.
 //
 // Commands: travel, cancelTravel, request{route}, request{snapToRoad}.
 // Events:   travel:start, travel:progress (subscription topic), travel:arrive, travel:cancel.
@@ -9,10 +9,10 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class CharacterSystem;
 class WorldStore;
@@ -62,4 +62,4 @@ class TravelPlanner {
   virtual std::vector<TravelProgress> active() const = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

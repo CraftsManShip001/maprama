@@ -1,4 +1,4 @@
-// Diorama native core — collectible drops.
+// Maprama native core — collectible drops.
 //
 // Commands: setDropLayer, removeDropLayer.
 // Events:   drop:collect.
@@ -10,10 +10,10 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class CharacterSystem;
 class Projection;
@@ -54,4 +54,4 @@ class DropSystem {
   virtual std::size_t dropCount() const = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

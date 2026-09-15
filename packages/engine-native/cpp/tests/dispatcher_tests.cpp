@@ -6,39 +6,39 @@
 #include <string>
 #include <vector>
 
-#include "diorama/Dispatcher.hpp"
-#include "diorama/Engine.hpp"
-#include "diorama/WorldStore.hpp"
-#include "diorama/protocol.hpp"
+#include "maprama/Dispatcher.hpp"
+#include "maprama/Engine.hpp"
+#include "maprama/WorldStore.hpp"
+#include "maprama/protocol.hpp"
 #include "harness.hpp"
 
 namespace {
 
-using diorama::json::Value;
-namespace protocol = diorama::protocol;
+using maprama::json::Value;
+namespace protocol = maprama::protocol;
 
-class RecordingSink final : public diorama::MessageSink {
+class RecordingSink final : public maprama::MessageSink {
  public:
   void onEvent(std::string envelopeJson) override { events.push_back(std::move(envelopeJson)); }
-  void onLog(diorama::LogLevel level, std::string_view message) override { logs.emplace_back(level, message); }
+  void onLog(maprama::LogLevel level, std::string_view message) override { logs.emplace_back(level, message); }
 
   std::vector<std::string> events;
-  std::vector<std::pair<diorama::LogLevel, std::string>> logs;
+  std::vector<std::pair<maprama::LogLevel, std::string>> logs;
 
   Value eventMsg(std::size_t i) const { return protocol::decodeEvent(events.at(i)).value.msg; }
   std::size_t warnings() const {
     std::size_t n = 0;
-    for (const auto& l : logs) n += l.first == diorama::LogLevel::Warn ? 1 : 0;
+    for (const auto& l : logs) n += l.first == maprama::LogLevel::Warn ? 1 : 0;
     return n;
   }
   std::size_t errors() const {
     std::size_t n = 0;
-    for (const auto& l : logs) n += l.first == diorama::LogLevel::Error ? 1 : 0;
+    for (const auto& l : logs) n += l.first == maprama::LogLevel::Error ? 1 : 0;
     return n;
   }
 };
 
-void appendEmitted(const diorama::test::Context& ctx, const RecordingSink& sink) {
+void appendEmitted(const maprama::test::Context& ctx, const RecordingSink& sink) {
   if (ctx.emitPath.empty()) return;
   std::ofstream out(ctx.emitPath, std::ios::app);
   for (const std::string& e : sink.events) out << e << "\n";
@@ -48,13 +48,13 @@ std::string envelope(const Value& msg, std::uint64_t seq) { return protocol::enc
 
 }  // namespace
 
-DIORAMA_TEST(engine_skeleton_behaviour) {
+MAPRAMA_TEST(engine_skeleton_behaviour) {
   if (!ctx.emitPath.empty()) std::ofstream(ctx.emitPath, std::ios::trunc).flush();
 
   auto sink = std::make_shared<RecordingSink>();
-  diorama::EngineConfig config;
+  maprama::EngineConfig config;
   config.validateOutgoingEvents = true;
-  auto engine = diorama::createEngine(sink, config);
+  auto engine = maprama::createEngine(sink, config);
 
   // ready
   engine->start();
@@ -63,7 +63,7 @@ DIORAMA_TEST(engine_skeleton_behaviour) {
   protocol::DecodeResult<protocol::Envelope> ready = protocol::decodeEvent(sink->events.at(0));
   ctx.check(ready.ok && ready.value.seq == 0 && ready.value.type() == "ready" &&
                 ready.value.msg.find("engine")->find("kind")->asString() == "native" &&
-                ready.value.msg.find("engine")->find("name")->asString() == "diorama-native",
+                ready.value.msg.find("engine")->find("name")->asString() == "maprama-native",
             "ready event: " + sink->events.at(0));
 
   // invalid JSON -> error invalid_message
@@ -80,7 +80,7 @@ DIORAMA_TEST(engine_skeleton_behaviour) {
             "validation error message is decodeCommand's");
 
   // every valid command sample from the TS fixture
-  const Value fixture = diorama::test::loadFixture(ctx, "decode-command.json");
+  const Value fixture = maprama::test::loadFixture(ctx, "decode-command.json");
   std::set<std::string> exercised;
   std::uint64_t seq = 10;
   for (const Value& c : fixture.find("cases")->items()) {
@@ -125,7 +125,7 @@ DIORAMA_TEST(engine_skeleton_behaviour) {
 
   // object path + batch path
   const std::size_t before = sink->events.size();
-  engine->postEnvelope(diorama::json::parse(envelope(Value::object({{"type", "request"},
+  engine->postEnvelope(maprama::json::parse(envelope(Value::object({{"type", "request"},
                                                                     {"requestId", "obj"},
                                                                     {"method", "unproject"},
                                                                     {"params", Value::object({{"x", 1}, {"y", 2}})}}),
@@ -167,14 +167,14 @@ DIORAMA_TEST(engine_skeleton_behaviour) {
   appendEmitted(ctx, *sink);
 }
 
-DIORAMA_TEST(dispatcher_drops_invalid_outgoing_events) {
+MAPRAMA_TEST(dispatcher_drops_invalid_outgoing_events) {
   RecordingSink sink;
-  auto world = diorama::createWorldStore();
-  diorama::Subsystems subsystems;
+  auto world = maprama::createWorldStore();
+  maprama::Subsystems subsystems;
   subsystems.world = world.get();
-  diorama::DispatcherOptions options;
+  maprama::DispatcherOptions options;
   options.validateOutgoingEvents = true;
-  diorama::Dispatcher dispatcher(sink, subsystems, options);
+  maprama::Dispatcher dispatcher(sink, subsystems, options);
 
   dispatcher.emit(Value::object({{"type", "travel:arrive"}, {"requestId", ""}, {"characterId", "p"}}));
   ctx.check(sink.events.empty() && dispatcher.stats().eventsDropped == 1 && sink.errors() == 1 &&

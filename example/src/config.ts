@@ -4,14 +4,14 @@
  * `example/.env.local` (git-ignored) or export them in the shell.
  */
 
-/** Base URL of the Diorama API (`npm run dev:local -w @diorama/api` listens on 8787). */
-export const API_BASE_URL: string = process.env.EXPO_PUBLIC_DIORAMA_API_URL ?? 'http://localhost:8787';
+/** Base URL of the Maprama API (`npm run dev:local -w @maprama/api` listens on 8787). */
+export const API_BASE_URL: string = process.env.EXPO_PUBLIC_MAPRAMA_API_URL ?? 'http://localhost:8787';
 
-/** Client API key printed by the local dev server on start (`client key (dev only): dio_...`). */
-export const API_KEY: string = process.env.EXPO_PUBLIC_DIORAMA_API_KEY ?? '';
+/** Client API key printed by the local dev server on start (`client key (dev only): mpr_...`). */
+export const API_KEY: string = process.env.EXPO_PUBLIC_MAPRAMA_API_KEY ?? '';
 
 /** Drop channel for `DropLayer source="service"`. */
-export const DROPS_CHANNEL: string = process.env.EXPO_PUBLIC_DIORAMA_DROPS_CHANNEL ?? 'coins';
+export const DROPS_CHANNEL: string = process.env.EXPO_PUBLIC_MAPRAMA_DROPS_CHANNEL ?? 'coins';
 
 /**
  * World URL for `world.kind: 'url'`. Defaults to the local API's Seongsu world
@@ -19,7 +19,7 @@ export const DROPS_CHANNEL: string = process.env.EXPO_PUBLIC_DIORAMA_DROPS_CHANN
  * Empty when no key is configured.
  */
 export const WORLD_URL: string =
-  process.env.EXPO_PUBLIC_DIORAMA_WORLD_URL ??
+  process.env.EXPO_PUBLIC_MAPRAMA_WORLD_URL ??
   (API_KEY ? `${API_BASE_URL}/v1/worlds/seongsu.json?key=${encodeURIComponent(API_KEY)}` : '');
 
 /** Probes the API (`GET /v1/usage`) with a short timeout. Resolves `true` when it answered 2xx. */

@@ -100,7 +100,7 @@ const tip = mesh('antenna_tip', box(0, 0.03, 0, 0.07, 0.06, 0.07), 4);
 
 // Node indices 1-4 are the animation targets below; the head's parts ride on node 2.
 const nodes = [
-  { name: 'diorama_character', children: [1, 2, 3, 4] },
+  { name: 'maprama_character', children: [1, 2, 3, 4] },
   { name: 'torso', mesh: torso, translation: [0, 0.62, 0] },
   { name: 'head', mesh: head, translation: [0, 1.12, 0], children: [5, 6, 7] },
   { name: 'leg_l', mesh: leg, translation: [-0.11, 0.62, 0] },
@@ -144,7 +144,7 @@ let off = 0;
 for (const c of chunks) { bin.set(c, off); off += c.byteLength; }
 
 const gltf = {
-  asset: { version: '2.0', generator: 'diorama example make-sample-model.mjs', copyright: 'CC0 1.0' },
+  asset: { version: '2.0', generator: 'maprama example make-sample-model.mjs', copyright: 'CC0 1.0' },
   scene: 0,
   scenes: [{ nodes: [0] }],
   nodes,

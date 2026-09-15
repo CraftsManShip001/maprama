@@ -1,8 +1,8 @@
 /**
- * `@diorama/api/verify`: helpers for app servers that receive data from the
- * Diorama service.
+ * `@maprama/api/verify`: helpers for app servers that receive data from the
+ * Maprama service.
  *
- * - {@link verifyWebhookSignature}: checks the `Diorama-Signature` header of a
+ * - {@link verifyWebhookSignature}: checks the `Maprama-Signature` header of a
  *   webhook request against the raw request body.
  * - {@link verifyReceipt}: checks a drop-collection receipt token returned by
  *   `POST /v1/drops/collect` (or carried inside a `drop.collected` webhook).
@@ -12,24 +12,24 @@
  * Node.js 20+, Deno, Bun, Cloudflare Workers and browsers.
  *
  * ```ts
- * import { verifyWebhookSignature, verifyReceipt } from '@diorama/api/verify';
+ * import { verifyWebhookSignature, verifyReceipt } from '@maprama/api/verify';
  *
  * const raw = await request.text(); // the exact bytes, before JSON.parse
- * const sig = await verifyWebhookSignature(raw, request.headers.get('Diorama-Signature'), process.env.DIORAMA_WEBHOOK_SECRET!);
+ * const sig = await verifyWebhookSignature(raw, request.headers.get('Maprama-Signature'), process.env.MAPRAMA_WEBHOOK_SECRET!);
  * if (!sig.ok) return new Response('bad signature', { status: 400 });
  * const event = JSON.parse(raw);
- * const receipt = await verifyReceipt(event.data.receipt, process.env.DIORAMA_RECEIPT_SECRET!);
+ * const receipt = await verifyReceipt(event.data.receipt, process.env.MAPRAMA_RECEIPT_SECRET!);
  * if (receipt.ok) grantReward(receipt.claims.userId, receipt.claims.payload);
  * ```
  *
  * @packageDocumentation
  */
 
-/** JSON value (structurally identical to `JsonValue` in `@diorama/protocol`; kept local so this module has zero imports). */
+/** JSON value (structurally identical to `JsonValue` in `@maprama/protocol`; kept local so this module has zero imports). */
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 /** Name of the HTTP header carrying the webhook signature. */
-export const WEBHOOK_SIGNATURE_HEADER = 'Diorama-Signature';
+export const WEBHOOK_SIGNATURE_HEADER = 'Maprama-Signature';
 
 /** Current receipt token format version. */
 export const RECEIPT_VERSION = 1;
@@ -132,7 +132,7 @@ export async function hmacSha256(secret: string | Uint8Array, message: string | 
 }
 
 /**
- * Computes the `Diorama-Signature` header value for `rawBody` at unix time `timestampSec`:
+ * Computes the `Maprama-Signature` header value for `rawBody` at unix time `timestampSec`:
  * `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<rawBody>")>`.
  */
 export async function signWebhookPayload(rawBody: string, secret: string, timestampSec: number): Promise<string> {
@@ -142,10 +142,10 @@ export async function signWebhookPayload(rawBody: string, secret: string, timest
 }
 
 /**
- * Verifies a webhook `Diorama-Signature` header.
+ * Verifies a webhook `Maprama-Signature` header.
  *
  * @param rawBody The exact request body string as received (do not re-serialize parsed JSON).
- * @param header The `Diorama-Signature` header value (`t=<unix>,v1=<hex>`; several `v1` entries are allowed during secret rotation).
+ * @param header The `Maprama-Signature` header value (`t=<unix>,v1=<hex>`; several `v1` entries are allowed during secret rotation).
  * @param secret The endpoint secret returned by `POST /v1/webhooks`.
  * @param toleranceSec Maximum age (and clock skew) of the timestamp, default 300 seconds.
  * @param nowSec Current unix time in seconds; defaults to `Date.now() / 1000`.

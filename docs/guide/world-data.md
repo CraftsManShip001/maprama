@@ -1,6 +1,6 @@
 # 월드 데이터와 타일
 
-엔진은 **WorldData**라는 작은 벡터 지도를 받아 건물과 도로, 물, 공원, 라벨을 만듭니다. 형식은 `@diorama/protocol`의 [`WorldData`](/api/reference/protocol/interfaces/WorldData)가 정의하고, 두 엔진이 똑같이 읽습니다.
+엔진은 **WorldData**라는 작은 벡터 지도를 받아 건물과 도로, 물, 공원, 라벨을 만듭니다. 형식은 `@maprama/protocol`의 [`WorldData`](/api/reference/protocol/interfaces/WorldData)가 정의하고, 두 엔진이 똑같이 읽습니다.
 
 ## 월드를 넘기는 세 가지 방법
 
@@ -25,7 +25,7 @@ type WorldSource =
 - 앱 API는 모두 `{ lng, lat }` 경위도를 씁니다. 엔진이 `createProjection`으로 변환합니다.
 
 ```ts
-import { createProjection } from '@diorama/protocol';
+import { createProjection } from '@maprama/protocol';
 
 const proj = createProjection({ origin: { lng: 127.0565, lat: 37.5445 }, unitMeters: 8 });
 const p = proj.toWorld({ lng: 127.0571, lat: 37.5449 }); // { x, z }
@@ -50,14 +50,14 @@ const p = proj.toWorld({ lng: 127.0571, lat: 37.5449 }); // { x, z }
 
 ## 내 동네 만들기
 
-오픈소스 CLI `diorama-osm`이 Overpass API에서 OSM 데이터를 받아 WorldData로 바꿉니다.
+오픈소스 CLI `maprama-osm`이 Overpass API에서 OSM 데이터를 받아 WorldData로 바꿉니다.
 
 ```sh
-diorama-osm fetch --bbox 37.5410,127.0520,37.5480,127.0610 --out raw.json
-diorama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
+maprama-osm fetch --bbox 37.5410,127.0520,37.5480,127.0610 --out raw.json
+maprama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
 ```
 
-국가공간정보포털 **GIS건물통합정보**를 GeoJSON으로 바꿔 `--kr-buildings`로 넘기면 OSM에 없는 건물 높이와 층수를 채웁니다. 매핑 규칙과 옵션은 [diorama-osm](/tools/osm)에 있어요.
+국가공간정보포털 **GIS건물통합정보**를 GeoJSON으로 바꿔 `--kr-buildings`로 넘기면 OSM에 없는 건물 높이와 층수를 채웁니다. 매핑 규칙과 옵션은 [maprama-osm](/tools/osm)에 있어요.
 
 ::: tip 크기
 CLI는 결과가 3 MB를 넘으면 경고합니다. 넓은 지역은 여러 월드로 나누거나 타일을 쓰세요.
@@ -73,9 +73,9 @@ CLI는 결과가 3 MB를 넘으면 경고합니다. 넓은 지역은 여러 월�
 
 헤더를 붙일 수 없는 지도 클라이언트는 이 두 경로에서만 `?key=`를 쓸 수 있습니다. 과금 단위는 월드 요청 20, 타일 1입니다. [호스팅 서비스](/service/)를 보세요.
 
-### 타일 기반 WorldData <span class="dio-badge planned">계획</span>
+### 타일 기반 WorldData <span class="mpr-badge planned">계획</span>
 
-v1 `WorldSource`에는 타일 종류가 없습니다. 넓은 지역을 위해 WorldData를 벡터 타일 레이어(`diorama_roads`, `diorama_buildings`, `diorama_water`, `diorama_parks`, `diorama_pois`, `diorama_stations`, `diorama_districts`)로 싣는 `{ kind: 'tiles', url }` 프로토콜 추가를 설계했습니다. 웹 엔진과 네이티브 엔진이 같은 릴리스에서 함께 지원할 예정입니다. 스키마는 [엔진 구조와 로드맵](./architecture#타일)에 있어요.
+v1 `WorldSource`에는 타일 종류가 없습니다. 넓은 지역을 위해 WorldData를 벡터 타일 레이어(`maprama_roads`, `maprama_buildings`, `maprama_water`, `maprama_parks`, `maprama_pois`, `maprama_stations`, `maprama_districts`)로 싣는 `{ kind: 'tiles', url }` 프로토콜 추가를 설계했습니다. 웹 엔진과 네이티브 엔진이 같은 릴리스에서 함께 지원할 예정입니다. 스키마는 [엔진 구조와 로드맵](./architecture#타일)에 있어요.
 
 ## 라이선스와 출처 표기
 

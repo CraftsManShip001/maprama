@@ -17,7 +17,7 @@ import type {
   GeofenceSpec,
   LabelContent,
   OverlayAnchor,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 
 /** Schedules a callback for the next frame. */
 export type FrameScheduler = (callback: () => void) => void;
@@ -26,7 +26,7 @@ let frameSchedulerOverride: FrameScheduler | null = null;
 
 /**
  * @internal Test-only: replaces the frame scheduler used by every batcher created
- * without an explicit `schedule` (e.g. by `DioramaMap`), so tests can run frames
+ * without an explicit `schedule` (e.g. by `MapramaView`), so tests can run frames
  * deterministically. Pass `null` to restore `requestAnimationFrame`.
  */
 export function setFrameSchedulerForTesting(scheduler: FrameScheduler | null): void {

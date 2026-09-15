@@ -1,8 +1,8 @@
 {
-  "name": "@diorama/api",
+  "name": "@maprama/api",
   "version": "0.0.0",
   "private": true,
-  "description": "Diorama hosted service: world data and vector tiles, place search, transit, dynamic drops with verified collection, API keys, usage metering and webhooks (Cloudflare Workers + Hono).",
+  "description": "Maprama hosted service: world data and vector tiles, place search, transit, dynamic drops with verified collection, API keys, usage metering and webhooks (Cloudflare Workers + Hono).",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -41,7 +41,7 @@
     "lint:openapi": "npx --yes @redocly/cli@2.53.0 lint openapi.yaml"
   },
   "dependencies": {
-    "@diorama/protocol": "0.0.0",
+    "@maprama/protocol": "0.0.0",
     "hono": "4.13.8",
     "pmtiles": "4.5.0"
   },

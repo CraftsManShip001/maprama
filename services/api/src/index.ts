@@ -1,9 +1,9 @@
 /**
- * `@diorama/api`: the hosted Diorama service as a library.
+ * `@maprama/api`: the hosted Maprama service as a library.
  *
  * - {@link createApp}: Hono app factory over injected dependencies.
  * - Adapters: in-memory (`createMemoryDeps`), Cloudflare D1 (`createD1Repos`) and R2 (`R2BlobStore`).
- * - Verification helpers for app servers: also available as `@diorama/api/verify`.
+ * - Verification helpers for app servers: also available as `@maprama/api/verify`.
  *
  * @packageDocumentation
  */

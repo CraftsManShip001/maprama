@@ -9,7 +9,7 @@
 ## bare React Native
 
 ```sh
-npm i @diorama/react-native react-native-webview
+npm i @maprama/react-native react-native-webview
 cd ios && pod install
 ```
 
@@ -23,7 +23,7 @@ cd ios && pod install
 development build 또는 prebuild가 필요합니다. Expo Go에서는 동작하지 않아요.
 
 ```sh
-npx expo install @diorama/react-native react-native-webview
+npx expo install @maprama/react-native react-native-webview
 # 기기 위치에 권장 (선택)
 npx expo install expo-location
 ```
@@ -35,7 +35,7 @@ npx expo install expo-location
   "expo": {
     "plugins": [
       [
-        "@diorama/react-native",
+        "@maprama/react-native",
         { "features": ["characters", "drops", "labels", "travel"], "locationPermissionText": "지도에 내 위치를 보여 줄게요" }
       ]
     ]
@@ -45,7 +45,7 @@ npx expo install expo-location
 
 | 옵션 | 타입 | 기본값 | 효과 |
 | --- | --- | --- | --- |
-| `features` | `('characters' \| 'drops' \| 'labels' \| 'travel')[]` | 전부 | `Info.plist`의 `DioramaFeatures`와 Android `<meta-data android:name="dev.diorama.features">`에 기록. v1 엔진은 무시하고, 네이티브 엔진은 쓰지 않는 모듈을 빼는 데 쓸 예정 |
+| `features` | `('characters' \| 'drops' \| 'labels' \| 'travel')[]` | 전부 | `Info.plist`의 `MapramaFeatures`와 Android `<meta-data android:name="dev.maprama.features">`에 기록. v1 엔진은 무시하고, 네이티브 엔진은 쓰지 않는 모듈을 빼는 데 쓸 예정 |
 | `locationPermissionText` | `string` | 일반 문구 | iOS `NSLocationWhenInUseUsageDescription` |
 | `location` | `boolean` | `true` | iOS 사용 설명과 Android 위치 권한 추가. `location.source: 'device'`를 쓰지 않으면 `false` |
 
@@ -53,12 +53,12 @@ npx expo install expo-location
 
 ```tsx
 import { useRef } from 'react';
-import { DioramaMap, Character, type DioramaMapRef } from '@diorama/react-native';
+import { MapramaView, Character, type MapramaViewRef } from '@maprama/react-native';
 
 export function FirstMap() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   return (
-    <DioramaMap
+    <MapramaView
       ref={map}
       world={{ kind: 'procedural', layout: 'town' }}
       theme={{ base: 'urban', timeOfDay: 'golden', zoomOut: 'keepGameView' }}
@@ -72,7 +72,7 @@ export function FirstMap() {
       style={{ flex: 1 }}
     >
       <Character id="me" isPlayer name="나" follow="location" showNameTag />
-    </DioramaMap>
+    </MapramaView>
   );
 }
 ```
@@ -85,7 +85,7 @@ export function FirstMap() {
 실제 동네로 바꾸려면 `world`를 URL로 바꾸세요. 호스팅 서비스를 쓰면 이렇게 됩니다.
 
 ```tsx
-<DioramaMap world={{ kind: 'url', url: 'https://api.example/v1/worlds/seongsu.json?key=YOUR_CLIENT_KEY' }} ui={{ attribution: true }} />
+<MapramaView world={{ kind: 'url', url: 'https://api.example/v1/worlds/seongsu.json?key=YOUR_CLIENT_KEY' }} ui={{ attribution: true }} />
 ```
 
 ::: warning 출처 표기
@@ -94,7 +94,7 @@ OSM 기반 월드를 보여 줄 때는 `ui.attribution`을 켜 두세요. ODbL�
 
 ## 명령이 전달되는 방식
 
-`DioramaMap`은 prop 변화를 최소한의 프로토콜 명령으로 바꿉니다.
+`MapramaView`은 prop 변화를 최소한의 프로토콜 명령으로 바꿉니다.
 
 | 바뀐 것 | 보내는 명령 |
 | --- | --- |
@@ -120,4 +120,4 @@ OSM 기반 월드를 보여 줄 때는 `ui.attribution`을 켜 두세요. ODbL�
 - [월드 데이터와 타일](./world-data): 내 동네 데이터 만들기
 - [테마](./themes): 프리셋과 덮어쓰기
 - [플레이그라운드](/playground/): 옵션을 바꾸며 JSX 복사하기
-- [`DioramaMapProps` 레퍼런스](/api/reference/react-native/interfaces/DioramaMapProps)
+- [`MapramaViewProps` 레퍼런스](/api/reference/react-native/interfaces/MapramaViewProps)

@@ -1,4 +1,4 @@
-// Diorama native core — map labels.
+// Maprama native core — map labels.
 //
 // Commands: setLabels, setLabelContent.
 // Events:   labelsIndex.
@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class CameraController;
 class Projection;
@@ -43,9 +43,9 @@ class LabelSystem {
 
   virtual const std::vector<LabelInfo>& index() const = 0;
 
-  /// Screen-space layout for this frame. `holo` / `sign` / `ground` styles render as GPU quads in the diorama
+  /// Screen-space layout for this frame. `holo` / `sign` / `ground` styles render as GPU quads in the maprama
   /// layer; `app` / `minimal` / `clean` / `sticker` can alternatively be drawn as native views (DESIGN.md §5.5).
   virtual std::vector<LabelInstance> layout(const CameraController& camera) const = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

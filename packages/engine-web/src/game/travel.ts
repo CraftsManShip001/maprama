@@ -13,7 +13,7 @@ import type {
   RouteLeg,
   RouteResult,
   TravelMode,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import { BoxGeometry, ConeGeometry, Group, Mesh, MeshBasicMaterial, RingGeometry, SphereGeometry, type Material } from 'three';
 import type { ThrottledTopic } from '../bridge/subscriptions.js';
 import { ACCENT, type MaterialFactory } from '../theme/materials.js';

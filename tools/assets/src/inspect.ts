@@ -1,5 +1,5 @@
 /**
- * `diorama inspect`: a JSON report about a glTF/GLB model — bounds, axis
+ * `maprama inspect`: a JSON report about a glTF/GLB model — bounds, axis
  * guesses, triangle count, textures, animation clips and skinning.
  *
  * @module
@@ -7,7 +7,7 @@
 
 import { stat } from 'node:fs/promises';
 import { Primitive, getBounds, type Document, type Scene, type vec3 } from '@gltf-transform/core';
-import { ANIMATION_NAMES, type AnimationName } from '@diorama/protocol';
+import { ANIMATION_NAMES, type AnimationName } from '@maprama/protocol';
 import { getIO } from './io.js';
 
 /** Axis label. `±` means the sign could not be inferred. */
@@ -244,7 +244,7 @@ export function inspectDocument(doc: Document): InspectReport {
   if (animations.some((a) => a.name === '')) warnings.push('an animation clip has no name');
 
   const axes = guessAxes(bounds.size, skinned);
-  if (axes.up === '+z') warnings.push('model looks Z-up; Diorama engines expect +Y up');
+  if (axes.up === '+z') warnings.push('model looks Z-up; Maprama engines expect +Y up');
   if (bounds.size[1] > 0 && Math.abs(bounds.min[1]) > bounds.size[1] * 0.05) {
     warnings.push(`origin is not at the feet (min.y = ${bounds.min[1].toFixed(3)} m); use --center-feet`);
   }

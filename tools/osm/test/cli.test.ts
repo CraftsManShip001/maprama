@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { validateWorldData, type WorldData } from '@diorama/protocol';
+import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { main } from '../src/cli.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'diorama-osm-cli-'));
+const dir = mkdtempSync(join(tmpdir(), 'maprama-osm-cli-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function capture(): { io: { stdout: (s: string) => void; stderr: (s: string) => void }; out: string[]; err: string[] } {
@@ -17,7 +17,7 @@ function capture(): { io: { stdout: (s: string) => void; stderr: (s: string) => 
 
 const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
-describe('diorama-osm CLI', () => {
+describe('maprama-osm CLI', () => {
   it('build writes a valid world and prints stats', async () => {
     const out = join(dir, 'world.json');
     const c = capture();

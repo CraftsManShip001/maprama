@@ -1,7 +1,7 @@
 {
-  "name": "@diorama/react-native",
+  "name": "@maprama/react-native",
   "version": "0.0.0",
-  "description": "Diorama for React Native: a 2.5D game map with characters, travel, drops, labels and geofences.",
+  "description": "Maprama for React Native: a 2.5D game map with characters, travel, drops, labels and geofences.",
   "license": "Apache-2.0",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/index.d.ts",
@@ -62,8 +62,8 @@
     }
   },
   "dependencies": {
-    "@diorama/engine-web": "*",
-    "@diorama/protocol": "*"
+    "@maprama/engine-web": "*",
+    "@maprama/protocol": "*"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

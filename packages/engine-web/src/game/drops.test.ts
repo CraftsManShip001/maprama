@@ -1,5 +1,5 @@
-import type { DropSpec } from '@diorama/protocol';
-import { validateEngineEvent } from '@diorama/protocol';
+import type { DropSpec } from '@maprama/protocol';
+import { validateEngineEvent } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { DropCollector, MAX_ISSUED_COLLECT_IDS, randomCollectId, type Collector } from './drops.js';
 

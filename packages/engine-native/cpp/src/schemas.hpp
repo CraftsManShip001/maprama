@@ -5,7 +5,7 @@
 
 #include "validate.hpp"
 
-namespace diorama::schemas {
+namespace maprama::schemas {
 
 const validate::Check& lngLat();
 const validate::Check& worldData();
@@ -15,4 +15,4 @@ const validate::Check& themePreset();
 const validate::Check& engineCommand();
 const validate::Check& engineEvent();
 
-}  // namespace diorama::schemas
+}  // namespace maprama::schemas

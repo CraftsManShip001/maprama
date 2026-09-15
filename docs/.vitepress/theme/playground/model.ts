@@ -2,7 +2,7 @@
  * Playground state → protocol commands, React Native JSX and theme JSON.
  *
  * Pure functions only (no DOM, no engine) so the page can render on the server.
- * Product names live in `BRAND` so the codename is easy to replace.
+ * Product names live in `BRAND`.
  */
 import {
   DROP_TYPES,
@@ -15,7 +15,7 @@ import {
   TIMES_OF_DAY,
   TRAVEL_MODES,
   ZOOM_OUT_BEHAVIORS,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 import type {
   DropType,
   HoloIconTile,
@@ -31,12 +31,12 @@ import type {
   WorldSource,
   ZoomOutBehavior,
   LabelStyle,
-} from '@diorama/protocol';
+} from '@maprama/protocol';
 
 export const BRAND = {
-  name: 'Diorama',
-  rnPackage: '@diorama/react-native',
-  protocolPackage: '@diorama/protocol',
+  name: 'Maprama',
+  rnPackage: '@maprama/react-native',
+  protocolPackage: '@maprama/protocol',
 } as const;
 
 export const OPTIONS = {
@@ -187,10 +187,10 @@ export function reactNativeJsx(state: PlaygroundState): string {
       : `// Drop 타입과 verifyOnServer는 앱이 제공하는 타입/함수예요`,
   );
   lines.push(`import { useRef } from 'react';`);
-  lines.push(`import { DioramaMap, Character, DropLayer, type DioramaMapRef${custom ? ', type LabelInfo' : ''} } from '${BRAND.rnPackage}';`);
+  lines.push(`import { MapramaView, Character, DropLayer, type MapramaViewRef${custom ? ', type LabelInfo' : ''} } from '${BRAND.rnPackage}';`);
   lines.push('');
   lines.push(service ? `export function GameMap({ userId }: { userId: string }) {` : `export function GameMap({ drops }: { drops: Drop[] }) {`);
-  lines.push(`  const map = useRef<DioramaMapRef>(null);`);
+  lines.push(`  const map = useRef<MapramaViewRef>(null);`);
   if (custom) {
     lines.push(`  // 평가 시점: labelsIndex 수신, 함수가 아닌 labels 필드 변경, map.current?.refreshLabelContent() 호출`);
     lines.push(`  const labelContent = (label: LabelInfo) =>`);
@@ -198,7 +198,7 @@ export function reactNativeJsx(state: PlaygroundState): string {
   }
   lines.push('');
   lines.push(`  return (`);
-  lines.push(`    <DioramaMap`);
+  lines.push(`    <MapramaView`);
   lines.push(`      ref={map}`);
   lines.push(`      world={${world}}`);
   lines.push(`      theme={${literal(theme)}}`);
@@ -235,7 +235,7 @@ export function reactNativeJsx(state: PlaygroundState): string {
     lines.push(`        onCollect={(e) => verifyOnServer(e.collectId)}`);
     lines.push(`      />`);
   }
-  lines.push(`    </DioramaMap>`);
+  lines.push(`    </MapramaView>`);
   lines.push(`  );`);
   lines.push(`}`);
   return lines.join('\n');

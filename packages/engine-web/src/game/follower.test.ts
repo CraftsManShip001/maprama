@@ -1,4 +1,4 @@
-import type { TravelMode, WorldData } from '@diorama/protocol';
+import type { TravelMode, WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { loadWorldData } from '../world/data.js';
 import {

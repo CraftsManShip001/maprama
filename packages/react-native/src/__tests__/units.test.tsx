@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import type { EngineCommand } from '@diorama/protocol';
+import type { EngineCommand } from '@maprama/protocol';
 import { CommandBatcher, throttle } from '../batching';
-import { diffCamera, toLabelsSpec } from '../DioramaMap';
+import { diffCamera, toLabelsSpec } from '../MapramaView';
 import { planLocation, resetExpoLocationCache, startExpoLocationWatch } from '../location/device';
 
 describe('CommandBatcher', () => {

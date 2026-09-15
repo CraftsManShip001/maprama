@@ -1,13 +1,13 @@
-# `@diorama/engine-native` — native engine v2 design
+# `@maprama/engine-native` — native engine v2 design
 
 Status: **M0 (foundation)**. This package contains:
 
 - this design;
-- the C++ core interfaces (`cpp/include/diorama/*.hpp`);
+- the C++ core interfaces (`cpp/include/maprama/*.hpp`);
 - a compilable core skeleton, a protocol conformance harness, and the MapLibre Native patch-queue tooling.
 
-It does **not** contain a renderer yet. v1 ships `@diorama/engine-web`. The native engine must speak
-exactly the same `@diorama/protocol` messages, so the React Native package can switch engines with a prop
+It does **not** contain a renderer yet. v1 ships `@maprama/engine-web`. The native engine must speak
+exactly the same `@maprama/protocol` messages, so the React Native package can switch engines with a prop
 (`engine="web" | "native"`) without API changes.
 
 Evidence labels used below: **[V]** verified in this repository (a command or file is named),
@@ -22,24 +22,24 @@ to be confirmed in milestone M1.
 | --- | --- |
 | React Native | New Architecture only: a Fabric view plus a TurboModule over JSI. RN 0.76+, iOS 15.1+, Android API 24+. No bridge fallback. |
 | Renderer base | Fork **MapLibre Native** (BSD-2-Clause) and embed it. The fork is kept as a **patch queue** (`patches/*.patch`) rebased on upstream, never as a long-lived divergent fork (§10). |
-| Code sharing | One **C++ shared core** (protocol, simulation, diorama layer). Obj-C++ (iOS) and Kotlin/JNI (Android) wrappers stay thin (`ios/README.md`, `android/README.md`). |
-| Contract | `@diorama/protocol` is the single source of truth. The core decodes envelopes **identically** to `decodeCommand`, and the conformance tests prove it against fixtures exported from the TS package on every `npm test` [V: `scripts/export-fixtures.mjs`, `cpp/tests/decode_tests.cpp`]. |
+| Code sharing | One **C++ shared core** (protocol, simulation, maprama layer). Obj-C++ (iOS) and Kotlin/JNI (Android) wrappers stay thin (`ios/README.md`, `android/README.md`). |
+| Contract | `@maprama/protocol` is the single source of truth. The core decodes envelopes **identically** to `decodeCommand`, and the conformance tests prove it against fixtures exported from the TS package on every `npm test` [V: `scripts/export-fixtures.mjs`, `cpp/tests/decode_tests.cpp`]. |
 | Engine selection | The RN prop `engine="web" \| "native"`. Parity is tracked in §11. |
 | C++ standard | C++17 for the core (it compiles inside RN's C++20 toolchains). Floating-point `std::to_chars` is avoided because it is unavailable on iOS < 16.3 [E]. The core uses `snprintf`/`strtod` shortest round-trip instead (`cpp/src/json.cpp`). |
-| JSON | A small self-written parser with JavaScript semantics (`cpp/include/diorama/json.hpp`). §6.4 explains why this beat vendoring nlohmann/json. |
+| JSON | A small self-written parser with JavaScript semantics (`cpp/include/maprama/json.hpp`). §6.4 explains why this beat vendoring nlohmann/json. |
 
 ## 2. Layer stack
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ TS API  (@diorama/react-native: <DioramaMap engine="native" …/>, hooks)      │  JS thread
+│ TS API  (@maprama/react-native: <MapramaView engine="native" …/>, hooks)      │  JS thread
 │   EngineBridge interface: send(envelopeText) / onMessage(envelopeText)       │
 │   ├─ WebEngineBridge   → WebView postMessage (engine-web, v1)                │
-│   └─ NativeEngineBridge → DioramaEngineModule (JSI)                          │
+│   └─ NativeEngineBridge → MapramaEngineModule (JSI)                          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Fabric + JSI                                                                 │
-│   DioramaNativeView (Fabric component, props: engineId, style)               │
-│   DioramaEngineModule (C++ TurboModule: postMessage / postMessages /         │
+│   MapramaNativeView (Fabric component, props: engineId, style)               │
+│   MapramaEngineModule (C++ TurboModule: postMessage / postMessages /         │
 │                        postEnvelope / postBuffer / setEventHandler)          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Platform wrappers (thin)                                                     │
@@ -52,9 +52,9 @@ to be confirmed in milestone M1.
 │   WorldStore · Projection · ThemeResolver · LabelSystem · CameraController   │
 │   CharacterSystem · TravelPlanner · DropSystem · GeofenceSystem              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ MapLibre Native (patched) + Diorama layer                                    │
+│ MapLibre Native (patched) + Maprama layer                                    │
 │   mbgl::Map / style / vector tiles / PMTiles / labels of the base map        │
-│   DioramaLayer: extrusion+facades+roofs, instanced drops, skinned glTF,      │
+│   MapramaLayer: extrusion+facades+roofs, instanced drops, skinned glTF,      │
 │                 holo labels, post-grade — drawn in MapLibre's render pass    │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ GPU backends: Metal (iOS) · Vulkan (Android, API 24+ where supported) · GL ES 3 fallback │
@@ -72,8 +72,8 @@ verified with the TypeScript `decodeEvent` itself [V: `scripts/verify-emitted-ev
 | --- | --- | --- | --- |
 | **JS thread** | React Native | TS API, `EngineBridge`, JSI host functions (`postMessage` etc.) | Wait on the core. Host functions only copy or retain the input and enqueue it. |
 | **Main / UI thread** | OS | Fabric mount, view layout, gesture recognisers, location callbacks, native accessibility elements | Decode messages or touch core state directly. It posts to the core queue. |
-| **Core thread** (one per engine) | `diorama::Engine` | Command queue drain, `Dispatcher`, all simulation systems, SubscriptionRegistry, event batching, and the MapLibre `mbgl::Map` API calls (camera, sources) | Block on I/O. Loads go to workers. |
-| **Render thread** | MapLibre render loop [U: MapLibre iOS drives rendering from the main run loop; Android uses a dedicated render thread; confirm per backend in M1] | MapLibre render pass plus `DioramaLayer` draw | Read mutable simulation state. It reads an immutable **frame snapshot**. |
+| **Core thread** (one per engine) | `maprama::Engine` | Command queue drain, `Dispatcher`, all simulation systems, SubscriptionRegistry, event batching, and the MapLibre `mbgl::Map` API calls (camera, sources) | Block on I/O. Loads go to workers. |
+| **Render thread** | MapLibre render loop [U: MapLibre iOS drives rendering from the main run loop; Android uses a dedicated render thread; confirm per backend in M1] | MapLibre render pass plus `MapramaLayer` draw | Read mutable simulation state. It reads an immutable **frame snapshot**. |
 | **Worker pool** (2–4 threads) | Core | Tile parsing (MapLibre's own workers), glTF/cgltf decode, texture transcoding, world JSON parse for large `init` payloads, A* route planning | Emit events directly. Results return through the core queue. |
 
 **Queues**
@@ -97,7 +97,7 @@ The skeleton `CoreEngine` serialises calls with a mutex and dispatches synchrono
 
 **Lifecycle.**
 1. Fabric mount creates the engine.
-2. The view registers it in `DioramaEngineRegistry`.
+2. The view registers it in `MapramaEngineRegistry`.
 3. `start()` emits `ready`.
 4. The host sends `init`.
 
@@ -106,7 +106,7 @@ thread. Events that are still pending are dropped, because the JS handler is gon
 
 ## 4. Message path
 
-### 4.1 JSI surface (`DioramaEngineModule`, C++ TurboModule shared by both platforms)
+### 4.1 JSI surface (`MapramaEngineModule`, C++ TurboModule shared by both platforms)
 
 | Host function | Input | Core entry | Use |
 | --- | --- | --- | --- |
@@ -149,10 +149,10 @@ implements the command (§11).
 | Command | Kind | Core subsystem(s) | Behaviour | M0 skeleton | Full in |
 | --- | --- | --- | --- | --- | --- |
 | `init` | fire-and-forget | `WorldStore`, `ThemeResolver`, `LabelSystem`, `CameraController`, `CharacterSystem`, map UI | `world.kind`: `data` → `WorldStore::load`; `url` → platform HTTP then `loadJson`; `procedural` → port of engine-web's generator. The core then resolves the theme, builds labels (emits `labelsIndex`), applies `ui`, sets the camera (default framing when absent), and sets the location source. Load errors emit `error{world_load_failed, fatal: true}`. | `data` worlds load into `WorldStore` (validated + typed), other parts logged as not applied | M1 (world, camera), M2 (theme, labels, ui) |
-| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + `DioramaLayer` uniforms | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | ignored + warn log | M2 |
+| `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + `MapramaLayer` uniforms | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | ignored + warn log | M2 |
 | `setLabels` | fire-and-forget | `LabelSystem::setLabels` | Rebuilds label atlases and styles | ignored + warn log | M2 |
 | `setLabelContent` | fire-and-forget | `LabelSystem::setLabelContent` | Replaces host content by label id (used with `content: "custom"`) | ignored + warn log | M2 |
-| `setUi` | fire-and-forget | Platform ornaments (MapLibre scale bar / attribution) + `DioramaLayer` location puck | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | ignored + warn log | M2 |
+| `setUi` | fire-and-forget | Platform ornaments (MapLibre scale bar / attribution) + `MapramaLayer` location puck | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution` | ignored + warn log | M2 |
 | `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | ignored + warn log | M1 |
 | `upsertCharacters` | fire-and-forget | `CharacterSystem::upsert` | Upserts by id; async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise; `model: null` drops the model (default avatar again) | ignored + warn log | M3 |
 | `removeCharacters` | fire-and-forget | `CharacterSystem::remove`, `TravelPlanner::cancel` | Removes characters; running travels emit `travel:cancel` | ignored + warn log | M3 |
@@ -163,7 +163,7 @@ implements the command (§11).
 | `setDropLayer` | fire-and-forget | `DropSystem::setLayer` | Replaces the layer; builds instance buffers; collection radius and collectors | ignored + warn log | M3 |
 | `removeDropLayer` | fire-and-forget | `DropSystem::removeLayer` | Removes the layer and its instances | ignored + warn log | M3 |
 | `setGeofences` | fire-and-forget | `GeofenceSystem::setGeofences` | Replaces all geofences; membership of unchanged ids preserved | ignored + warn log | M3 |
-| `setBuildingStyle` | fire-and-forget | `DioramaLayer` building style table (looked up via `WorldStore::findBuilding`) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | ignored + warn log | M2 |
+| `setBuildingStyle` | fire-and-forget | `MapramaLayer` building style table (looked up via `WorldStore::findBuilding`) | Per-building color, roof, facade, decorations, massing, `replaceModel` (glTF), `state`; `null` clears | ignored + warn log | M2 |
 | `setOverlayAnchors` | fire-and-forget | `CameraController::setOverlayAnchors` | Emits `overlay:positions` while anchors exist and the view changes | ignored + warn log | M2 |
 | `subscribe` | fire-and-forget | `SubscriptionRegistry` (in `Dispatcher`) | Topic × optional id × `throttleMs`; samples `CharacterSystem` / `CameraController` / `TravelPlanner` each tick | ignored + warn log | M1 |
 | `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | ignored + warn log | M1 |
@@ -179,7 +179,7 @@ implements the command (§11).
 | `error` | `Dispatcher` (`invalid_message`), world loader (`world_load_failed`), `CharacterSystem`/`DropSystem` (`model_load_failed`), any subsystem (`internal`) | Decode failure, load failure, unexpected failure | Immediate (next batch) | `invalid_message`, `world_load_failed` | M0 / M3 |
 | `labelsIndex` | `LabelSystem::rebuildIndex` | After every successful world load | Once per load | not emitted | M2 |
 | `map:press` | `CameraController::tap` | Tap whose ray hits the ground and no building | Immediate | not emitted (tap logged) | M2 |
-| `building:press` | `CameraController::tap` + `DioramaLayer` ID-buffer picking | Tap on an extruded or replaced building | Immediate | not emitted | M2 |
+| `building:press` | `CameraController::tap` + `MapramaLayer` ID-buffer picking | Tap on an extruded or replaced building | Immediate | not emitted | M2 |
 | `drop:collect` | `DropSystem::update` | Collector within `collectRadiusMeters`; nonce from platform CSPRNG | Immediate; drop removed first (never twice) | not emitted | M3 |
 | `travel:start` | `TravelPlanner::start` | Accepted `travel` | Immediate, before any progress | not emitted | M3 |
 | `travel:progress` | `SubscriptionRegistry` sampling `TravelPlanner::active` | Topic `travel:progress` subscribed | Throttled (`throttleMs`) | not emitted | M3 |
@@ -196,17 +196,17 @@ implements the command (§11).
 The table coverage is enforced by `npm test` [V: `scripts/check-design-coverage.mjs` fails when a name in
 `ENGINE_COMMAND_TYPES`, `ENGINE_EVENT_TYPES` or `REQUEST_METHODS` is missing, duplicated or unknown].
 
-## 6. Diorama layer
+## 6. Maprama layer
 
 ### 6.1 Custom layer API vs style-spec extension
 
 | Option | Pros | Cons |
 | --- | --- | --- |
 | A. MapLibre custom layer API (host callback per frame) | No fork patches; upstream-supported | The legacy `CustomLayer` is GL-only [U]. The newer drawable-based custom layer for Metal/Vulkan is still evolving [U]. No style-JSON placement, no picking hooks, limited access to depth and shadow passes. |
-| B. Style-spec extension: a new layer `type: "diorama"` implemented in the renderer | Participates in style ordering and zoom ranges. Shares depth with fill-extrusion and symbols. Gets theme-driven paint properties. | Requires patches to style parsing, the layer factory and the render layer. These are maintained in the queue. |
-| **Decision: B, built as a thin wrapper over A's drawable machinery** | The patch registers a `diorama` layer type whose `RenderDioramaLayer` delegates drawing to `DioramaLayer` in our core, using the drawable/custom-drawable APIs. Patches stay small (factory + render-layer glue, about 4 patches) and have a chance to be upstreamed as a generic "external render layer". | Revisit in M1 if upstream's custom drawable layer already covers ordering and depth. |
+| B. Style-spec extension: a new layer `type: "maprama"` implemented in the renderer | Participates in style ordering and zoom ranges. Shares depth with fill-extrusion and symbols. Gets theme-driven paint properties. | Requires patches to style parsing, the layer factory and the render layer. These are maintained in the queue. |
+| **Decision: B, built as a thin wrapper over A's drawable machinery** | The patch registers a `maprama` layer type whose `RenderMapramaLayer` delegates drawing to `MapramaLayer` in our core, using the drawable/custom-drawable APIs. Patches stay small (factory + render-layer glue, about 4 patches) and have a chance to be upstreamed as a generic "external render layer". | Revisit in M1 if upstream's custom drawable layer already covers ordering and depth. |
 
-The diorama layer consumes the core's `FrameSnapshot`, which holds the camera matrices shared with `mbgl::TransformState`.
+The maprama layer consumes the core's `FrameSnapshot`, which holds the camera matrices shared with `mbgl::TransformState`.
 World-unit geometry is placed with `Projection` (§6.7) and converted into MapLibre's mercator tile space
 once per world load, never per vertex per frame.
 
@@ -276,7 +276,7 @@ once per world load, never per vertex per frame.
 | Text shaping (Hangul, emoji) | Platform shaping for free | Needs shaping. We reuse MapLibre's glyph pipeline and HarfBuzz patch set [U] |
 | Accessibility | Free | Needs mirrored accessibility elements |
 
-**Decision.** GPU quads rendered by `DioramaLayer` for every style, which is consistent with engine-web's
+**Decision.** GPU quads rendered by `MapramaLayer` for every style, which is consistent with engine-web's
 three.js sprites. Accessibility is provided by a small pool (≤ 30) of invisible native accessibility elements
 placed at the most prominent labels' `LabelInstance.anchor`. Host overlays (`setOverlayAnchors`) remain the
 path for rich interactive native UI. Icons come from the atlas generated from the protocol's `LABEL_ICONS`.
@@ -291,7 +291,7 @@ bundle them. The resolved theme is applied in three places:
 
 1. **MapLibre style** (base map beyond the diorama radius): the core sets paint properties `ground`, `water`,
    `park`, `road`, `plaza`, `centerLine` and `crosswalkColor` on the corresponding style layers.
-2. **DioramaLayer uniforms:** hemisphere and sun light (`TIMES[timeOfDay]` × `hemiMul`/`sunMul`), fog
+2. **MapramaLayer uniforms:** hemisphere and sun light (`TIMES[timeOfDay]` × `hemiMul`/`sunMul`), fog
    near/far/color, exposure, tone mapping (`toneMapped`), `shading` (`standard` PBR-lite vs `toon` ramp),
    `edgeLines` / outline pass, facade set and palette, landmark colors, and window lights (`lights`).
 3. **Post pass:** the CSS gradients (`haze`, `vignette`, cinematic `grade`) are parsed once into 256×1 ramp
@@ -308,9 +308,9 @@ rebuild only the affected geometry chunks on workers.
   across a 5 km world [E].
 - `ZoomOutBehavior`:
   - `none` keeps the diorama at every zoom.
-  - `mapColors` cross-fades the diorama layer's opacity to 0 between camera distance D1 and D2 (default
+  - `mapColors` cross-fades the maprama layer's opacity to 0 between camera distance D1 and D2 (default
     zoom 14 → 13 [E]) while MapLibre's flat vector layers fade in with preset-derived colors.
-  - `keepGameView` keeps the diorama. Beyond D2 buildings switch to merged low-LOD roof-only impostors, and
+  - `keepGameView` keeps the maprama. Beyond D2 buildings switch to merged low-LOD roof-only impostors, and
     characters and drops become icon sprites, so the draw calls stay within budget.
 
 ## 7. Tiles
@@ -328,17 +328,17 @@ rebuild only the affected geometry chunks on workers.
 
 | Layer | Geometry | Properties | WorldData field |
 | --- | --- | --- | --- |
-| `diorama_roads` | LineString | `id` (string), `cls` (`arterial`/`local`/`alley`), `name`?, `bridge`? (bool) | `roads[]` |
-| `diorama_buildings` | Polygon (exterior ring, positive shoelace area in world `[x, z]` after projection) | `id`, `height_m` (meters; world `height = height_m / unitMeters`), `levels`?, `kind`?, `name`? | `buildings[]` |
-| `diorama_water` | Polygon | none | `water[]` |
-| `diorama_parks` | Polygon | `name`? | `parks[]` |
-| `diorama_pois` | Point | `id`, `name`, `cat` (`POI_CATEGORIES`) | `pois[]` |
-| `diorama_stations` | Point | `id`, `name` | `stations[]` |
-| `diorama_districts` | Point | `name`, `water`? | `districts[]` |
+| `maprama_roads` | LineString | `id` (string), `cls` (`arterial`/`local`/`alley`), `name`?, `bridge`? (bool) | `roads[]` |
+| `maprama_buildings` | Polygon (exterior ring, positive shoelace area in world `[x, z]` after projection) | `id`, `height_m` (meters; world `height = height_m / unitMeters`), `levels`?, `kind`?, `name`? | `buildings[]` |
+| `maprama_water` | Polygon | none | `water[]` |
+| `maprama_parks` | Polygon | `name`? | `parks[]` |
+| `maprama_pois` | Point | `id`, `name`, `cat` (`POI_CATEGORIES`) | `pois[]` |
+| `maprama_stations` | Point | `id`, `name` | `stations[]` |
+| `maprama_districts` | Point | `name`, `water`? | `districts[]` |
 
-  World-level fields live in the PMTiles metadata JSON under the key `"diorama"`:
+  World-level fields live in the PMTiles metadata JSON under the key `"maprama"`:
   `{version: 1, name, origin, unitMeters, bounds, plaza?, attribution[]}`. For z/x/y sources they are in
-  `…/diorama.json`. Features split across tiles are deduplicated by `id`. Buildings are reassembled from the
+  `…/maprama.json`. Features split across tiles are deduplicated by `id`. Buildings are reassembled from the
   highest zoom that contains them.
 
 ## 8. Memory and performance budgets
@@ -349,15 +349,15 @@ numbers exist.
 
 | Budget | Target |
 | --- | --- |
-| Frame time | 16.6 ms at 60 fps (p95); core tick ≤ 2 ms; diorama encode ≤ 4 ms; MapLibre base map ≤ 5 ms |
-| Native heap (engine total) | ≤ 250 MB. MapLibre tile cache 50 MB, diorama geometry ≤ 60 MB, textures ≤ 64 MB, characters ≤ 8 MB each, other |
+| Frame time | 16.6 ms at 60 fps (p95); core tick ≤ 2 ms; maprama encode ≤ 4 ms; MapLibre base map ≤ 5 ms |
+| Native heap (engine total) | ≤ 250 MB. MapLibre tile cache 50 MB, maprama geometry ≤ 60 MB, textures ≤ 64 MB, characters ≤ 8 MB each, other |
 | GPU draw calls | ≤ 150 per frame (buildings chunked by 256 m cells; drops 1 call per type × rarity; labels ≤ 3) |
 | Characters | ≤ 32 skinned, ≤ 64 joints each |
 | Drops | ≤ 5,000 active, ≤ 1,500 visible |
 | Labels | ≤ 1,000 indexed, ≤ 300 placed per frame |
 | Message decode | Typical command ≤ 0.2 ms; `init` with a 5 MB inline world ≤ 150 ms on a worker (p95) |
 | Latency | JS `send` → applied ≤ 1 frame; event emitted → JS handler ≤ 1 frame |
-| Cold start | View mount → `ready` ≤ 300 ms; `init` → first diorama frame ≤ 1 s (sample world) |
+| Cold start | View mount → `ready` ≤ 300 ms; `init` → first maprama frame ≤ 1 s (sample world) |
 | Binary size | ≤ +12 MB per ABI (MapLibre + core), excluding assets |
 | Battery | `device` location source ≤ 5 %/h additional drain in foreground [E] |
 
@@ -371,7 +371,7 @@ The skeleton's own numbers are not budget evidence. It is built with ASan/UBSan 
   `externalNativeBuild`.
 - The patched MapLibre is built in CI from `patches/` into an XCFramework (Metal) and an AAR. App builds
   consume these prebuilt artifacts, so they never apply patches.
-- Tests: `npm test -w @diorama/engine-native` runs these steps:
+- Tests: `npm test -w @maprama/engine-native` runs these steps:
   1. export fixtures from the built protocol package;
   2. check DESIGN.md coverage;
   3. build the core plus the sanitizer test binary;
@@ -393,10 +393,10 @@ scripts/patch-queue/
   test.sh    # throwaway upstream fixture; run by npm test
 ```
 
-- **Apply.** `apply.sh ~/src/maplibre-native` checks out `diorama/patched` at `UPSTREAM` and runs
+- **Apply.** `apply.sh ~/src/maplibre-native` checks out `maprama/patched` at `UPSTREAM` and runs
   `git am --3way patches/*.patch`. It refuses a dirty tree, an in-progress am/rebase, an unknown ref or
   an unpinned base.
-- **Develop.** Commit on `diorama/patched` with one concern per commit and the subject prefix `[diorama]`.
+- **Develop.** Commit on `maprama/patched` with one concern per commit and the subject prefix `[maprama]`.
   Mark patches meant for upstream with `Upstream-Status: pending` in the commit body.
 - **Refresh.** `refresh.sh ~/src/maplibre-native` regenerates `patches/` from `UPSTREAM..HEAD`. The output is
   normalised (zero commit ids, no diffstat/signature, fixed abbreviations), so a refresh with no changes is
@@ -448,9 +448,9 @@ engine-web status is taken from the v1 plan: it is the shipping engine and imple
   conformance tests, patch-queue tooling.
 - **M1 — map on screen.**
   - Pin `UPSTREAM`.
-  - First patches: the `diorama` layer type and PMTiles support if needed.
+  - First patches: the `maprama` layer type and PMTiles support if needed.
   - CI artifacts (XCFramework/AAR).
-  - `DioramaNativeView` + `DioramaEngineModule` on both platforms.
+  - `MapramaNativeView` + `MapramaEngineModule` on both platforms.
   - Command queue, frame snapshot, event batching.
   - `init` with data/url/procedural worlds rendering the flat map.
   - Camera + gestures, `project`/`unproject`, SubscriptionRegistry, `camera:change`.
@@ -479,7 +479,7 @@ The root `NOTICE` is intentionally not modified by M0. Add these entries when th
 
 | Input | Output |
 | --- | --- |
-| Engine `start()` | `ready {engine: {name: "diorama-native", version: "0.0.0", kind: "native"}}` |
+| Engine `start()` | `ready {engine: {name: "maprama-native", version: "0.0.0", kind: "native"}}` |
 | Envelope failing `decodeCommand` rules | `error {code: "invalid_message", message: <exact decodeCommand error>, fatal: false}` |
 | `request` (any method) | `response {requestId, ok: false, error: {code: "unsupported", message}}` |
 | `init` with `world.kind = "data"` | `WorldStore` loaded (plus warn logs for semantic issues); remaining init parts warn-logged |

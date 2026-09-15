@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { Vec2 } from '@diorama/protocol';
+import type { Vec2 } from '@maprama/protocol';
 import { clamp, mulberry32 } from '../util/math.js';
 import { buildGraph, ROAD_W, snap, type GraphRoad } from './graph.js';
 import { PROCEDURAL_ORIGIN, type BuildingModel, type Ribbon, type SceneryTree, type WorldModel } from './model.js';

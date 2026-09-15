@@ -9,8 +9,8 @@
  * @module
  */
 
-import type { LocationFix, LocationSourceKind } from '@diorama/protocol';
-import type { DioramaLocationProps } from '../types';
+import type { LocationFix, LocationSourceKind } from '@maprama/protocol';
+import type { MapramaLocationProps } from '../types';
 
 /** The subset of `expo-location` used by the host. */
 export interface ExpoLocationModule {
@@ -58,7 +58,7 @@ export interface LocationPlan {
 }
 
 /** Resolves the location plan for a `location` prop. */
-export function planLocation(location: DioramaLocationProps | undefined): LocationPlan {
+export function planLocation(location: MapramaLocationProps | undefined): LocationPlan {
   const source = location?.source ?? 'external';
   if (source !== 'device') return { engineSource: source, useExpoLocation: false, webViewGeolocation: false };
   const provider = location?.provider ?? 'auto';

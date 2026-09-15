@@ -35,7 +35,7 @@ describe('fetchOverpass', () => {
   const noSleep = async (): Promise<void> => {};
 
   it('falls back to the next endpoint, sends User-Agent + form body, and caches', async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), 'diorama-osm-'));
+    const cacheDir = mkdtempSync(join(tmpdir(), 'maprama-osm-'));
     dirs.push(cacheDir);
     const calls: { url: string; init: RequestInit }[] = [];
     const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -51,11 +51,11 @@ describe('fetchOverpass', () => {
       cacheDir,
     });
     expect(raw.elements).toHaveLength(1);
-    expect(raw.diorama?.endpoint).toBe('https://b.example/api');
-    expect(raw.diorama?.bbox).toEqual(bbox);
+    expect(raw.maprama?.endpoint).toBe('https://b.example/api');
+    expect(raw.maprama?.bbox).toEqual(bbox);
     expect(calls).toHaveLength(2);
     const headers = calls[1]!.init.headers as Record<string, string>;
-    expect(headers['User-Agent']).toMatch(/diorama-osm/);
+    expect(headers['User-Agent']).toMatch(/maprama-osm/);
     expect(calls[1]!.init.method).toBe('POST');
     expect(String(calls[1]!.init.body)).toMatch(/^data=/);
 

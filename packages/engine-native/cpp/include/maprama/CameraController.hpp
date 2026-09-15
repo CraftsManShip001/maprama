@@ -1,4 +1,4 @@
-// Diorama native core — camera, gestures, screen <-> world mapping, overlay anchors.
+// Maprama native core — camera, gestures, screen <-> world mapping, overlay anchors.
 //
 // Commands: setCamera, setOverlayAnchors, request{project}, request{unproject}.
 // Events:   camera:change (subscription topic), overlay:positions, map:press, building:press.
@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "diorama/MessageSink.hpp"
-#include "diorama/types.hpp"
+#include "maprama/MessageSink.hpp"
+#include "maprama/types.hpp"
 
-namespace diorama {
+namespace maprama {
 
 class CharacterSystem;
 class Projection;
@@ -34,7 +34,7 @@ class CameraController {
   virtual void setCamera(const CameraSpec& camera) = 0;
   virtual CameraState state() const = 0;
 
-  /// Mirrors the MapLibre `mbgl::CameraOptions` of the embedded map (the diorama layer shares its matrices).
+  /// Mirrors the MapLibre `mbgl::CameraOptions` of the embedded map (the maprama layer shares its matrices).
   virtual double mapLibreZoom() const = 0;
 
   /// `request{project}`: `visible` false when off-screen or behind the camera.
@@ -51,11 +51,11 @@ class CameraController {
   virtual void rotate(double degrees) = 0;
   virtual void tilt(double degrees) = 0;
 
-  /// Tap: hit-tests buildings (diorama layer picking) and emits `building:press` or `map:press`.
+  /// Tap: hit-tests buildings (maprama layer picking) and emits `building:press` or `map:press`.
   virtual void tap(double x, double y, EventEmitter& events) = 0;
 
   /// Advances animations / follow; emits `overlay:positions` when needed.
   virtual void update(double dtSeconds, const CharacterSystem& characters, EventEmitter& events) = 0;
 };
 
-}  // namespace diorama
+}  // namespace maprama

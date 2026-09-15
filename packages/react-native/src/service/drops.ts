@@ -5,7 +5,7 @@
  * @module
  */
 
-import { validateEngineCommand, type DropSpec } from '@diorama/protocol';
+import { validateEngineCommand, type DropSpec } from '@maprama/protocol';
 
 /** Connection settings for the drops service. */
 export interface DropsServiceConfig {

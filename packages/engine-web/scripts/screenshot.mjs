@@ -7,7 +7,7 @@
 // Builds the playground bundle into dev/build/ (gitignored, served at /build/),
 // serves dev/ (playground), dist/ at /dist/ and the
 // repository's reference/preview at /reference/, drives Chrome through the
-// DevTools protocol, waits for `window.__DIORAMA_READY__`, and fails (exit 1)
+// DevTools protocol, waits for `window.__MAPRAMA_READY__`, and fails (exit 1)
 // if an engine page logs a console error, throws, or never becomes ready.
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -63,8 +63,8 @@ const HTML_SCENARIOS = [
 const htmlSetup = (init) => `(() => {
   window.ReactNativeWebView = { postMessage(d) { const m = JSON.parse(d).msg; if (m.type === 'error') console.error('engine error [' + m.code + '] ' + m.message); } };
   window.postMessage(JSON.stringify({ v: 1, seq: 0, kind: 'cmd', msg: ${JSON.stringify(init)} }), '*');
-  const e = window.__diorama;
-  const wait = () => { const s = e.scene; if (s && s.world()) { const need = s.frames() + 24; const off = s.onFrame(() => { if (s.frames() >= need) { off(); window.__DIORAMA_READY__ = true; } }); } else setTimeout(wait, 100); };
+  const e = window.__maprama;
+  const wait = () => { const s = e.scene; if (s && s.world()) { const need = s.frames() + 24; const off = s.onFrame(() => { if (s.frames() >= need) { off(); window.__MAPRAMA_READY__ = true; } }); } else setTimeout(wait, 100); };
   wait();
 })()`;
 const REFERENCES = [
@@ -107,7 +107,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 // ---- chrome + CDP ----
-const profile = mkdtempSync(join(tmpdir(), 'diorama-shot-'));
+const profile = mkdtempSync(join(tmpdir(), 'maprama-shot-'));
 const chrome = spawn(CHROME, [
   '--headless=new', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist',
   '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check',
@@ -170,7 +170,7 @@ async function capture({ name, url, strict, clipSelector, waitReady, settleMs, s
     await send('Page.navigate', { url }, sessionId);
     if (setup) {
       for (let i = 0; i < 300; i++) {
-        const r = await send('Runtime.evaluate', { expression: "document.readyState === 'complete' && !!window.__diorama", returnByValue: true }, sessionId);
+        const r = await send('Runtime.evaluate', { expression: "document.readyState === 'complete' && !!window.__maprama", returnByValue: true }, sessionId);
         if (r.result.value === true) break;
         await sleep(100);
       }
@@ -180,7 +180,7 @@ async function capture({ name, url, strict, clipSelector, waitReady, settleMs, s
     const deadline = Date.now() + 180000;
     if (waitReady) {
       while (Date.now() < deadline) {
-        const r = await send('Runtime.evaluate', { expression: 'window.__DIORAMA_READY__ === true', returnByValue: true }, sessionId);
+        const r = await send('Runtime.evaluate', { expression: 'window.__MAPRAMA_READY__ === true', returnByValue: true }, sessionId);
         if (r.result.value === true) { ready = true; break; }
         if (errors.length && strict) break;
         await sleep(500);

@@ -13,7 +13,7 @@ import type { AppEnv } from './util/http.js';
 export type { AppEnv } from './util/http.js';
 
 /**
- * Creates the Diorama API. Every storage/runtime dependency is injected, so
+ * Creates the Maprama API. Every storage/runtime dependency is injected, so
  * the same app runs on Cloudflare Workers (D1/R2), in Node (`dev:local`) and in
  * tests (in-memory adapters).
  */
@@ -26,12 +26,12 @@ export function createApp(deps: ServiceDeps): Hono<AppEnv> {
       origin: '*',
       allowMethods: ['GET', 'POST', 'OPTIONS'],
       allowHeaders: ['Authorization', 'Content-Type', 'If-None-Match'],
-      exposeHeaders: ['ETag', 'X-Diorama-Usage', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+      exposeHeaders: ['ETag', 'X-Maprama-Usage', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
       maxAge: 86400,
     }),
   );
 
-  app.get('/v1/health', (c) => c.json({ ok: true, service: 'diorama-api' }));
+  app.get('/v1/health', (c) => c.json({ ok: true, service: 'maprama-api' }));
 
   registerMapRoutes(app, deps);
   registerSearchRoutes(app, deps);
@@ -44,7 +44,7 @@ export function createApp(deps: ServiceDeps): Hono<AppEnv> {
   app.onError((err, c) => {
     if (err instanceof ApiError) return c.json(errorBody(err.code, err.message), err.status);
     // Never log request URLs or headers: they may carry API keys.
-    console.error('[diorama-api] unhandled error:', err instanceof Error ? err.message : 'unknown');
+    console.error('[maprama-api] unhandled error:', err instanceof Error ? err.message : 'unknown');
     return c.json(errorBody('INTERNAL_ERROR', 'Internal server error'), 500);
   });
 

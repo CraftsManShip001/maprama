@@ -1,4 +1,4 @@
-// Diorama native core — value types mirroring `@diorama/protocol`
+// Maprama native core — value types mirroring `@maprama/protocol`
 // (geo.ts, entities.ts, labels.ts, messages.ts). Field names and units match
 // the TypeScript contract; `std::optional` marks optional TS fields.
 //
@@ -15,9 +15,9 @@
 #include <string_view>
 #include <vector>
 
-#include "diorama/json.hpp"
+#include "maprama/json.hpp"
 
-namespace diorama {
+namespace maprama {
 
 // ---------------------------------------------------------------------------
 // Result
@@ -318,4 +318,4 @@ inline constexpr std::string_view kModelLoadFailed = "model_load_failed";
 inline constexpr std::string_view kInternal = "internal";
 }  // namespace error_codes
 
-}  // namespace diorama
+}  // namespace maprama

@@ -14,7 +14,7 @@ usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 patches="$(cd "$script_dir/../.." && pwd)/patches"
-branch="diorama/patched"
+branch="maprama/patched"
 positional=""
 while [ $# -gt 0 ]; do
   case "$1" in

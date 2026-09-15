@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Character, type DioramaMapRef } from '@diorama/react-native';
-import type { LngLat, TravelMode } from '@diorama/protocol';
+import { Character, type MapramaViewRef } from '@maprama/react-native';
+import type { LngLat, TravelMode } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, useEventLog } from '../src/components/ui';
 import { SEONGSU_WORLD, STATION, offsetMeters } from '../src/data/seongsu';
@@ -25,7 +25,7 @@ const NEAR = offsetMeters(STATION, -70, -90);
 const FAR = offsetMeters(STATION, 10, -370);
 
 export default function TravelScreen() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const [mode, setMode] = useState<ModeChoice>('walk');
   const [status, setStatus] = useState('idle');
   const [eta, setEta] = useState('ETA —');

@@ -1,26 +1,26 @@
-# Diorama API — Cloudflare Workers configuration.
+# Maprama API — Cloudflare Workers configuration.
 # Placeholder bindings only: no account id, database id or secrets live here.
 #
-#   wrangler d1 create diorama-api            # then paste the printed database_id below (or keep it out of VCS)
-#   wrangler r2 bucket create diorama-tiles
+#   wrangler d1 create maprama-api            # then paste the printed database_id below (or keep it out of VCS)
+#   wrangler r2 bucket create maprama-tiles
 #   wrangler secret put RECEIPT_SECRET        # >= 32 random characters
 #   wrangler d1 migrations apply DB --remote
 #   wrangler deploy
 
-name = "diorama-api"
+name = "maprama-api"
 main = "src/worker.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "diorama-api"
+database_name = "maprama-api"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "TILES"
-bucket_name = "diorama-tiles"
+bucket_name = "maprama-tiles"
 
 [observability]
 enabled = true

@@ -1,8 +1,8 @@
-# @diorama/react-native
+# @maprama/react-native
 
 A 2.5D game map for React Native. It supports characters, multi-mode travel, collectible drops, holographic labels, geofences and React Native views pinned to map coordinates.
 
-The map is declarative: you describe it with components, drive it with an imperative `ref` API, and opt in to continuous values (character position, camera) through hooks. Rendering runs in a swappable **engine host**. The v1 host runs `@diorama/engine-web` inside `react-native-webview`. A future native engine can replace it without changing app code.
+The map is declarative: you describe it with components, drive it with an imperative `ref` API, and opt in to continuous values (character position, camera) through hooks. Rendering runs in a swappable **engine host**. The v1 host runs `@maprama/engine-web` inside `react-native-webview`. A future native engine can replace it without changing app code.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ The map is declarative: you describe it with components, drive it with an impera
 ### Bare React Native
 
 ```sh
-npm i @diorama/react-native react-native-webview
+npm i @maprama/react-native react-native-webview
 cd ios && pod install
 ```
 
@@ -27,7 +27,7 @@ For `location={{ source: 'device' }}`, add the location permissions yourself:
 ### Expo (development build / prebuild)
 
 ```sh
-npx expo install @diorama/react-native react-native-webview
+npx expo install @maprama/react-native react-native-webview
 # optional, recommended for device location:
 npx expo install expo-location
 ```
@@ -36,7 +36,7 @@ npx expo install expo-location
 {
   "expo": {
     "plugins": [
-      ["@diorama/react-native", { "features": ["characters", "drops", "labels", "travel"], "locationPermissionText": "Show you on the map" }]
+      ["@maprama/react-native", { "features": ["characters", "drops", "labels", "travel"], "locationPermissionText": "Show you on the map" }]
     ]
   }
 }
@@ -46,7 +46,7 @@ Config plugin options:
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `features` | `('characters' \| 'drops' \| 'labels' \| 'travel')[]` | all | Recorded in `Info.plist` (`DioramaFeatures`) and as Android `<meta-data android:name="dev.diorama.features">`. The v1 JavaScript engine ignores it; a future native engine will use it to strip unused modules. |
+| `features` | `('characters' \| 'drops' \| 'labels' \| 'travel')[]` | all | Recorded in `Info.plist` (`MapramaFeatures`) and as Android `<meta-data android:name="dev.maprama.features">`. The v1 JavaScript engine ignores it; a future native engine will use it to strip unused modules. |
 | `locationPermissionText` | `string` | a generic text | iOS `NSLocationWhenInUseUsageDescription`. |
 | `location` | `boolean` | `true` | Adds the iOS usage description and Android `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`. Set `false` if you never use `location.source: 'device'`. |
 
@@ -55,17 +55,17 @@ Config plugin options:
 ```tsx
 import { useRef } from 'react';
 import {
-  DioramaMap, Character, CharacterLayer, DropLayer, Geofence, MapOverlay,
-  useCharacterPosition, type DioramaMapRef,
-} from '@diorama/react-native';
-import urban from '@diorama/protocol/themes/urban.json'; // or simply base: 'urban'
+  MapramaView, Character, CharacterLayer, DropLayer, Geofence, MapOverlay,
+  useCharacterPosition, type MapramaViewRef,
+} from '@maprama/react-native';
+import urban from '@maprama/protocol/themes/urban.json'; // or simply base: 'urban'
 
 export function GameMap() {
-  const map = useRef<DioramaMapRef>(null);
+  const map = useRef<MapramaViewRef>(null);
   const me = useCharacterPosition(map, 'me', { throttleMs: 500 });
 
   return (
-    <DioramaMap
+    <MapramaView
       ref={map}
       world={{ kind: 'url', url: 'https://api.example/v1/worlds/seoul-seongsu.json?key=...' }}
       theme={{ base: urban, timeOfDay: 'golden', buildings: { massing: 'varied', details: true }, zoomOut: 'keepGameView' }}
@@ -88,7 +88,7 @@ export function GameMap() {
         getRarity={(t) => t.rarity} getPayload={(t) => ({ trackId: t.id })} collectRadiusMeters={15} onCollect={(e) => verifyOnServer(e)} />
       <Geofence id="plaza" center={plaza} radiusMeters={60} onEnter={() => {}} onExit={() => {}} />
       <MapOverlay coordinate={shop.coord} anchor="bottom"><ShopCard /></MapOverlay>
-    </DioramaMap>
+    </MapramaView>
   );
 }
 ```
@@ -101,7 +101,7 @@ export function GameMap() {
 
 | Component | Purpose | Key props |
 | --- | --- | --- |
-| `DioramaMap` | Hosts the engine and owns all children. | `world` (read at init), `theme`, `labels`, `ui`, `camera`, `location`, `engine`, `requestTimeoutMs`, `travelStartTimeoutMs`, `onReady`, `onPress`, `onBuildingPress`, `onError`, `style`, `testID` |
+| `MapramaView` | Hosts the engine and owns all children. | `world` (read at init), `theme`, `labels`, `ui`, `camera`, `location`, `engine`, `requestTimeoutMs`, `travelStartTimeoutMs`, `onReady`, `onPress`, `onBuildingPress`, `onError`, `style`, `testID` |
 | `Character` | One character (the player or an actor). | `id`, `isPlayer`, `model`, `animations`, `follow` (`'location'` \| `'none'`), `position`, `name`, `color`, `scale`, `showNameTag` |
 | `CharacterLayer` | Many characters from app data. | `data`, `getId`, `getPosition`, `getModel`, `getName`, `getColor`, `getScale`, `getAnimations`, `showNameTags` |
 | `DropLayer` | Collectible drops from app data or the hosted service. | `id`, `collectRadiusMeters` (15), `collectorIds`, `onCollect`; data: `data`, `getId`, `getCoordinate`, `getType`, `getRarity`, `getValue`, `getModel`, `getPayload`; service: `source="service"`, `channel`, `apiKey`, `baseUrl`, `userId`, `radiusMeters`, `refetchDistanceMeters` (150), `characterId`, `positionThrottleMs` (1000), `onCollectVerified`, `onCollectRejected` |
@@ -116,13 +116,13 @@ Models: `require('./hero.glb')` asset numbers are resolved with `Image.resolveAs
 
 `MapOverlay` positions come from the engine's `overlay:positions` events and are applied to `Animated` values, so overlays follow the camera without re-rendering React.
 
-### Ref API (`DioramaMapRef`)
+### Ref API (`MapramaViewRef`)
 
-Available through `ref` on `DioramaMap`, or through `useDioramaMap()` inside it.
+Available through `ref` on `MapramaView`, or through `useMapramaView()` inside it.
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `travel(characterId, to, modes?, options?)` | `Promise<TravelResult>` | Resolves on `travel:arrive`. Rejects with `DioramaError` code `travel_cancelled`, `timeout`, `engine_reloaded` or `unmounted`. `options.timeoutMs` bounds the whole trip; `startTimeoutMs` bounds the wait for `travel:start`. |
+| `travel(characterId, to, modes?, options?)` | `Promise<TravelResult>` | Resolves on `travel:arrive`. Rejects with `MapramaError` code `travel_cancelled`, `timeout`, `engine_reloaded` or `unmounted`. `options.timeoutMs` bounds the whole trip; `startTimeoutMs` bounds the wait for `travel:start`. |
 | `cancelTravel(characterId)` | `void` | |
 | `setCamera(camera)` | `void` | Unset fields keep their value. |
 | `pushLocation(fix)` | `void` | For `location.source: 'external'`. |
@@ -143,15 +143,15 @@ Timeouts are read from the latest `requestTimeoutMs` / `travelStartTimeoutMs` pr
 
 | Hook | Returns |
 | --- | --- |
-| `useDioramaMap()` | The enclosing map's `DioramaMapRef` (throws outside `DioramaMap`). |
+| `useMapramaView()` | The enclosing map's `MapramaViewRef` (throws outside `MapramaView`). |
 | `useCharacterPosition(map, characterId, { throttleMs })` | Latest `{ coordinate, headingDeg, speedMps }` or `null`. Subscribes on mount, unsubscribes on unmount. |
 | `useCameraState(map, { throttleMs })` | Latest camera state or `null`. |
 
-`map` may be a `useRef<DioramaMapRef>()` object, the API itself, or `null` inside `DioramaMap` (uses the enclosing map). The map may mount after the hook, e.g. when it is rendered conditionally. The hooks subscribe as soon as it mounts and follow a remounted map.
+`map` may be a `useRef<MapramaViewRef>()` object, the API itself, or `null` inside `MapramaView` (uses the enclosing map). The map may mount after the hook, e.g. when it is rendered conditionally. The hooks subscribe as soon as it mounts and follow a remounted map.
 
 ### Errors
 
-`onError` receives `{ code, message, fatal }` and never throws. Engine codes pass through (`world_load_failed`, `model_load_failed`, `unsupported`, `internal`…). An engine's legacy `NOT_IMPLEMENTED` is normalised to `unsupported`. Host codes: `invalid_message` (an engine message failed protocol validation; the map keeps running), `host_crashed`, `host_load_failed`, `location_unavailable`, `location_permission_denied`, `drops_fetch_failed`, `listener_error`. Rejected promises use `DioramaError` with the same `code`.
+`onError` receives `{ code, message, fatal }` and never throws. Engine codes pass through (`world_load_failed`, `model_load_failed`, `unsupported`, `internal`…). An engine's legacy `NOT_IMPLEMENTED` is normalised to `unsupported`. Host codes: `invalid_message` (an engine message failed protocol validation; the map keeps running), `host_crashed`, `host_load_failed`, `location_unavailable`, `location_permission_denied`, `drops_fetch_failed`, `listener_error`. Rejected promises use `MapramaError` with the same `code`.
 
 ## Device location
 
@@ -183,12 +183,12 @@ The low-level client is exported as `fetchNearbyDrops` / `verifyDropCollect`.
 
 ## Engine hosts
 
-`DioramaMap` renders the host registered for its `engine` prop (default `'web'`). A host is a React component that receives `onHost`, `onHostError` and `options`, and reports an `EngineHost`:
+`MapramaView` renders the host registered for its `engine` prop (default `'web'`). A host is a React component that receives `onHost`, `onHostError` and `options`, and reports an `EngineHost`:
 
 ```ts
 interface EngineHost {
   readonly kind: string;
-  send(command: EngineCommand): void;               // @diorama/protocol command
+  send(command: EngineCommand): void;               // @maprama/protocol command
   onEvent(listener: (event: EngineEvent) => void): () => void;
   readonly ready: Promise<EngineInfo>;
   destroy(): void;
@@ -197,7 +197,7 @@ interface EngineHost {
 
 - **Web host (v1)**: `WebViewEngineHost` renders a transparent, non-scrolling `WebView` with `source={{ html: ENGINE_HTML }}`. Commands go out as `webView.postMessage(encodeCommand(cmd, seq))` and arrive in the page as `message` events. The engine answers with `window.ReactNativeWebView.postMessage(encodeEvent(evt, seq))`, which is decoded and validated in `onMessage`. If the Android render process dies, the WebView is re-created; if the iOS content process terminates, it is reloaded. Either way the map re-sends `init` and all declarative state.
 - **WebView hardening**: the WebView only accepts navigations to the inline engine document. `originWhitelist` is `['about:blank', 'about:srcdoc', 'data:*']`, and `onShouldStartLoadWithRequest` also refuses `data:` once the engine document has loaded. http(s) links open in the system browser through `Linking.openURL`. `file:`, `javascript:` and custom schemes are refused. The whitelist affects navigations only, not the engine's resource loads (world JSON, glTF models). `allowFileAccess` is `false`. `mixedContentMode` is `"never"`: mixed-content rules only apply to secure (https) pages, and the inline document is not one. This keeps a foreign page from replacing the engine and forging events such as `drop:collect`.
-- **Custom hosts**: `registerEngineHost('native', NativeEngineHost)` and `<DioramaMap engine="native">`. `createMessageChannelHost(kind, post)` builds an `EngineHost` for any string transport (JSI, WebSocket…). No other app code changes.
+- **Custom hosts**: `registerEngineHost('native', NativeEngineHost)` and `<MapramaView engine="native">`. `createMessageChannelHost(kind, post)` builds an `EngineHost` for any string transport (JSI, WebSocket…). No other app code changes.
 
 ## License
 

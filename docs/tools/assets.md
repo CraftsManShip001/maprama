@@ -1,6 +1,6 @@
-# diorama (glTF 에셋)
+# maprama (glTF 에셋)
 
-`diorama`는 캐릭터, 드롭, 탈것, 랜드마크로 쓸 glTF 2.0 / GLB 모델을 검사하고 최적화하는 CLI입니다. [glTF Transform](https://gltf-transform.dev), meshoptimizer, Draco, sharp를 씁니다.
+`maprama`는 캐릭터, 드롭, 탈것, 랜드마크로 쓸 glTF 2.0 / GLB 모델을 검사하고 최적화하는 CLI입니다. [glTF Transform](https://gltf-transform.dev), meshoptimizer, Draco, sharp를 씁니다.
 
 ## 엔진 규칙
 
@@ -12,7 +12,7 @@
 | 원점 | 발밑 (바운딩 박스 바닥 중앙) |
 | 애니메이션 클립 | `idle`, `walk`, `run`, `ride`, `wave` (또는 `CharacterSpec.animations`로 매핑) |
 
-## `diorama inspect <model.glb>`
+## `maprama inspect <model.glb>`
 
 JSON 보고서를 stdout에, 경고를 stderr에 씁니다.
 
@@ -29,7 +29,7 @@ JSON 보고서를 stdout에, 경고를 stderr에 씁니다.
 
 매핑 제안에 쓰는 동의어 예: `idle` ← Standing, Breathing · `run` ← Jog, Sprint · `ride` ← Bike, Bicycle, Cycling, Drive, Sitting · `wave` ← Hello, Greet. `Armature|mixamo.com|Walk` 같은 이름은 마지막 조각으로 비교합니다.
 
-## `diorama optimize <in.glb> -o <out.glb> [options]`
+## `maprama optimize <in.glb> -o <out.glb> [options]`
 
 | 옵션 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -44,7 +44,7 @@ JSON 보고서를 stdout에, 경고를 stderr에 씁니다.
 처리 순서:
 
 1. `dedup`, `prune`, `weld`, (애니메이션이 있으면) `resample`
-2. 정규화: +Z로 회전 → 높이 스케일 → 원점을 발밑으로. 모든 루트를 `diorama_root` 노드로 감싸 스킨과 애니메이션 채널을 보존
+2. 정규화: +Z로 회전 → 높이 스케일 → 원점을 발밑으로. 모든 루트를 `maprama_root` 노드로 감싸 스킨과 애니메이션 채널을 보존
 3. 삼각형 예산을 넘으면 오차 한계를 늘려 가며 `simplify` (모프 타깃 등으로 못 맞추면 경고)
 4. 큰 텍스처를 sharp로 축소 (원래 형식 유지)
 5. `prune`, `dedup` 다시
@@ -53,7 +53,7 @@ JSON 보고서를 stdout에, 경고를 stderr에 씁니다.
 결과를 다시 읽어 검사하고, 전후 바이트·삼각형·바운딩·텍스처와 경고를 JSON으로 출력합니다. 클립 이름이 규칙과 다르면 `suggestedAnimations`가 붙습니다.
 
 ```jsonc
-// diorama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8
+// maprama optimize hero.glb -o hero.opt.glb --center-feet --scale-to-height 1.8
 "warnings": [
   "animation clip \"Armature|Walking\" does not match idle|walk|run|ride|wave",
   "suggested CharacterSpec.animations mapping: {\"walk\":\"Armature|Walking\"}"

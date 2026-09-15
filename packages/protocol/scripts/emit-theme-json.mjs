@@ -1,5 +1,5 @@
 // Writes dist/themes/<preset>.json from the compiled preset data so apps can
-// `import urban from '@diorama/protocol/themes/urban.json'`.
+// `import urban from '@maprama/protocol/themes/urban.json'`.
 // Run after `tsc -p tsconfig.build.json`.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

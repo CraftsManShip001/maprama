@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Builds the Diorama native C++ core without CMake (none on this toolchain).
+# Builds the Maprama native C++ core without CMake (none on this toolchain).
 #
-#   scripts/build-core.sh            -> build/libdiorama_core.a  (-O2)
-#   scripts/build-core.sh --tests    -> also build/diorama_core_tests (ASan + UBSan unless SANITIZE=0)
+#   scripts/build-core.sh            -> build/libmaprama_core.a  (-O2)
+#   scripts/build-core.sh --tests    -> also build/maprama_core_tests (ASan + UBSan unless SANITIZE=0)
 #
 # Compiler: $CXX if set, else `xcrun clang++` (macOS), else clang++ / c++.
 # The iOS/Android builds will compile the same sources from CocoaPods / CMake (DESIGN.md §9).
@@ -66,9 +66,9 @@ for src in "${sources[@]}"; do
   objects+=("$obj")
 done
 wait_all
-rm -f "$build/libdiorama_core.a"
-"${ar_cmd[@]}" rcs "$build/libdiorama_core.a" "${objects[@]}"
-echo "build-core: $build/libdiorama_core.a (${#sources[@]} sources, compiler: ${cxx[*]})"
+rm -f "$build/libmaprama_core.a"
+"${ar_cmd[@]}" rcs "$build/libmaprama_core.a" "${objects[@]}"
+echo "build-core: $build/libmaprama_core.a (${#sources[@]} sources, compiler: ${cxx[*]})"
 
 # 2) Conformance test binary (sources compiled again with sanitizers).
 if [ "$with_tests" -eq 1 ]; then
@@ -85,6 +85,6 @@ if [ "$with_tests" -eq 1 ]; then
   done
   wait_all
   # shellcheck disable=SC2086
-  "${cxx[@]}" $test_flags "${test_objects[@]}" -o "$build/diorama_core_tests"
-  echo "build-core: $build/diorama_core_tests (flags: $test_flags)"
+  "${cxx[@]}" $test_flags "${test_objects[@]}" -o "$build/maprama_core_tests"
+  echo "build-core: $build/maprama_core_tests (flags: $test_flags)"
 fi

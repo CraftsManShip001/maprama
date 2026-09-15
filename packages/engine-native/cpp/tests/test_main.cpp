@@ -1,12 +1,12 @@
 // Conformance test runner.
-//   diorama_core_tests --fixtures <dir> [--emit <events.jsonl>] [--filter <substring>]
+//   maprama_core_tests --fixtures <dir> [--emit <events.jsonl>] [--filter <substring>]
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
 
 #include "harness.hpp"
 
-namespace diorama::test {
+namespace maprama::test {
 
 std::string readFile(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
@@ -23,10 +23,10 @@ json::Value loadFixture(const Context& ctx, const std::string& file) {
   return std::move(parsed.value);
 }
 
-}  // namespace diorama::test
+}  // namespace maprama::test
 
 int main(int argc, char** argv) {
-  diorama::test::Context ctx;
+  maprama::test::Context ctx;
   ctx.fixturesDir = "cpp/tests/fixtures";
   std::string filter;
   for (int i = 1; i < argc; ++i) {
@@ -38,14 +38,14 @@ int main(int argc, char** argv) {
     } else if (arg == "--filter" && i + 1 < argc) {
       filter = argv[++i];
     } else {
-      std::cerr << "usage: diorama_core_tests --fixtures <dir> [--emit <file>] [--filter <substring>]\n";
+      std::cerr << "usage: maprama_core_tests --fixtures <dir> [--emit <file>] [--filter <substring>]\n";
       return 2;
     }
   }
 
   int suites = 0;
   int failedSuites = 0;
-  for (const auto& [name, fn] : diorama::test::registry()) {
+  for (const auto& [name, fn] : maprama::test::registry()) {
     if (!filter.empty() && std::strstr(name, filter.c_str()) == nullptr) continue;
     ++suites;
     const long checksBefore = ctx.checks;
@@ -64,10 +64,10 @@ int main(int argc, char** argv) {
     std::cout << ")\n";
   }
 
-  std::cout << "diorama_core_tests: " << suites << " suites, " << ctx.checks << " checks, " << ctx.failures
+  std::cout << "maprama_core_tests: " << suites << " suites, " << ctx.checks << " checks, " << ctx.failures
             << " failures\n";
   if (suites == 0) {
-    std::cerr << "diorama_core_tests: no suites matched\n";
+    std::cerr << "maprama_core_tests: no suites matched\n";
     return 1;
   }
   return (ctx.failures == 0 && failedSuites == 0) ? 0 : 1;
