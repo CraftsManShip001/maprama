@@ -20,6 +20,7 @@
 #include "maprama/Engine.hpp"
 #include "maprama/EngineRegistry.hpp"
 #include "maprama/MapAdapter.hpp"
+#include "maprama_building_layer.hpp"
 
 namespace {
 
@@ -175,6 +176,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
     queryBuilding_ = env->GetMethodID(cls, "queryBuilding", "(JDD)V");
     fetchText_ = env->GetMethodID(cls, "fetchText", "(JLjava/lang/String;)V");
     scheduleFrame_ = env->GetMethodID(cls, "scheduleFrame", "(D)V");
+    buildingLayerChanged_ = env->GetMethodID(cls, "buildingLayerChanged", "()V");
     env->DeleteLocalRef(cls);
     jclass stringClass = env->FindClass("java/lang/String");
     stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
@@ -289,6 +291,14 @@ class JniMapAdapter final : public maprama::MapAdapter {
     withEnv("scheduleFrame", [&](JNIEnv* env) { env->CallVoidMethod(host_, scheduleFrame_, delayMs); });
   }
 
+  void setBuildingLayer(std::shared_ptr<const maprama::BuildingLayerData> data) override {
+    // The render thread reads the data through the shared state; Kotlin only (re)installs the layer.
+    buildingState_->setData(std::move(data));
+    withEnv("buildingLayerChanged", [&](JNIEnv* env) { env->CallVoidMethod(host_, buildingLayerChanged_); });
+  }
+
+  const std::shared_ptr<maprama::android::BuildingLayerState>& buildingState() const { return buildingState_; }
+
  private:
   template <class F>
   void withEnv(const char* where, F&& call) {
@@ -318,6 +328,8 @@ class JniMapAdapter final : public maprama::MapAdapter {
   jmethodID queryBuilding_ = nullptr;
   jmethodID fetchText_ = nullptr;
   jmethodID scheduleFrame_ = nullptr;
+  jmethodID buildingLayerChanged_ = nullptr;
+  std::shared_ptr<maprama::android::BuildingLayerState> buildingState_ = std::make_shared<maprama::android::BuildingLayerState>();
 };
 
 /// What the Kotlin view holds as a `long` handle.
@@ -433,6 +445,18 @@ JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_tap(JNIEnv*, jcl
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_zoomButton(JNIEnv*, jclass, jlong handle, jboolean zoomIn) {
   if (handle != 0) fromHandle(handle)->engine->zoomButton(zoomIn == JNI_TRUE);
+}
+
+JNIEXPORT jlong JNICALL Java_dev_maprama_enginenative_MapramaJni_createBuildingLayerHost(JNIEnv*, jclass, jlong handle) {
+  if (handle == 0) return 0;
+  // Ownership passes to MapLibre (`CustomLayer` wraps it in a unique_ptr<CustomLayerHost>); the host shares
+  // only the data state, so it may outlive the engine handle on the render thread.
+  auto* host = new maprama::android::BuildingLayerHost(fromHandle(handle)->adapter->buildingState());
+  return reinterpret_cast<jlong>(static_cast<mln::style::CustomLayerHost*>(host));
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_setBuildingLayersAbove(JNIEnv*, jclass, jlong handle, jint count) {
+  if (handle != 0) fromHandle(handle)->adapter->buildingState()->setLayersAbove(static_cast<int>(count));
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onTextFetched(JNIEnv* env, jclass, jlong handle, jlong token,
