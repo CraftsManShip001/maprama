@@ -565,6 +565,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   }
 
   override fun setLabelFrame(
+    sequence: Long,
     visual: Int,
     tile: Int,
     night: Boolean,
@@ -574,7 +575,7 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     ints: IntArray,
     numbers: DoubleArray,
   ) {
-    val frame = LabelFrameData.decode(visual, tile, night, ids, keys, strings, ints, numbers)
+    val frame = LabelFrameData.decode(sequence, visual, tile, night, ids, keys, strings, ints, numbers)
     // Camera reports arrive on the main thread: apply at once so the cards move with the map (the layer
     // never calls back into the engine). Commands from the JS thread are posted.
     if (Looper.myLooper() == Looper.getMainLooper()) {

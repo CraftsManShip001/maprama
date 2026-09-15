@@ -281,6 +281,10 @@ class MapSession {
   LabelPlacementStats labelStats_;
   LabelPlacementStats labelWindow_;
   double labelWindowStartMs_ = -1.0;
+  /// Whether the last placement showed nothing although labels are on (logged once per change).
+  bool labelsEmptyLogged_ = false;
+  /// `LabelFrame::sequence` of the last frame sent (frames may reach the platform out of order).
+  std::uint64_t labelFrameSeq_ = 0;
   /// engine-web `groundYFor(world.kind)`: the holo ground dot height (0.05 on the procedural grid, else 0.09).
   double labelGroundY_ = kLabelGroundY;
 

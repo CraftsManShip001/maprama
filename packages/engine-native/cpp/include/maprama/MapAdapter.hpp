@@ -168,6 +168,11 @@ struct LabelCard {
 
 /// The complete set of label views to show; every label not in `cards` is hidden.
 struct LabelFrame {
+  /// Increases with every frame the core sends. Frames are computed on the thread that caused them (a camera
+  /// report on the main thread, a command or game tick on the JS thread), so a frame posted from the JS thread
+  /// can arrive after a newer one applied inline on the main thread: the platform layers ignore any frame whose
+  /// sequence is not newer than the last one they applied.
+  std::uint64_t sequence = 0;
   LabelVisual visual = LabelVisual::Holo;
   LabelTile tile = LabelTile::White;
   /// Night palette (engine-web: time-of-day `lights` > 0.8).

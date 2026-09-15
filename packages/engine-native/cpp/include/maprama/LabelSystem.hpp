@@ -308,6 +308,9 @@ class LabelSystem {
   /// Forgets requests in flight (the adapter changed); they are requested again.
   void resetRequests();
   std::optional<LabelSize> sizeOf(const std::string& key) const;
+  /// Diagnostics: measured card sizes cached, and card sizes requested but not answered yet.
+  std::size_t knownSizes() const { return sizes_.size(); }
+  std::size_t unansweredRequests() const { return requested_.size(); }
 
   /// Placement for one camera: the label cards to show (none while disabled, or before sizes are known). Name
   /// tags are not included (`layoutTags`).

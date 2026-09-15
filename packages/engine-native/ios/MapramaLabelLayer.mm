@@ -635,6 +635,9 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
 @implementation MapramaLabelLayer {
   std::unordered_map<std::string, MapramaLabelRecord *> _active;
   NSMutableArray<MapramaLabelRecord *> *_free;
+  /// Sequence of the last applied frame: a frame that hopped to the main queue may arrive after a newer one
+  /// applied inline (camera reports run on the main thread, commands and game ticks on the JS thread).
+  std::uint64_t _lastSequence;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -671,6 +674,8 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
 }
 
 - (void)applyFrame:(const LabelFrame &)frame {
+  if (frame.sequence != 0 && frame.sequence <= _lastSequence) return;  // stale: a newer frame is already shown
+  _lastSequence = frame.sequence;
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   const BOOL motion = !UIAccessibilityIsReduceMotionEnabled();

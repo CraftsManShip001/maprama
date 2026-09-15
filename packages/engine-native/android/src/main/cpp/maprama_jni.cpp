@@ -244,7 +244,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
     fetchBinary_ = env->GetMethodID(cls, "fetchBinary", "(JLjava/lang/String;)V");
     measureLabels_ = env->GetMethodID(cls, "measureLabels", "(J[Ljava/lang/String;[I)V");
     setLabelFrame_ = env->GetMethodID(
-        cls, "setLabelFrame", "(IIZ[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[I[D)V");
+        cls, "setLabelFrame", "(JIIZ[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[I[D)V");
     env->DeleteLocalRef(cls);
     jclass stringClass = env->FindClass("java/lang/String");
     stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
@@ -435,8 +435,9 @@ class JniMapAdapter final : public maprama::MapAdapter {
       env->SetIntArrayRegion(intArray, 0, static_cast<jsize>(ints.size()), ints.data());
       jdoubleArray numberArray = env->NewDoubleArray(static_cast<jsize>(numbers.size()));
       env->SetDoubleArrayRegion(numberArray, 0, static_cast<jsize>(numbers.size()), numbers.data());
-      env->CallVoidMethod(host_, setLabelFrame_, static_cast<jint>(frame.visual), static_cast<jint>(frame.tile),
-                          static_cast<jboolean>(frame.night), ids, keys, strings, intArray, numberArray);
+      env->CallVoidMethod(host_, setLabelFrame_, static_cast<jlong>(frame.sequence), static_cast<jint>(frame.visual),
+                          static_cast<jint>(frame.tile), static_cast<jboolean>(frame.night), ids, keys, strings, intArray,
+                          numberArray);
       env->DeleteLocalRef(ids);
       env->DeleteLocalRef(keys);
       env->DeleteLocalRef(strings);

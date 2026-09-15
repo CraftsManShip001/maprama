@@ -610,6 +610,13 @@ cards, collision culling). The split keeps the adapters thin:
   halos, POI badges, pills. Pop-in (dot → line → card) is skipped under reduced motion. System fonts are used
   (engine-web's IBM Plex Sans KR / Jua are not bundled; `sticker` uses the rounded system design on iOS).
   Each visible card is an accessibility element labelled "name, type" with the id `maprama-label-<label id>`.
+- **Frame order.** A placement runs on whichever thread caused it: a camera report and a measurement reply arrive
+  on the main thread (applied in the same run-loop turn, so the cards move with the map), a command or a game tick
+  on the JS thread (posted to the main thread). A posted frame can therefore land after a newer one that was
+  applied inline, which would leave the older placement on screen — `LabelFrame::sequence` increases with every
+  frame the core sends and both layers ignore anything that is not newer [V: `label_tests.cpp`]. Without it,
+  switching the content mode wiped every card: the empty frame computed while the new card sizes were being
+  measured arrived after the frame that placed them again.
 - **Icons.** `scripts/generate-label-icons.mjs` converts engine-web's `HOLO_ICONS` / `POI_GLYPHS` SVGs into
   vector shapes (move / line / cubic / close, arcs converted to cubics) with fill / stroke roles
   (`currentColor`, accent `var(--c)`, white), plus `ICON_COLORS` and the default subtitles, into

@@ -45,6 +45,8 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
     var lineY = 0f
   }
 
+  /** Sequence of the last applied frame (older frames are ignored). */
+  private var lastSequence = 0L
   private val active = HashMap<String, Record>()
   private val free = ArrayList<Record>()
   private val order = ArrayList<Record>()
@@ -75,6 +77,9 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
   }
 
   fun apply(frame: LabelFrameData) {
+    // A frame posted from the JS thread can arrive after a newer one applied inline on the main thread.
+    if (frame.sequence != 0L && frame.sequence <= lastSequence) return
+    lastSequence = frame.sequence
     val animate = motion()
     val now = SystemClock.uptimeMillis()
     val ids = HashSet<String>(frame.cards.size * 2)
@@ -266,16 +271,16 @@ internal class LabelCardData(
   val lineY: Double,
 )
 
-internal class LabelFrameData(val visual: Int, val tile: Int, val night: Boolean, val cards: List<LabelCardData>) {
+internal class LabelFrameData(val sequence: Long, val visual: Int, val tile: Int, val night: Boolean, val cards: List<LabelCardData>) {
   companion object {
     /** 10 numbers per card: x, y, width, height, angle, opacity, dotX, dotY, lineX, lineY. */
-    fun decode(visual: Int, tile: Int, night: Boolean, ids: Array<String>, keys: Array<String>, strings: Array<String>, ints: IntArray, numbers: DoubleArray): LabelFrameData {
+    fun decode(sequence: Long, visual: Int, tile: Int, night: Boolean, ids: Array<String>, keys: Array<String>, strings: Array<String>, ints: IntArray, numbers: DoubleArray): LabelFrameData {
       val contents = LabelContentData.list(keys, strings, ints)
       val cards = List(ids.size) { i ->
         val n = i * 10
         LabelCardData(ids[i], contents[i], numbers[n], numbers[n + 1], numbers[n + 4], numbers[n + 5], numbers[n + 6], numbers[n + 7], numbers[n + 8], numbers[n + 9])
       }
-      return LabelFrameData(visual, tile, night, cards)
+      return LabelFrameData(sequence, visual, tile, night, cards)
     }
   }
 }

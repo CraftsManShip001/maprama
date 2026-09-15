@@ -78,9 +78,11 @@ interface MapramaMapHost {
 
   /**
    * Shows exactly these label cards and hides the others (M2b, [LabelFrameData.decode]). Called on the main thread
-   * for camera changes (apply at once) or on the JS thread for commands (post).
+   * for camera changes (apply at once) or on the JS thread for commands (post), so frames can arrive out of order:
+   * [sequence] increases with every frame and older ones are ignored.
    */
   fun setLabelFrame(
+    sequence: Long,
     visual: Int,
     tile: Int,
     night: Boolean,

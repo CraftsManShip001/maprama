@@ -701,3 +701,65 @@ MAPRAMA_TEST(zoom_out_rules_for_district_labels) {
   ctx.check(h.sink->errors() == 0, "no error logs");
   appendEmitted(ctx, *h.sink);
 }
+
+MAPRAMA_TEST(custom_content_for_every_label_keeps_the_cards) {
+  // The example's label content function (react-native `evaluateLabelContent`) sends one entry per label of
+  // `labelsIndex` and then `content: "custom"`. Every card's content key changes at once: the cards must come
+  // back as soon as the new sizes are measured (Maestro 09 showed an empty map here).
+  Harness h;
+  std::size_t answered = 0;
+  h.send(initMsg(dataWorld(ctx)));
+  answerMeasures(h, answered);
+  const std::vector<Value> index = h.sink->eventsOfType("labelsIndex");
+  if (!ctx.check(!index.empty(), "init emits labelsIndex")) return;
+  const auto& labels = index.at(0).find("labels")->items();
+  const mp::WorldData& world = *h.engine->worldStore().world();
+  const mp::Projection& proj = *h.engine->worldStore().projection();
+  const mp::WorldPoint station{world.stations.empty() ? mp::WorldPoint{0, 0} : mp::WorldPoint{world.stations[0].x, world.stations[0].z}};
+  const mp::LngLat at = proj.toLngLat(station);
+  h.send(setCameraMsg(Value::object({{"center", lngLat(at.lng, at.lat)}, {"distance", 300}, {"pitch", 50}, {"bearing", 0}})));
+  answerMeasures(h, answered);
+  const std::size_t before = h.adapter->labelFrames.back().cards.size();
+  ctx.check(before > 0, "holo cards placed before the content switch (" + std::to_string(before) + ")");
+
+  std::string subwayId;
+  Value entries = Value::object();
+  for (const Value& info : labels) {
+    const std::string id = info.find("id")->asString();
+    const std::string name = info.find("name")->asString();
+    Value entry = Value::object({{"title", name + " \xe2\x98\x85"}});
+    if (str(info.find("kind")) == "poi") {
+      const bool subway = str(info.find("category")) == "subway";
+      entry.set("subtitle", subway ? std::string("\xec\xa7\x80\xed\x95\x98\xec\xb2\xa0 \xc2\xb7 custom") : std::string("custom"));
+      if (subway) subwayId = id;
+    }
+    entries.set(id, std::move(entry));
+  }
+  // react-native's order (MapramaView props effect): `setLabels` with the new mode first, then the entries the
+  // content function produced (CommandBatcher flush).
+  h.send(Value::object({{"type", "setLabels"}, {"labels", Value::object({{"content", "custom"}})}}));
+  answerMeasures(h, answered);
+  h.send(Value::object({{"type", "setLabelContent"}, {"entries", entries}}));
+  answerMeasures(h, answered);
+  const mp::LabelFrame frame = h.adapter->labelFrames.back();
+  ctx.check(!frame.cards.empty(), "cards are placed again after every label got custom content (" +
+                                      std::to_string(frame.cards.size()) + " cards, was " + std::to_string(before) + ")");
+  bool custom = false, allCustom = !frame.cards.empty();
+  for (const mp::LabelCard& c : frame.cards) {
+    allCustom = allCustom && c.content.custom;
+    if (c.id == subwayId) custom = c.content.title.find("\xe2\x98\x85") != std::string::npos && c.content.custom;
+  }
+  ctx.check(allCustom, "every placed card uses the host content");
+  // Frames reach the platform from two threads (camera reports vs commands / game ticks): each one must carry a
+  // newer sequence so a posted, older frame cannot wipe the cards (Maestro 09 showed exactly that).
+  std::uint64_t last = 0;
+  bool increasing = !h.adapter->labelFrames.empty();
+  for (const mp::LabelFrame& f : h.adapter->labelFrames) {
+    increasing = increasing && f.sequence > last;
+    last = f.sequence;
+  }
+  ctx.check(increasing, "every label frame carries a newer sequence (" + std::to_string(h.adapter->labelFrames.size()) + " frames)");
+  ctx.check(subwayId.empty() || custom, "the station's subway card shows the custom title");
+  ctx.check(h.sink->errors() == 0, "no error logs");
+  appendEmitted(ctx, *h.sink);
+}

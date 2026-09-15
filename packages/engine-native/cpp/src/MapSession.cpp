@@ -77,7 +77,7 @@ bool positionsChanged(const std::vector<ScreenPoint>& a, const std::vector<Scree
   return false;
 }
 
-/// Label frames that would look the same (positions within 0.05 dp).
+/// Label frames that would look the same (positions within 0.05 dp; the sequence is not part of the look).
 bool sameLabelFrame(const LabelFrame& a, const LabelFrame& b) {
   if (a.visual != b.visual || a.tile != b.tile || a.night != b.night || a.cards.size() != b.cards.size()) return false;
   const auto near = [](double p, double q) { return std::fabs(p - q) < 0.05; };
@@ -912,8 +912,21 @@ void MapSession::pumpLabels() {
     labelOnly_ = LabelFrame();
   }
   recordLabelPass(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(), !full);
+  // Diagnostic: labels on, entries known, but nothing placed (usually card sizes that were never measured).
+  const bool nothingShown = worldReady_ && labels_.spec().enabled && !labels_.entries().empty() && frame.cards.empty();
+  if (nothingShown != labelsEmptyLogged_) {
+    labelsEmptyLogged_ = nothingShown;
+    if (nothingShown) {
+      log(LogLevel::Info, "engine-native: labels: nothing placed (" + std::to_string(labels_.entries().size()) + " labels, " +
+                              std::to_string(labels_.knownSizes()) + " sizes known, " + std::to_string(labels_.unansweredRequests()) +
+                              " awaiting measurement)");
+    } else {
+      log(LogLevel::Info, "engine-native: labels: " + std::to_string(frame.cards.size()) + " cards placed again");
+    }
+  }
   if (labelFrameSent_ && sameLabelFrame(frame, labelFrame_)) return;
   labelFrame_ = std::move(frame);
+  labelFrame_.sequence = ++labelFrameSeq_;
   labelFrameSent_ = true;
   adapter_->setLabelFrame(labelFrame_);
 }
