@@ -1,5 +1,6 @@
 #import "MapramaNativeView.h"
 
+#import <CoreLocation/CoreLocation.h>
 #import <MapLibre/MapLibre.h>
 #import <QuartzCore/QuartzCore.h>
 #import <os/log.h>
@@ -25,8 +26,12 @@ using namespace facebook::react;
 /// Style layer queried for `building:press` (`world_style::kLayerBuildings`).
 static NSString *const kBuildingsLayer = @"buildings";
 
-@interface MapramaNativeView () <RCTMapramaNativeViewViewProtocol, MLNMapViewDelegate, UIGestureRecognizerDelegate>
+@interface MapramaNativeView () <RCTMapramaNativeViewViewProtocol, MLNMapViewDelegate, UIGestureRecognizerDelegate,
+                                 CLLocationManagerDelegate>
 - (void)maprama_setStyleJson:(NSString *)json;
+- (void)maprama_setSourceData:(NSString *)json source:(NSString *)sourceId;
+- (void)maprama_startLocation;
+- (void)maprama_stopLocation;
 - (void)maprama_setPaintProperties:(const std::vector<maprama::PaintPropertyChange> &)changes;
 - (void)maprama_setLight:(const maprama::MapLight &)light;
 - (void)maprama_setUi:(const maprama::MapUiState &)ui;
@@ -274,6 +279,26 @@ class AppleMapAdapter final : public maprama::MapAdapter {
     [task resume];
   }
 
+  void setSourceData(const std::string &sourceId, std::string geojson) override {
+    NSString *source = toNSString(sourceId);
+    NSString *json = toNSString(geojson);
+    onView(^(MapramaNativeView *view) {
+      [view maprama_setSourceData:json source:source];
+    });
+  }
+
+  void startLocationUpdates() override {
+    onView(^(MapramaNativeView *view) {
+      [view maprama_startLocation];
+    });
+  }
+
+  void stopLocationUpdates() override {
+    onView(^(MapramaNativeView *view) {
+      [view maprama_stopLocation];
+    });
+  }
+
   void scheduleFrame(double delayMs) override {
     std::weak_ptr<maprama::Engine> weakEngine = engine_;
     const int64_t delayNs = static_cast<int64_t>(std::max(0.0, delayMs) * NSEC_PER_MSEC);
@@ -341,6 +366,17 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   /// Style patches wait until the style set by `maprama_setStyleJson:` finished loading.
   BOOL _styleLoaded;
   NSMutableArray<dispatch_block_t> *_styleOps;
+  /// Game source data (M3a) waiting for the style: only the latest data per source is kept.
+  NSMutableDictionary<NSString *, NSString *> *_pendingSourceData;
+  // Main-thread cost of the game source updates (logged every 5 s).
+  CFTimeInterval _sourceStatsStart;
+  NSUInteger _sourceUpdates;
+  double _sourceTotalMs;
+  double _sourceMaxMs;
+  // Device location feed (`setLocationSource {kind: "device"}`); the permission is the app's job.
+  CLLocationManager *_locationManager;
+  BOOL _locationWanted;
+  NSString *_lastLocationError;
   // Map UI drawn from `MapUiState` (the core computes every value).
   maprama::MapUiState _ui;
   UIView *_scaleBar;
@@ -364,6 +400,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
     static const auto defaultProps = std::make_shared<const MapramaNativeViewProps>();
     _props = defaultProps;
     _styleOps = [NSMutableArray array];
+    _pendingSourceData = [NSMutableDictionary dictionary];
 
     // A local, empty style: no network style is loaded before the engine sends the world style.
     _mapView = [[MLNMapView alloc] initWithFrame:self.bounds];
@@ -441,6 +478,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 }
 
 - (void)stopEngine {
+  [self maprama_stopLocation];
   if (!_engine) return;
   maprama::EngineRegistry::shared().remove(std::string(_engineId.UTF8String), _engine.get());
   _engine->shutdown();
@@ -474,7 +512,108 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   // The new style carries the complete current look: patches meant for the previous one are dropped.
   _styleLoaded = NO;
   [_styleOps removeAllObjects];
+  [_pendingSourceData removeAllObjects];
   _mapView.styleJSON = json;
+}
+
+- (void)maprama_setSourceData:(NSString *)json source:(NSString *)sourceId {
+  if (_styleLoaded && _mapView.style != nil) {
+    [self applySourceData:json source:sourceId];
+  } else {
+    _pendingSourceData[sourceId] = json;
+  }
+}
+
+- (void)applySourceData:(NSString *)json source:(NSString *)sourceId {
+  const CFTimeInterval started = CACurrentMediaTime();
+  MLNSource *source = [_mapView.style sourceWithIdentifier:sourceId];
+  if (![source isKindOfClass:MLNShapeSource.class]) return;
+  NSError *error = nil;
+  MLNShape *shape = [MLNShape shapeWithData:[json dataUsingEncoding:NSUTF8StringEncoding] encoding:NSUTF8StringEncoding error:&error];
+  if (shape == nil) {
+    os_log_error(engineLog(), "engine-native: invalid GeoJSON for source %{public}@: %{public}@", sourceId, error.localizedDescription);
+    return;
+  }
+  ((MLNShapeSource *)source).shape = shape;
+  [self recordSourceUpdate:(CACurrentMediaTime() - started) * 1000.0];
+}
+
+- (void)recordSourceUpdate:(double)ms {
+  const CFTimeInterval now = CACurrentMediaTime();
+  if (_sourceStatsStart <= 0) _sourceStatsStart = now;
+  _sourceUpdates += 1;
+  _sourceTotalMs += ms;
+  _sourceMaxMs = std::max(_sourceMaxMs, ms);
+  if (now - _sourceStatsStart < 5.0) return;
+  os_log(engineLog(), "engine-native: iOS game source updates %lu in %.1f s: avg %.3f ms, max %.3f ms (main thread)",
+         (unsigned long)_sourceUpdates, now - _sourceStatsStart, _sourceTotalMs / _sourceUpdates, _sourceMaxMs);
+  _sourceStatsStart = now;
+  _sourceUpdates = 0;
+  _sourceTotalMs = 0;
+  _sourceMaxMs = 0;
+}
+
+#pragma mark - Device location (MapAdapter::startLocationUpdates, main thread)
+
+- (void)maprama_startLocation {
+  if (_locationManager == nil) {
+    _locationManager = [[CLLocationManager alloc] init];
+    _locationManager.delegate = self;
+    _locationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    _locationManager.distanceFilter = kCLDistanceFilterNone;
+  }
+  _locationWanted = YES;
+  _lastLocationError = nil;
+  [self applyLocationAuthorization];
+}
+
+- (void)maprama_stopLocation {
+  _locationWanted = NO;
+  [_locationManager stopUpdatingLocation];
+}
+
+- (void)applyLocationAuthorization {
+  if (!_locationWanted || _locationManager == nil) return;
+  const CLAuthorizationStatus status = _locationManager.authorizationStatus;
+  if (status == kCLAuthorizationStatusAuthorizedWhenInUse || status == kCLAuthorizationStatusAuthorizedAlways) {
+    _lastLocationError = nil;
+    [_locationManager startUpdatingLocation];
+    return;
+  }
+  [_locationManager stopUpdatingLocation];
+  // Requesting the permission is the app's job; without it the source fails like engine-web's denied geolocation
+  // (fixes start once the app obtains the permission: locationManagerDidChangeAuthorization).
+  [self reportLocationError:status == kCLAuthorizationStatusNotDetermined ? @"location permission not granted"
+                                                                          : @"location permission denied"];
+}
+
+- (void)reportLocationError:(NSString *)message {
+  if ([message isEqualToString:_lastLocationError]) return;
+  _lastLocationError = [message copy];
+  if (_engine) _engine->onDeviceLocationError(std::string(message.UTF8String ?: ""));
+}
+
+- (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
+  [self applyLocationAuthorization];
+}
+
+- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
+  CLLocation *location = locations.lastObject;
+  if (location == nil || !_engine || !_locationWanted) return;
+  maprama::LocationFix fix;
+  fix.lng = location.coordinate.longitude;
+  fix.lat = location.coordinate.latitude;
+  if (location.horizontalAccuracy >= 0) fix.accuracyMeters = location.horizontalAccuracy;
+  if (location.course >= 0) fix.headingDeg = location.course;
+  if (location.speed >= 0) fix.speedMps = location.speed;
+  fix.timestamp = location.timestamp.timeIntervalSince1970 * 1000.0;
+  _engine->onDeviceLocation(fix);
+}
+
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+  const BOOL coreLocation = [error.domain isEqualToString:kCLErrorDomain];
+  if (coreLocation && error.code == kCLErrorLocationUnknown) return;  // transient: CoreLocation keeps trying
+  [self reportLocationError:coreLocation && error.code == kCLErrorDenied ? @"location permission denied" : error.localizedDescription];
 }
 
 - (void)whenStyleLoaded:(dispatch_block_t)op {
@@ -628,6 +767,11 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 
 #pragma mark - MLNMapViewDelegate
 
+- (void)mapView:(MLNMapView *)mapView regionWillChangeWithReason:(MLNCameraChangeReason)reason animated:(BOOL)animated {
+  // A user pan stops `setCamera.follow` (engine-web cancels following on pans, not on zoom / rotate).
+  if ((reason & MLNCameraChangeReasonGesturePan) != 0 && _engine) _engine->onUserPan();
+}
+
 - (void)mapViewRegionIsChanging:(MLNMapView *)mapView {
   [self reportCamera:mapView];
 }
@@ -641,6 +785,11 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   NSArray<dispatch_block_t> *ops = [_styleOps copy];
   [_styleOps removeAllObjects];
   for (dispatch_block_t op in ops) op();
+  NSDictionary<NSString *, NSString *> *sources = [_pendingSourceData copy];
+  [_pendingSourceData removeAllObjects];
+  [sources enumerateKeysAndObjectsUsingBlock:^(NSString *sourceId, NSString *json, BOOL *stop) {
+    [self applySourceData:json source:sourceId];
+  }];
   [self reportCamera:mapView];
 }
 
