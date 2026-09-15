@@ -5,6 +5,8 @@
 //   - decode failure            -> `error` event {code: "invalid_message", fatal: false}
 //   - with a MapSession (M1): `init`, `setCamera`, `subscribe`/`unsubscribe` of `camera:change` and
 //     `request` `project`/`unproject` go to the session
+//   - with a GameSession (M3a): characters, location, travel, drops, geofences, the
+//     `character:position` / `travel:progress` topics and `request` `snapToRoad`/`route`
 //   - `request` (other methods, or no session) -> `response` {ok: false, error.code: "unsupported"}
 //   - `init` without a session  -> WorldStore::load (M0 path; other init parts logged as not implemented)
 //   - other fire-and-forget     -> ignored with a LogLevel::Warn log (the protocol has no warning event)
@@ -23,13 +25,10 @@ namespace maprama {
 
 class WorldStore;
 class ThemeResolver;
-class CharacterSystem;
-class TravelPlanner;
-class DropSystem;
-class GeofenceSystem;
 class LabelSystem;
 class CameraController;
 class MapSession;
+class GameSession;
 
 /// Non-owning subsystem pointers; nullptr = not implemented yet.
 struct Subsystems {
@@ -37,10 +36,8 @@ struct Subsystems {
   /// M1 map session (world style, camera, camera:change, project/unproject). nullptr = M0 behaviour.
   MapSession* session = nullptr;
   ThemeResolver* theme = nullptr;
-  CharacterSystem* characters = nullptr;
-  TravelPlanner* travel = nullptr;
-  DropSystem* drops = nullptr;
-  GeofenceSystem* geofences = nullptr;
+  /// M3a game systems (characters, location, travel + routing, drops, geofences). nullptr = M0 behaviour.
+  GameSession* game = nullptr;
   LabelSystem* labels = nullptr;
   CameraController* camera = nullptr;
 };

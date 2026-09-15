@@ -139,6 +139,7 @@ MapSession::MapSession(MessageSink& sink, WorldStore& world, ClockMs clock)
       world_(world),
       clock_(std::move(clock)),
       themes_(ThemeResolver::builtIn()),
+      animatingUntilMs_(-kInf),
       lastOverlayRequestMs_(-kInf),
       scheduledFrameAtMs_(kInf) {
   theme_ = themes_.resolve(Value::object());
@@ -156,8 +157,9 @@ void MapSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   scheduledFrameAtMs_ = kInf;
   overlayToken_ = 0;
   pendingTaps_.clear();
+  animatingUntilMs_ = -kInf;
   if (!adapter_) return;
-  adapter_->setStyleJson(styleJson());
+  sendStyle();
   uiSentValid_ = false;
   pushUi();
   pushLimits();
@@ -317,6 +319,7 @@ void MapSession::zoomButton(bool zoomIn) {
   CameraState target = state_;
   const double factor = zoomIn ? 1.0 / kZoomButtonStep : kZoomButtonStep;
   target.distance = cm::clampValue(state_.distance * factor, distanceMin(), distanceMax());
+  animatingUntilMs_ = clock_() + kZoomButtonMs;
   adapter_->moveCamera(poseFor(target), kZoomButtonMs);
 }
 
@@ -329,10 +332,6 @@ void MapSession::init(const Value& msg) {
   if (const Value* theme = member(msg, "theme")) setThemeState(*theme);
   if (const Value* ui = member(msg, "ui")) setUiState(*ui);
   warnOnce("init.labels", "engine-native: init.labels / setLabels are not applied yet (labels arrive in M2b)");
-  if (const Value* source = member(msg, "locationSource"); source != nullptr && source->isString() && source->asString() != "external") {
-    warnOnce("init.locationSource", "engine-native: init.locationSource " + json::quote(source->asString()) +
-                                        " is not applied yet (location sources arrive in M3)");
-  }
 
   const Value& source = *msg.find("world");
   const std::string& kind = source.find("kind")->asString();
@@ -382,7 +381,8 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   }
   buildingStyles_.clear();
   sources_ = buildWorldSources(world, projection, rendered_);
-  layers_ = buildWorldLayers(world, look_, buildingPaint());
+  if (hooks_ != nullptr) hooks_->extendSources(sources_);
+  layers_ = worldLayers();
   light_ = look_.light;
   styleDirty_ = true;
   worldReady_ = true;
@@ -396,19 +396,34 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   state_.bearing = cm::kDefaultBearing;
 
   if (adapter_) {
-    adapter_->setStyleJson(styleJson());
+    sendStyle();
     pushLimits();
   }
   sendState();
-  if (const Value* camera = member(initMsg, "camera")) setCamera(*camera);
+  // engine-web: world hooks (characters, drops, geofences) run before `init.camera` (which may follow a character).
+  if (hooks_ != nullptr) hooks_->worldLoaded(initMsg);
+  if (const Value* camera = member(initMsg, "camera")) setCamera(*camera, "init");
   overlayDirty_ = true;
   lastPositions_.clear();
   cameraChanged();
 }
 
-void MapSession::setCamera(const Value& spec) {
-  CameraState target = state_;
+void MapSession::setCamera(const Value& spec, std::string_view command) {
   const std::optional<LngLat> center = lngLatMember(spec, "center");
+  // engine-web: `follow` is resolved first (an unknown character fails the whole command); a `center` without
+  // `follow` stops following.
+  if (const Value* follow = member(spec, "follow")) {
+    const std::optional<std::string> id = follow->isString() ? std::optional<std::string>(follow->asString()) : std::nullopt;
+    if (hooks_ == nullptr) {
+      if (id) log(LogLevel::Warn, "engine-native: setCamera.follow " + json::quote(*id) + " needs the game session; ignored");
+    } else if (!hooks_->setFollow(id)) {
+      emitError("unknown_character", std::string(command) + ": cannot follow \"" + *id + "\": no such character", false);
+      return;
+    }
+  } else if (center && hooks_ != nullptr) {
+    hooks_->setFollow(std::nullopt);
+  }
+  CameraState target = state_;
   if (center) target.center = *center;
   if (const std::optional<double> distance = numberMember(spec, "distance")) {
     target.distance = cm::clampValue(*distance, distanceMin(), distanceMax());
@@ -426,13 +441,9 @@ void MapSession::setCamera(const Value& spec) {
     if (animate->isBoolean() && animate->asBool()) durationMs = cm::kDefaultAnimationMs;
     if (animate->isObject()) durationMs = numberMember(*animate, "durationMs").value_or(0.0);
   }
-  if (const Value* follow = member(spec, "follow"); follow != nullptr && follow->isString()) {
-    log(LogLevel::Warn, "engine-native: setCamera.follow " + json::quote(follow->asString()) +
-                            " is not implemented yet (characters arrive in M3); the other camera fields were applied");
-  }
-
   if (durationMs > 0 && canMoveCamera()) {
     // The adapter animates and reports every intermediate camera; the state follows those reports.
+    animatingUntilMs_ = clock_() + durationMs;
     adapter_->moveCamera(poseFor(target), durationMs);
     return;
   }
@@ -468,9 +479,6 @@ void MapSession::setUiState(const Value& uiSpec) {
   ui_.scaleBar = boolMember(uiSpec, "scaleBar");
   ui_.zoomButtons = boolMember(uiSpec, "zoomButtons");
   ui_.attribution = boolMember(uiSpec, "attribution");
-  if (ui_.locationPuck.value_or(false)) {
-    warnOnce("ui.locationPuck", "engine-native: ui.locationPuck is accepted but not drawn yet (the puck follows the player, M3)");
-  }
 }
 
 void MapSession::setBuildingStyle(const std::string& buildingId, const Value& style) {
@@ -536,6 +544,17 @@ void MapSession::request(const std::string& requestId, RequestMethod method, con
   }
 }
 
+bool MapSession::followCenter(const LngLat& center) {
+  if (!worldReady_ || clock_() < animatingUntilMs_) return false;
+  CameraState target = state_;
+  target.center = center;
+  if (sameState(target, state_) && !cameraUnsent_) return false;
+  state_ = target;
+  sendState();
+  cameraChanged();
+  return true;
+}
+
 void MapSession::shutdown() {
   adapter_.reset();
   pendingRequests_.clear();
@@ -568,9 +587,20 @@ BuildingPaint MapSession::buildingPaint() const {
   return paint;
 }
 
+Value MapSession::worldLayers() const {
+  Value layers = buildWorldLayers(*world_.world(), look_, buildingPaint());
+  if (hooks_ != nullptr) hooks_->extendLayers(layers, look_);
+  return layers;
+}
+
+void MapSession::sendStyle() {
+  adapter_->setStyleJson(styleJson());
+  if (hooks_ != nullptr) hooks_->styleSent();
+}
+
 void MapSession::applyLook() {
   if (!worldReady_) return;
-  Value next = buildWorldLayers(*world_.world(), look_, buildingPaint());
+  Value next = worldLayers();
   const MapLight light = look_.light;
   if (adapter_) {
     std::vector<PaintPropertyChange> changes;
@@ -578,7 +608,7 @@ void MapSession::applyLook() {
       layers_ = std::move(next);
       light_ = light;
       styleDirty_ = true;
-      adapter_->setStyleJson(styleJson());
+      sendStyle();
       return;
     }
     if (!changes.empty()) adapter_->setPaintProperties(changes);

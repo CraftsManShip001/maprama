@@ -3,6 +3,7 @@
 #include <optional>
 #include <utility>
 
+#include "maprama/GameSession.hpp"
 #include "maprama/MapSession.hpp"
 #include "maprama/WorldStore.hpp"
 
@@ -71,10 +72,13 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
   // One case per ENGINE_COMMAND_TYPES entry, in declaration order; the owning subsystem is noted per case
   // (DESIGN.md §4). Typed spec decoding + subsystem calls land milestone by milestone (DESIGN.md §10).
   MapSession* session = subsystems_.session;
+  GameSession* game = subsystems_.game;
+  const json::Value& msg = envelope.msg;
   switch (commandIndex(envelope.type())) {
-    case 0:  // init -> WorldStore + MapSession (M1: world style + camera); ThemeResolver, LabelSystem (M2)
+    case 0:  // init -> WorldStore + MapSession (M1: world style + camera, M2a look); GameSession (M3a location source)
       if (session != nullptr) {
         ++stats_.handled;
+        if (game != nullptr) game->init(msg);
         session->init(envelope.msg);
       } else {
         handleInit(envelope);
@@ -88,28 +92,43 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       }
       ignoreNotImplemented(envelope);
       return;
-    case 17:  // subscribe -> subscription registry (M1: camera:change)
+    case 17:  // subscribe -> MapSession (camera:change, M1), GameSession (character:position, travel:progress, M3a)
     case 18: {  // unsubscribe
-      const std::string& topic = envelope.msg.find("topic")->asString();
-      if (session != nullptr && topic == enumName(SubscriptionTopic::CameraChange)) {
+      const bool subscribe = commandIndex(envelope.type()) == 17;
+      const std::optional<SubscriptionTopic> topic = parseEnum<SubscriptionTopic>(msg.find("topic")->asString());
+      if (session != nullptr && topic == SubscriptionTopic::CameraChange) {
         ++stats_.handled;
-        if (commandIndex(envelope.type()) == 17) {
-          session->subscribeCamera(envelope.msg.find("throttleMs")->asNumber());
+        if (subscribe) {
+          session->subscribeCamera(msg.find("throttleMs")->asNumber());
         } else {
           session->unsubscribeCamera();
         }
         return;
       }
-      ignoreNotImplemented(envelope, session != nullptr ? "topic " + json::quote(topic) +
-                                                              " is not implemented yet (M3); ignored"
-                                                        : std::string());
+      if (game != nullptr && topic) {
+        ++stats_.handled;
+        const json::Value* id = msg.find("id");
+        std::optional<std::string> key = id != nullptr && id->isString() ? std::optional<std::string>(id->asString()) : std::nullopt;
+        if (subscribe) {
+          game->subscribe(*topic, std::move(key), msg.find("throttleMs")->asNumber());
+        } else {
+          game->unsubscribe(*topic, key);
+        }
+        return;
+      }
+      ignoreNotImplemented(envelope);
       return;
     }
-    case 19: {  // request -> MapSession (project/unproject, M1), TravelPlanner (snapToRoad/route, M3)
-      const std::optional<RequestMethod> method = parseEnum<RequestMethod>(envelope.msg.find("method")->asString());
+    case 19: {  // request -> MapSession (project/unproject, M1), GameSession (snapToRoad/route, M3a)
+      const std::optional<RequestMethod> method = parseEnum<RequestMethod>(msg.find("method")->asString());
       if (session != nullptr && method && (*method == RequestMethod::Project || *method == RequestMethod::Unproject)) {
         ++stats_.handled;
-        session->request(envelope.msg.find("requestId")->asString(), *method, *envelope.msg.find("params"));
+        session->request(msg.find("requestId")->asString(), *method, *msg.find("params"));
+        return;
+      }
+      if (game != nullptr && method && (*method == RequestMethod::SnapToRoad || *method == RequestMethod::Route)) {
+        ++stats_.handled;
+        game->request(msg.find("requestId")->asString(), *method, *msg.find("params"));
         return;
       }
       respondNotImplemented(envelope);
@@ -127,9 +146,11 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       switch (commandIndex(envelope.type())) {
         case 1:
           session->setTheme(*envelope.msg.find("theme"));
+          if (game != nullptr) game->themeChanged();
           break;
         case 4:
           session->setUi(*envelope.msg.find("ui"));
+          if (game != nullptr) game->uiChanged();
           break;
         case 15:
           session->setBuildingStyle(envelope.msg.find("buildingId")->asString(), *envelope.msg.find("style"));
@@ -141,16 +162,51 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       return;
     case 2:  // setLabels -> LabelSystem (M2b)
     case 3:  // setLabelContent -> LabelSystem (M2b)
-    case 6:  // upsertCharacters -> CharacterSystem
-    case 7:  // removeCharacters -> CharacterSystem
-    case 8:  // setLocationSource -> CharacterSystem
-    case 9:  // pushLocation -> CharacterSystem
-    case 10:  // travel -> TravelPlanner
-    case 11:  // cancelTravel -> TravelPlanner
-    case 12:  // setDropLayer -> DropSystem
-    case 13:  // removeDropLayer -> DropSystem
-    case 14:  // setGeofences -> GeofenceSystem
       ignoreNotImplemented(envelope);
+      return;
+    case 6:  // upsertCharacters -> GameSession (M3a)
+    case 7:  // removeCharacters -> GameSession
+    case 8:  // setLocationSource -> GameSession (+ MapAdapter location feed)
+    case 9:  // pushLocation -> GameSession
+    case 10:  // travel -> GameSession (TravelTrips)
+    case 11:  // cancelTravel -> GameSession
+    case 12:  // setDropLayer -> GameSession (DropCollector)
+    case 13:  // removeDropLayer -> GameSession
+    case 14:  // setGeofences -> GameSession (GeofenceTracker)
+      if (game == nullptr) {
+        ignoreNotImplemented(envelope);
+        return;
+      }
+      ++stats_.handled;
+      switch (commandIndex(envelope.type())) {
+        case 6:
+          game->upsertCharacters(*msg.find("characters"));
+          break;
+        case 7:
+          game->removeCharacters(*msg.find("ids"));
+          break;
+        case 8:
+          game->setLocationSource(msg.find("source")->asString());
+          break;
+        case 9:
+          game->pushLocation(*msg.find("fix"));
+          break;
+        case 10:
+          game->travel(msg);
+          break;
+        case 11:
+          game->cancelTravel(msg.find("characterId")->asString());
+          break;
+        case 12:
+          game->setDropLayer(msg);
+          break;
+        case 13:
+          game->removeDropLayer(msg.find("layerId")->asString());
+          break;
+        default:
+          game->setGeofences(*msg.find("geofences"));
+          break;
+      }
       return;
     default:  // unreachable: decodeCommand rejects unknown types
       ignoreNotImplemented(envelope, "unknown command type");

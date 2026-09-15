@@ -8,7 +8,8 @@
 //   to the estimate (straight when the estimate is off-road) at `clamp(L / 1.05, 0, 8)` units/s, and
 //   teleports when the estimate is more than `kTeleportUnits` away.
 // - `buildDemoLoop` / `SimulatedWalker`: the `simulated` source's demo loop and noisy fixes.
-// - `LocationService`: source switching and fix processing without the platform GPS (M3 phase 2).
+// - `LocationService`: source switching and fix processing without the platform GPS (wired by `GameSession`,
+//   M3a; the device feed comes from `MapAdapter::startLocationUpdates`).
 //
 // The arithmetic keeps V8's operation order (no FMA contraction); conformance: `location.json`.
 #pragma once

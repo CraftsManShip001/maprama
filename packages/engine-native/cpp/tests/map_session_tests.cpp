@@ -214,10 +214,13 @@ MAPRAMA_TEST(m1_set_camera_merge_semantics) {
   h.send(setCameraMsg(Value::object({{"pitch", 12}, {"animate", false}})));
   ctx.check(h.adapter->moves.back().second == 0 && h.engine->cameraState().pitch == 12, "animate: false jumps");
 
-  // follow needs characters (M3): warned, other fields applied.
+  // follow resolves the character first (M3a, engine-web): an unknown one fails the whole command.
   h.send(setCameraMsg(Value::object({{"follow", "player"}, {"pitch", 20}})));
-  ctx.check(h.sink->loggedContaining("setCamera.follow \"player\"", maprama::LogLevel::Warn), "follow warned");
-  ctx.check(h.engine->cameraState().pitch == 20, "other fields applied with follow");
+  const std::vector<Value> errors = h.sink->eventsOfType("error");
+  ctx.check(!errors.empty() && errors.back().find("code")->asString() == "unknown_character" &&
+                errors.back().find("message")->asString() == "setCamera: cannot follow \"player\": no such character",
+            "follow of an unknown character -> unknown_character");
+  ctx.check(h.engine->cameraState().pitch == 12, "other fields are not applied when follow fails");
   const std::size_t logs = h.sink->logs.size();
   h.send(setCameraMsg(Value::object({{"follow", nullptr}})));
   ctx.check(h.sink->logs.size() == logs, "follow: null is silent");
@@ -239,6 +242,8 @@ MAPRAMA_TEST(m1_camera_change_throttling) {
   ctx.check(h.sink->eventsOfType("camera:change").empty(), "no camera:change before a world is loaded");
   h.send(initMsg(Value::object({{"kind", "data"}, {"world", seongsuValue(ctx)}})));
   ctx.check(h.sink->eventsOfType("camera:change").size() == 1, "world load emits the pending subscription");
+  // The M3a game session asked for its own (still pending) frame at the world load: count the map session's.
+  const std::size_t framesAtLoad = h.adapter->frames.size();
 
   maprama::MapCameraPose pose = h.adapter->moves.back().first;
   const auto report = [&](double dBearing) {
@@ -248,10 +253,10 @@ MAPRAMA_TEST(m1_camera_change_throttling) {
   h.now = 1010;
   report(1);
   ctx.check(h.sink->eventsOfType("camera:change").size() == 1, "change inside the window is held");
-  ctx.check(h.adapter->frames.size() == 1 && h.adapter->frames.back() == 90, "frame scheduled for the window end");
+  ctx.check(h.adapter->frames.size() == framesAtLoad + 1 && h.adapter->frames.back() == 90, "frame scheduled for the window end");
   h.now = 1050;
   report(1);
-  ctx.check(h.adapter->frames.size() == 1, "no duplicate frame request");
+  ctx.check(h.adapter->frames.size() == framesAtLoad + 1, "no duplicate frame request");
   h.now = 1100;
   h.engine->frame(h.now);
   std::vector<Value> changes = h.sink->eventsOfType("camera:change");
@@ -279,10 +284,9 @@ MAPRAMA_TEST(m1_camera_change_throttling) {
   report(1);
   ctx.check(h.sink->eventsOfType("camera:change").size() == n + 2, "no events after unsubscribe");
 
-  // Other topics stay M0 (warned, M3).
+  // Other topics go to the game session (M3a): handled without a warning.
   h.send(Value::object({{"type", "subscribe"}, {"topic", "travel:progress"}, {"throttleMs", 0}}));
-  ctx.check(h.sink->loggedContaining("\"travel:progress\" is not implemented yet (M3)", maprama::LogLevel::Warn),
-            "travel:progress subscription warned");
+  ctx.check(!h.sink->loggedContaining("is not implemented", maprama::LogLevel::Warn), "travel:progress subscription handled (M3a)");
   appendEmitted(ctx, *h.sink);
 }
 
@@ -323,7 +327,8 @@ MAPRAMA_TEST(m1_project_unproject_requests) {
   ctx.check(lastResponse().find("result")->find("coordinate")->isNull(), "unproject miss -> coordinate null");
 
   request("s1", "snapToRoad", Value::object({{"coordinate", lngLat(127.05, 37.54)}}));
-  ctx.check(lastResponse().find("error")->find("code")->asString() == "unsupported", "snapToRoad stays unsupported (M3)");
+  ctx.check(lastResponse().find("requestId")->asString() == "s1" && lastResponse().find("ok")->asBool(),
+            "snapToRoad answered by the game session (M3a)");
 
   request("p3", "project", Value::object({{"coordinate", lngLat(127.05, 37.54)}}));
   h.engine->detachMapAdapter();

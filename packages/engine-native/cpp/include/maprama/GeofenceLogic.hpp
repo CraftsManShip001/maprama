@@ -4,7 +4,7 @@
 // Rules (engine-web): a character is inside when its ground distance to the center is strictly less than
 // the radius (world units). `set` keeps the inside-state of ids that still exist (no duplicate `enter`);
 // removed geofences and removed characters are forgotten silently (no `exit`). Transitions are reported
-// in geofence order, then character order. Pure logic; MapSession wiring is M3 phase 2.
+// in geofence order, then character order. Pure logic; wired by `GameSession` (M3a).
 #pragma once
 
 #include <map>

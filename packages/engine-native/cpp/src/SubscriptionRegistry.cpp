@@ -11,14 +11,17 @@ std::optional<std::string> SubscriptionRegistry::keyId(SubscriptionTopic topic, 
 }
 
 void SubscriptionRegistry::subscribe(SubscriptionTopic topic, std::optional<std::string> id, double throttleMs) {
-  id = keyId(topic, std::move(id));
+  Entry fresh;
+  fresh.topic = topic;
+  fresh.id = keyId(topic, std::move(id));
+  fresh.throttleMs = throttleMs;
   for (Entry& e : entries_) {
-    if (e.topic == topic && e.id == id) {
-      e = Entry{topic, std::move(id), throttleMs};
+    if (e.topic == topic && e.id == fresh.id) {
+      e = std::move(fresh);
       return;
     }
   }
-  entries_.push_back(Entry{topic, std::move(id), throttleMs});
+  entries_.push_back(std::move(fresh));
 }
 
 bool SubscriptionRegistry::unsubscribe(SubscriptionTopic topic, const std::optional<std::string>& id) {
@@ -59,6 +62,39 @@ std::vector<SubscriptionRegistry::Entry> SubscriptionRegistry::takeDue(Subscript
   }
   if (nextDelayMs != nullptr) *nextDelayMs = next;
   return due;
+}
+
+bool SubscriptionRegistry::wants(SubscriptionTopic topic, const std::string& key) const {
+  return std::any_of(entries_.begin(), entries_.end(),
+                     [&](const Entry& e) { return e.topic == topic && (!e.id || *e.id == key); });
+}
+
+bool SubscriptionRegistry::due(SubscriptionTopic topic, const std::string& key, double nowMs, double* waitMs) {
+  bool ok = false;
+  double wait = std::numeric_limits<double>::infinity();
+  // engine-web checks the subscription for the key first, then the "all" subscription.
+  for (int pass = 0; pass < 2; ++pass) {
+    for (Entry& e : entries_) {
+      if (e.topic != topic) continue;
+      if (pass == 0 ? !(e.id && *e.id == key) : e.id.has_value()) continue;
+      const double throttle = std::max(0.0, e.throttleMs);
+      const auto last = e.lastByKey.find(key);
+      if (last == e.lastByKey.end() || nowMs - last->second >= throttle) {
+        e.lastByKey[key] = nowMs;
+        ok = true;
+      } else {
+        wait = std::min(wait, throttle - (nowMs - last->second));
+      }
+    }
+  }
+  if (waitMs != nullptr) *waitMs = wait;
+  return ok;
+}
+
+void SubscriptionRegistry::resetKey(SubscriptionTopic topic, const std::string& key) {
+  for (Entry& e : entries_) {
+    if (e.topic == topic) e.lastByKey.erase(key);
+  }
 }
 
 }  // namespace maprama

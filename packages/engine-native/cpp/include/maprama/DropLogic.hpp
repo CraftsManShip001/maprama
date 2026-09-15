@@ -12,7 +12,7 @@
 //   from the previous spec (the React Native `DropLayer` restoring a drop after a retryable rejection)
 //   forgets its history, and `removeLayer` forgets the whole layer (`layerId \0` prefix).
 //
-// Pure logic; MapSession wiring is M3 phase 2. Conformance: `drops.json`.
+// Pure logic; wired by `GameSession` (M3a). Conformance: `drops.json`.
 #pragma once
 
 #include <cstddef>
@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-#include "maprama/DropSystem.hpp"
 #include "maprama/GeofenceLogic.hpp"
 #include "maprama/Projection.hpp"
 #include "maprama/types.hpp"
@@ -39,6 +38,16 @@ inline constexpr std::size_t kMaxIssuedCollectIds = 10000;
 
 /// A random RFC 4122 v4 UUID (lowercase) from `std::random_device` (arc4random on Apple platforms).
 std::string randomCollectId();
+
+/// `setDropLayer` (protocol `SetDropLayerCommand`).
+struct DropLayer {
+  std::string layerId;
+  std::vector<DropSpec> drops;
+  /// Collected when a collector is within this many meters.
+  double collectRadiusMeters = 0.0;
+  /// Defaults to the player when absent (`[]` = nobody).
+  std::optional<std::vector<std::string>> collectorIds;
+};
 
 /// A drop in a layer (engine-web `DropState`), world units.
 struct DropState {

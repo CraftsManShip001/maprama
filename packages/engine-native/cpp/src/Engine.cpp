@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "maprama/Dispatcher.hpp"
+#include "maprama/GameSession.hpp"
 #include "maprama/MapSession.hpp"
 #include "maprama/WorldStore.hpp"
 
@@ -25,9 +26,13 @@ class CoreEngine final : public Engine {
   CoreEngine(std::shared_ptr<MessageSink> sink, EngineConfig config)
       : sink_(std::move(sink)),
         world_(createWorldStore()),
-        session_(*sink_, *world_, config.clockMs ? std::move(config.clockMs) : ClockMs(steadyClockMs)),
+        clock_(config.clockMs ? std::move(config.clockMs) : ClockMs(steadyClockMs)),
+        session_(*sink_, *world_, clock_),
+        game_(*sink_, *world_, session_, clock_, std::move(config.random), std::move(config.collectId)),
         dispatcher_(*sink_, makeSubsystems(), DispatcherOptions{config.info, config.validateOutgoingEvents}) {
     session_.bindEmitter(&dispatcher_);
+    game_.bindEmitter(&dispatcher_);
+    session_.setHooks(&game_);
   }
 
   void start() override {
@@ -60,7 +65,9 @@ class CoreEngine final : public Engine {
 
   void frame(double /*timestampMs*/) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!stopped_) session_.frame();
+    if (stopped_) return;
+    session_.frame();
+    game_.frame();
   }
 
   void tap(double x, double y) override {
@@ -77,12 +84,17 @@ class CoreEngine final : public Engine {
 
   void attachMapAdapter(std::shared_ptr<MapAdapter> adapter) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!stopped_) session_.attachAdapter(std::move(adapter));
+    if (stopped_) return;
+    // The game session first: the map session's style triggers `styleSent`, which re-sends the game sources.
+    game_.attachAdapter(adapter);
+    session_.attachAdapter(std::move(adapter));
   }
 
   void detachMapAdapter() override {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!stopped_) session_.detachAdapter();
+    if (stopped_) return;
+    session_.detachAdapter();
+    game_.detachAdapter();
   }
 
   void onCameraChanged(const MapCameraPose& pose) override {
@@ -115,6 +127,21 @@ class CoreEngine final : public Engine {
     if (!stopped_) session_.onBuildingQueried(token, buildingId, ground);
   }
 
+  void onDeviceLocation(const LocationFix& fix) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) game_.onDeviceLocation(fix);
+  }
+
+  void onDeviceLocationError(std::string message) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) game_.onDeviceLocationError(message);
+  }
+
+  void onUserPan() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopped_) game_.onUserPan();
+  }
+
   CameraState cameraState() const override {
     std::lock_guard<std::mutex> lock(mutex_);
     return session_.cameraState();
@@ -128,6 +155,7 @@ class CoreEngine final : public Engine {
   void shutdown() override {
     std::lock_guard<std::mutex> lock(mutex_);
     stopped_ = true;
+    game_.shutdown();
     session_.shutdown();
   }
 
@@ -136,12 +164,15 @@ class CoreEngine final : public Engine {
     Subsystems s;
     s.world = world_.get();
     s.session = &session_;
+    s.game = &game_;
     return s;
   }
 
   std::shared_ptr<MessageSink> sink_;
   std::unique_ptr<WorldStore> world_;
+  ClockMs clock_;
   MapSession session_;
+  GameSession game_;
   Dispatcher dispatcher_;
   mutable std::mutex mutex_;
   bool started_ = false;

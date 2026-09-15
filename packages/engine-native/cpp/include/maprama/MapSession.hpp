@@ -55,12 +55,33 @@ inline constexpr double kOverlayEpsilonPx = 0.25;
 inline constexpr double kZoomButtonStep = 1.45;
 inline constexpr double kZoomButtonMs = 250.0;
 
+/// What another session (the M3a `GameSession`) adds to the map session: extra style sources / layers,
+/// re-sending its source data after every complete style, the world-load hook and `setCamera.follow`.
+class MapSessionHooks {
+ public:
+  virtual ~MapSessionHooks() = default;
+  /// Adds GeoJSON sources to the world style (called once per world, with empty data: the data follows
+  /// through `MapAdapter::setSourceData` after `styleSent`).
+  virtual void extendSources(json::Value& sources) = 0;
+  /// Inserts layers into the world layer list (called whenever the layers are rebuilt from the look).
+  virtual void extendLayers(json::Value& layers, const MapLook& look) = 0;
+  /// The complete style was just sent to the adapter (`setStyleJson`).
+  virtual void styleSent() = 0;
+  /// A world was loaded and its style sent; called before `init.camera` is applied.
+  virtual void worldLoaded(const json::Value& initMsg) = 0;
+  /// `setCamera.follow`: a character id, or nullopt (null, or `center` without `follow`) to stop following.
+  /// Returns false for an unknown character (the command then fails with `unknown_character`).
+  virtual bool setFollow(const std::optional<std::string>& characterId) = 0;
+};
+
 class MapSession {
  public:
   MapSession(MessageSink& sink, WorldStore& world, ClockMs clock);
 
   /// Events are emitted through the Dispatcher (it assigns `seq`); bound once by the Engine.
   void bindEmitter(EventEmitter* events) { events_ = events; }
+  /// Game systems hooks (M3a); bound once by the Engine.
+  void setHooks(MapSessionHooks* hooks) { hooks_ = hooks; }
 
   // ---- platform side -------------------------------------------------------------------------------
   void attachAdapter(std::shared_ptr<MapAdapter> adapter);
@@ -82,7 +103,8 @@ class MapSession {
 
   // ---- commands (already validated by `decodeCommand`) -------------------------------------------
   void init(const json::Value& msg);
-  void setCamera(const json::Value& cameraSpec);
+  /// `command` prefixes error messages (`init` applies `init.camera` through here, like engine-web).
+  void setCamera(const json::Value& cameraSpec, std::string_view command = "setCamera");
   void setTheme(const json::Value& themeSpec);
   void setUi(const json::Value& uiSpec);
   /// `style` is a `BuildingStyle` object or `null` (clears the override).
@@ -95,8 +117,14 @@ class MapSession {
 
   void shutdown();
 
+  /// `setCamera.follow` (M3a): moves the camera centre (a jump; distance, pitch and bearing are kept).
+  /// Ignored while a camera animation (`setCamera.animate`, zoom buttons) runs. True when applied.
+  bool followCenter(const LngLat& center);
+
   // ---- state (tests, diagnostics) ----------------------------------------------------------------
   bool worldReady() const { return worldReady_; }
+  /// The current `setUi` spec (`locationPuck` is drawn by the game session).
+  const MapUiSpec& uiSpec() const { return ui_; }
   const CameraState& cameraState() const { return state_; }
   const Viewport& viewport() const { return viewport_; }
   /// The complete current style (world sources, themed layers, light) as sent on attach.
@@ -122,6 +150,10 @@ class MapSession {
   void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg);
   void setThemeState(const json::Value& themeSpec);
   void setUiState(const json::Value& uiSpec);
+  /// World layers for the current look (+ the hooks' layers).
+  json::Value worldLayers() const;
+  /// Sends the complete style to the adapter and tells the hooks.
+  void sendStyle();
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.
   void applyLook();
   BuildingPaint buildingPaint() const;
@@ -149,7 +181,10 @@ class MapSession {
   ClockMs clock_;
   const ThemeResolver& themes_;
   EventEmitter* events_ = nullptr;
+  MapSessionHooks* hooks_ = nullptr;
   std::shared_ptr<MapAdapter> adapter_;
+  /// End of the camera animation last sent to the adapter (follow waits for it).
+  double animatingUntilMs_;
   Viewport viewport_;
   CameraState state_;
   bool worldReady_ = false;

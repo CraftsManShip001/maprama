@@ -29,6 +29,10 @@ struct EngineConfig {
   bool validateOutgoingEvents = false;
   /// Monotonic milliseconds used for subscription throttling; steady_clock when empty (tests inject one).
   std::function<double()> clockMs;
+  /// Uniform [0, 1) source of the simulated location walker; a seeded std::mt19937 when empty (tests inject one).
+  std::function<double()> random;
+  /// `drop:collect` collectId generator; `randomCollectId` (UUID v4) when empty (tests inject one).
+  std::function<std::string()> collectId;
 };
 
 /// One engine instance per map view. All methods are safe to call from any thread: M1 serialises them
@@ -77,6 +81,15 @@ class Engine {
   /// Reply to `MapAdapter::queryBuilding`: the pressed building's `id` (nullopt: none) and the ground
   /// coordinate under the tap (nullopt: not on the ground).
   virtual void onBuildingQueried(std::uint64_t token, std::optional<std::string> buildingId, std::optional<LngLat> ground) = 0;
+
+  // ---- M3a platform input ------------------------------------------------------------------------
+  /// A platform GPS fix (`MapAdapter::startLocationUpdates`), used with the `device` location source.
+  virtual void onDeviceLocation(const LocationFix& fix) = 0;
+  /// The platform location feed failed (e.g. `location permission not granted`); emitted as
+  /// `error {location_unavailable, "device geolocation failed: <message>"}` while the source is `device`.
+  virtual void onDeviceLocationError(std::string message) = 0;
+  /// The user started a pan gesture: stops `setCamera.follow` (engine-web cancels following on pans).
+  virtual void onUserPan() = 0;
 
   /// Current protocol camera (diagnostics / tests).
   virtual CameraState cameraState() const = 0;
