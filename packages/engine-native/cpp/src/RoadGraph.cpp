@@ -225,4 +225,119 @@ std::optional<GraphSnap> snapToGraph(const RoadGraph& graph, double x, double z)
   return best;
 }
 
+namespace {
+
+/// engine-web's binary min-heap of `[priority, value]` (same sift order, so equal priorities pop alike).
+class MinHeap {
+ public:
+  std::size_t size() const { return h_.size(); }
+
+  void push(double d, int n) {
+    h_.emplace_back(d, n);
+    std::size_t i = h_.size() - 1;
+    while (i > 0) {
+      const std::size_t p = (i - 1) >> 1;
+      if (h_[p].first <= h_[i].first) break;
+      std::swap(h_[p], h_[i]);
+      i = p;
+    }
+  }
+
+  std::pair<double, int> pop() {
+    const std::pair<double, int> top = h_[0];
+    const std::pair<double, int> last = h_.back();
+    h_.pop_back();
+    if (!h_.empty()) {
+      h_[0] = last;
+      std::size_t i = 0;
+      for (;;) {
+        const std::size_t l = 2 * i + 1, r = l + 1;
+        std::size_t m = i;
+        if (l < h_.size() && h_[l].first < h_[m].first) m = l;
+        if (r < h_.size() && h_[r].first < h_[m].first) m = r;
+        if (m == i) break;
+        std::swap(h_[m], h_[i]);
+        i = m;
+      }
+    }
+    return top;
+  }
+
+ private:
+  std::vector<std::pair<double, int>> h_;
+};
+
+/// `Math.min(a, b)` for the non-negative distances used here (NaN propagates like JS).
+double jsMin(double a, double b) {
+  if (std::isnan(a) || std::isnan(b)) return std::numeric_limits<double>::quiet_NaN();
+  return b < a ? b : a;
+}
+
+}  // namespace
+
+std::vector<WorldPoint> routeOnGraph(const RoadGraph& g, const GraphSnap& s, const GraphSnap& e) {
+  if (s.e == e.e) return {WorldPoint{s.x, s.z}, WorldPoint{e.x, e.z}};
+  const std::size_t n = g.nodes.size();
+  std::vector<double> dist(n, std::numeric_limits<double>::infinity());
+  std::vector<int> prev(n, -1);
+  std::vector<std::uint8_t> done(n, 0);
+  MinHeap heap;
+  const GraphEdge& es = g.edges[static_cast<std::size_t>(s.e)];
+  const GraphEdge& ee = g.edges[static_cast<std::size_t>(e.e)];
+  for (const int node : {es.a, es.b}) {
+    const GraphNode& p = g.nodes[static_cast<std::size_t>(node)];
+    dist[node] = jsMin(dist[node], js_math::hypot(p.x - s.x, p.z - s.z));
+    heap.push(dist[node], node);
+  }
+  while (heap.size() > 0) {
+    const std::pair<double, int> top = heap.pop();
+    const double d = top.first;
+    const int u = top.second;
+    if (done[u]) continue;
+    done[u] = 1;
+    for (const int ei : g.adj[static_cast<std::size_t>(u)]) {
+      const GraphEdge& ed = g.edges[static_cast<std::size_t>(ei)];
+      const int v = ed.a == u ? ed.b : ed.a;
+      const double nd = d + ed.len;
+      if (nd < dist[v]) {
+        dist[v] = nd;
+        prev[v] = u;
+        heap.push(nd, v);
+      }
+    }
+  }
+  int endNode = -1;
+  double bestT = std::numeric_limits<double>::infinity();
+  for (const int node : {ee.a, ee.b}) {
+    const GraphNode& p = g.nodes[static_cast<std::size_t>(node)];
+    const double t = dist[node] + js_math::hypot(p.x - e.x, p.z - e.z);
+    if (t < bestT) {
+      bestT = t;
+      endNode = node;
+    }
+  }
+  if (endNode < 0 || !std::isfinite(bestT)) return {WorldPoint{s.x, s.z}};
+  std::vector<int> chain;
+  for (int u = endNode; u >= 0; u = prev[u]) chain.push_back(u);
+  std::reverse(chain.begin(), chain.end());
+  std::vector<WorldPoint> pts;
+  pts.reserve(chain.size() + 2);
+  pts.push_back(WorldPoint{s.x, s.z});
+  for (const int u : chain) pts.push_back(WorldPoint{g.nodes[static_cast<std::size_t>(u)].x, g.nodes[static_cast<std::size_t>(u)].z});
+  pts.push_back(WorldPoint{e.x, e.z});
+  // `pts.filter((p, i) => i === 0 || hypot(p - pts[i - 1]) > 0.01)`: compares with the unfiltered predecessor.
+  std::vector<WorldPoint> out;
+  out.reserve(pts.size());
+  for (std::size_t i = 0; i < pts.size(); ++i) {
+    if (i == 0 || js_math::hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z) > 0.01) out.push_back(pts[i]);
+  }
+  return out;
+}
+
+double polylineLength(const std::vector<WorldPoint>& pts) {
+  double d = 0.0;
+  for (std::size_t i = 0; i + 1 < pts.size(); ++i) d += js_math::hypot(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z);
+  return d;
+}
+
 }  // namespace maprama

@@ -93,4 +93,12 @@ RoadGraph buildRoadGraph(std::vector<GraphRoad> roads, double pruneLength = 2.5,
 /// engine-web `snap`: nearest point on any edge; `std::nullopt` for a graph without edges.
 std::optional<GraphSnap> snapToGraph(const RoadGraph& graph, double x, double z);
 
+/// engine-web `route`: shortest path (binary-heap Dijkstra with the same heap and tie order) between two
+/// snapped points. Returns the polyline start, graph nodes, end with points closer than 0.01 to their
+/// predecessor (in the unfiltered list) dropped; only the start point when the end is unreachable.
+std::vector<WorldPoint> routeOnGraph(const RoadGraph& graph, const GraphSnap& from, const GraphSnap& to);
+
+/// engine-web `polylineLength` / `pathLength`: sum of `Math.hypot` segment lengths in order.
+double polylineLength(const std::vector<WorldPoint>& pts);
+
 }  // namespace maprama
