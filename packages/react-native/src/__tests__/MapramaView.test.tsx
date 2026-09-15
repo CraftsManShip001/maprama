@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { createRef, useCallback, useEffect, type Ref } from 'react';
+import { createRef, useCallback, useEffect, type ComponentProps, type Ref } from 'react';
 import { Image, Linking, StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { encodeEvent, type EngineEvent, type LabelInfo, type WorldSource } from '@maprama/protocol';
@@ -343,6 +343,114 @@ describe('children', () => {
     );
     await nextFrame();
     expect(commands()).toEqual([{ type: 'upsertCharacters', characters: [{ id: 'me', isPlayer: true, name: 'Me' }] }]);
+  });
+
+  it('clears each removed optional prop by sending it as null exactly once', async () => {
+    type Props = Omit<ComponentProps<typeof Character>, 'id'>;
+    const character = (props: Props) => (
+      <Map>
+        <Character id="me" {...props} />
+      </Map>
+    );
+    const full: Props = { name: 'Me', color: '#2F5BEA', scale: 1.5, showNameTag: true, animations: { walk: 'Walking' } };
+    const { rerender } = await render(character(full));
+    await emit(READY);
+    await nextFrame();
+    expect(commandsOf('upsertCharacters')[0]!.characters).toEqual([{ id: 'me', ...full }]);
+    clearPosted();
+
+    const remaining: Props = { ...full };
+    for (const key of ['name', 'color', 'scale', 'showNameTag', 'animations'] as const) {
+      delete remaining[key];
+      await rerender(character({ ...remaining }));
+      await nextFrame();
+      expect(commands()).toEqual([{ type: 'upsertCharacters', characters: [{ id: 'me', ...remaining, [key]: null }] }]);
+      clearPosted();
+
+      // Re-rendering without changes sends nothing, and the null is not repeated.
+      await rerender(character({ ...remaining }));
+      await nextFrame();
+      expect(commands()).toEqual([]);
+    }
+
+    // A later change carries no stale nulls.
+    await rerender(character({ name: 'Again' }));
+    await nextFrame();
+    expect(commands()).toEqual([{ type: 'upsertCharacters', characters: [{ id: 'me', name: 'Again' }] }]);
+  });
+
+  it('clears removed isPlayer / follow, and re-sends everything after an engine reload without nulls', async () => {
+    const { rerender } = await render(
+      <Map>
+        <Character id="me" isPlayer follow="location" name="Me" />
+      </Map>,
+    );
+    await emit(READY);
+    await nextFrame();
+    clearPosted();
+
+    await rerender(
+      <Map>
+        <Character id="me" name="Me" />
+      </Map>,
+    );
+    await nextFrame();
+    expect(commands()).toEqual([{ type: 'upsertCharacters', characters: [{ id: 'me', name: 'Me', isPlayer: null, follow: null }] }]);
+    clearPosted();
+
+    // Removing and re-adding the character starts from scratch: nothing to clear.
+    await rerender(<Map />);
+    await nextFrame();
+    await rerender(
+      <Map>
+        <Character id="me" />
+      </Map>,
+    );
+    await nextFrame();
+    expect(commands()).toEqual([
+      { type: 'removeCharacters', ids: ['me'] },
+      { type: 'upsertCharacters', characters: [{ id: 'me' }] },
+    ]);
+  });
+
+  it('sends null when a CharacterLayer getter returns undefined after a value', async () => {
+    type Player = { id: string; name?: string; color?: string };
+    const layer = (players: Player[], showNameTags?: boolean) => (
+      <Map>
+        <CharacterLayer
+          data={players}
+          getId={(p) => p.id}
+          getPosition={() => PLAZA}
+          getName={(p) => p.name}
+          getColor={(p) => p.color}
+          showNameTags={showNameTags}
+        />
+      </Map>
+    );
+    const { rerender } = await render(layer([{ id: 'a', name: 'A', color: '#abc' }], true));
+    await emit(READY);
+    await nextFrame();
+    expect(commandsOf('upsertCharacters')[0]!.characters).toEqual([
+      { id: 'a', position: PLAZA, follow: 'none', name: 'A', color: '#abc', showNameTag: true },
+    ]);
+    clearPosted();
+
+    await rerender(layer([{ id: 'a', color: '#abc' }], true));
+    await nextFrame();
+    expect(commands()).toEqual([
+      { type: 'upsertCharacters', characters: [{ id: 'a', position: PLAZA, follow: 'none', color: '#abc', showNameTag: true, name: null }] },
+    ]);
+    clearPosted();
+
+    await rerender(layer([{ id: 'a', color: '#abc' }], true));
+    await nextFrame();
+    expect(commands()).toEqual([]);
+
+    await rerender(layer([{ id: 'a' }]));
+    await nextFrame();
+    expect(commands()).toEqual([
+      { type: 'upsertCharacters', characters: [{ id: 'a', position: PLAZA, follow: 'none', color: null, showNameTag: null }] },
+    ]);
   });
 
   it('removes everything a child registered when it unmounts', async () => {

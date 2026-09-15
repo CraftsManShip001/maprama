@@ -32,7 +32,8 @@ class CharacterSystem {
  public:
   virtual ~CharacterSystem() = default;
 
-  /// Adds or updates by id; unset fields keep their current value, `model: null` restores the default avatar.
+  /// Adds or updates by id; unset fields keep their current value, `null` restores a field's default
+  /// (`model: null` the default avatar, `name: null` the id as tag text, `scale: null` 1, ...).
   /// Model loads are async (cgltf on a worker).
   virtual void upsert(const std::vector<CharacterSpec>& characters, EventEmitter& events) = 0;
   virtual void remove(const std::vector<std::string>& ids) = 0;

@@ -37,7 +37,13 @@ export const ANIMATION_NAMES = ['idle', 'walk', 'run', 'ride', 'wave'] as const;
 /** Conventional character animation name. */
 export type AnimationName = (typeof ANIMATION_NAMES)[number];
 
-/** A character (player avatar or other actor). */
+/**
+ * A character (player avatar or other actor).
+ *
+ * `upsertCharacters` merges a spec into the engine's copy of the character: an
+ * absent field keeps its current value, and `null` clears an optional field
+ * back to its default. `id` and `position` cannot be `null`.
+ */
 export interface CharacterSpec {
   /** Stable id, unique across characters. */
   id: string;
@@ -46,25 +52,32 @@ export interface CharacterSpec {
    * existing character, so send `null` to drop a model and show the default avatar again.
    */
   model?: ModelSource | null;
-  /** Display name (shown in the name tag). */
-  name?: string;
-  /** Tint / accent color as a CSS hex string (e.g. `'#2F5BEA'`), used by the default avatar and name tag. */
-  color?: string;
+  /** Display name (shown in the name tag). `null` clears it; the tag then shows the id. */
+  name?: string | null;
+  /**
+   * Tint / accent color as a CSS hex string (e.g. `'#2F5BEA'`), used by the default avatar and name tag.
+   * `null` restores the engine's default player / NPC color.
+   */
+  color?: string | null;
   /** Initial or teleport position. */
   position?: LngLat;
-  /** `location`: driven by the active location source; `none`: moved only by commands. */
-  follow?: 'location' | 'none';
-  /** The local player (at most one). Default collector for drops. */
-  isPlayer?: boolean;
-  /** Uniform model scale multiplier. Default 1. */
-  scale?: number;
+  /**
+   * `location`: driven by the active location source; `none`: moved only by commands.
+   * `null` restores the default (not driven by the location source).
+   */
+  follow?: 'location' | 'none' | null;
+  /** The local player (at most one). Default collector for drops. `null` restores the default (`false`). */
+  isPlayer?: boolean | null;
+  /** Uniform model scale multiplier. Default 1; `null` restores it. */
+  scale?: number | null;
   /**
    * Maps conventional animation names to clip names in the model. Clips named
-   * exactly `idle|walk|run|ride|wave` are used when not mapped.
+   * exactly `idle|walk|run|ride|wave` are used when not mapped. `null` drops the
+   * mapping and returns to that automatic matching.
    */
-  animations?: Partial<Record<AnimationName, string>>;
-  /** Show a floating name tag. */
-  showNameTag?: boolean;
+  animations?: Partial<Record<AnimationName, string>> | null;
+  /** Show a floating name tag. `null` restores the default (`false`, no tag). */
+  showNameTag?: boolean | null;
 }
 
 /** Travel modes. */
@@ -204,14 +217,14 @@ export const checkCharacterSpec: Check = object(
   { id: nonEmptyString },
   {
     model: nullable(checkModelSource),
-    name: string,
-    color: cssHexColor,
+    name: nullable(string),
+    color: nullable(cssHexColor),
     position: checkLngLat,
-    follow: oneOf(['location', 'none']),
-    isPlayer: boolean,
-    scale: positiveNumber,
-    animations: animationMap,
-    showNameTag: boolean,
+    follow: nullable(oneOf(['location', 'none'])),
+    isPlayer: nullable(boolean),
+    scale: nullable(positiveNumber),
+    animations: nullable(animationMap),
+    showNameTag: nullable(boolean),
   },
 );
 

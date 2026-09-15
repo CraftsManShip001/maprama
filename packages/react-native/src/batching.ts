@@ -61,6 +61,19 @@ interface BatcherOptions {
 
 const json = (value: unknown): string => JSON.stringify(value) ?? 'undefined';
 
+/** Optional `CharacterSpec` fields the engine resets to their default on `null` (all but `id` and `position`). */
+type ClearableCharacterKey = Exclude<keyof CharacterSpec, 'id' | 'position'>;
+const CLEARABLE_CHARACTER_KEYS: readonly ClearableCharacterKey[] = [
+  'model',
+  'name',
+  'color',
+  'follow',
+  'isPlayer',
+  'scale',
+  'animations',
+  'showNameTag',
+];
+
 /** Collects child specs and flushes minimal commands once per frame. */
 export class CommandBatcher {
   private readonly sink: (command: EngineCommand) => void;
@@ -74,8 +87,11 @@ export class CommandBatcher {
   private labelContent: Record<string, LabelContent> | null = null;
 
   private sentCharacters = new Map<string, string>();
-  /** Character ids whose last upsert carried a model (a later spec without one must clear it). */
-  private sentWithModel = new Set<string>();
+  /**
+   * Clearable fields that carried a value in the last upsert, per character id. The engine merges
+   * upserts into its copy, so a field that disappears from a later spec is sent once as `null`.
+   */
+  private sentFields = new Map<string, Set<ClearableCharacterKey>>();
   private sentDropLayers = new Map<string, string>();
   private sentGeofences = '[]';
   private sentOverlays = '[]';
@@ -176,7 +192,7 @@ export class CommandBatcher {
   /** Forgets what was sent so the next flush re-sends the full state (after an engine reload). */
   resetSent(): void {
     this.sentCharacters = new Map();
-    this.sentWithModel = new Set();
+    this.sentFields = new Map();
     this.sentDropLayers = new Map();
     this.sentGeofences = '[]';
     this.sentOverlays = '[]';
@@ -227,21 +243,35 @@ export class CommandBatcher {
     const removed = [...this.sentCharacters.keys()].filter((id) => !merged.has(id));
     for (const id of removed) {
       this.sentCharacters.delete(id);
-      this.sentWithModel.delete(id);
+      this.sentFields.delete(id);
     }
     const upserts: CharacterSpec[] = [];
     for (const [id, spec] of merged) {
       const next = json(spec);
       if (this.sentCharacters.get(id) === next) continue;
       this.sentCharacters.set(id, next);
-      // The engine merges upserts into its copy, so a model that was sent before is cleared explicitly.
-      const hadModel = this.sentWithModel.has(id);
-      if (spec.model) this.sentWithModel.add(id);
-      else this.sentWithModel.delete(id);
-      upserts.push(!spec.model && hadModel ? { ...spec, model: null } : spec);
+      upserts.push(this.withClearedFields(id, spec));
     }
     if (removed.length) this.sink({ type: 'removeCharacters', ids: removed });
     if (upserts.length) this.sink({ type: 'upsertCharacters', characters: upserts });
+  }
+
+  /**
+   * The engine merges upserts into its copy, so a clearable field that was sent before and is
+   * missing now is sent as `null` (once: the fields recorded for the next diff are the ones with a value).
+   */
+  private withClearedFields(id: string, spec: CharacterSpec): CharacterSpec {
+    const before = this.sentFields.get(id);
+    const now = new Set<ClearableCharacterKey>();
+    let cleared: Partial<Record<ClearableCharacterKey, null>> | null = null;
+    for (const key of CLEARABLE_CHARACTER_KEYS) {
+      const value = spec[key];
+      if (value !== undefined && value !== null) now.add(key);
+      else if (value === undefined && before?.has(key)) (cleared ??= {})[key] = null;
+    }
+    if (now.size) this.sentFields.set(id, now);
+    else this.sentFields.delete(id);
+    return cleared ? { ...spec, ...cleared } : spec;
   }
 
   private flushDropLayers(): void {

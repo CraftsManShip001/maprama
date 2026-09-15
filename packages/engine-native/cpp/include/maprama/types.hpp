@@ -146,20 +146,29 @@ struct ModelSource {
   std::string uri;
 };
 
+/// Upserts merge into the existing character. For every nullable field the outer optional means
+/// "field present" (absent keeps the current value) and the inner optional is the value, or
+/// `null` to restore the default. `id` and `position` are not nullable.
 struct CharacterSpec {
   std::string id;
-  /// Outer optional: field present. Inner optional: model, or `null` to show the default avatar again.
+  /// Model, or `null` to show the default avatar again.
   std::optional<std::optional<ModelSource>> model;
-  std::optional<std::string> name;
-  /// CSS hex `#RGB` / `#RRGGBB` / `#RRGGBBAA`.
-  std::optional<std::string> color;
+  /// Name, or `null` to clear it (the name tag then shows the id).
+  std::optional<std::optional<std::string>> name;
+  /// CSS hex `#RGB` / `#RRGGBB` / `#RRGGBBAA`, or `null` for the default player / NPC color.
+  std::optional<std::optional<std::string>> color;
+  /// Initial or teleport position.
   std::optional<LngLat> position;
-  /// `"location"` or `"none"`.
-  std::optional<std::string> follow;
-  std::optional<bool> isPlayer;
-  std::optional<double> scale;
-  std::map<AnimationName, std::string> animations;
-  std::optional<bool> showNameTag;
+  /// `"location"` or `"none"`, or `null` for the default (not driven by the location source).
+  std::optional<std::optional<std::string>> follow;
+  /// Or `null` for the default (`false`).
+  std::optional<std::optional<bool>> isPlayer;
+  /// Or `null` for the default (1).
+  std::optional<std::optional<double>> scale;
+  /// Clip mapping, or `null` to return to automatic clip matching.
+  std::optional<std::optional<std::map<AnimationName, std::string>>> animations;
+  /// Or `null` for the default (`false`).
+  std::optional<std::optional<bool>> showNameTag;
 };
 
 struct DropSpec {

@@ -36,6 +36,7 @@ import {
   Vector2,
   Vector3,
   type AnimationAction,
+  type AnimationClip,
   type BufferGeometry,
   type Material,
   type Object3D,
@@ -132,6 +133,42 @@ const hashId = (id: string): number => {
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
   return h >>> 0;
 };
+
+/** A {@link CharacterSpec} as the engine keeps it: cleared (`null`) fields are removed, so readers only see "absent". */
+export type NormalizedCharacterSpec = { [K in keyof CharacterSpec]: Exclude<CharacterSpec[K], null> };
+
+/**
+ * Merges an upsert into a character's current spec: absent (or `undefined`)
+ * fields keep their value, `null` clears a field back to its default (the
+ * field is removed, exactly as if it had never been sent).
+ */
+export function mergeCharacterSpec(current: NormalizedCharacterSpec, patch: CharacterSpec): NormalizedCharacterSpec {
+  const out: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete out[key];
+    else if (value !== undefined) out[key] = value;
+  }
+  return out as NormalizedCharacterSpec;
+}
+
+/** Copy of a spec without its `null` / `undefined` fields (`null` means "the default", i.e. absent). */
+export function normalizeCharacterSpec(spec: CharacterSpec): NormalizedCharacterSpec {
+  return mergeCharacterSpec({ id: spec.id }, spec);
+}
+
+/** Mixer actions for the resolved clips (`wave` plays once, the rest loop). */
+function clipActions(mixer: AnimationMixer, all: readonly AnimationClip[], clips: Partial<Record<AnimationName, string>>): Partial<Record<AnimationName, AnimationAction>> {
+  const actions: Partial<Record<AnimationName, AnimationAction>> = {};
+  for (const name of ANIMATION_NAMES) {
+    const clipName = clips[name];
+    const clip = clipName !== undefined ? all.find((c) => c.name === clipName) : undefined;
+    if (!clip) continue;
+    const a = mixer.clipAction(clip);
+    a.setLoop(name === 'wave' ? LoopOnce : LoopRepeat, Infinity);
+    actions[name] = a;
+  }
+  return actions;
+}
 
 // ---------------------------------------------------------------------------
 // glTF loading
@@ -239,6 +276,8 @@ interface ProceduralRig {
 interface ModelState {
   wrap: Group;
   mixer: AnimationMixer;
+  /** Every clip of the loaded glTF (re-resolved when `spec.animations` changes). */
+  all: readonly AnimationClip[];
   clips: Partial<Record<AnimationName, string>>;
   actions: Partial<Record<AnimationName, AnimationAction>>;
   current: AnimationName | null;
@@ -269,7 +308,7 @@ export class Character implements FollowerBody {
   modelUri: string | null = null;
   private loadToken = 0;
 
-  constructor(public spec: CharacterSpec, private readonly mgr: CharacterManager, groundY: number) {
+  constructor(public spec: NormalizedCharacterSpec, private readonly mgr: CharacterManager, groundY: number) {
     this.phase = (hashId(spec.id) % 1000) / 160;
     this.follower = new Follower(this, groundY);
     this.root.name = `character:${spec.id}`;
@@ -318,22 +357,28 @@ export class Character implements FollowerBody {
     const wrap = normalizeModel(instantiateModel(gltf), CHARACTER_HEIGHT);
     const mixer = new AnimationMixer(wrap);
     const clips = resolveClips(gltf.animations.map((c) => c.name), this.spec.animations);
-    const actions: Partial<Record<AnimationName, AnimationAction>> = {};
-    for (const name of ANIMATION_NAMES) {
-      const clipName = clips[name];
-      const clip = clipName !== undefined ? gltf.animations.find((c) => c.name === clipName) : undefined;
-      if (!clip) continue;
-      const a = mixer.clipAction(clip);
-      a.setLoop(name === 'wave' ? LoopOnce : LoopRepeat, Infinity);
-      actions[name] = a;
-    }
-    this.model = { wrap, mixer, clips, actions, current: null };
+    this.model = { wrap, mixer, all: gltf.animations, clips, actions: clipActions(mixer, gltf.animations, clips), current: null };
     this.root.add(wrap);
     const sil = new Mesh(geos().silProxy!, this.mgr.silhouetteMaterial(this));
     sil.name = 'silhouette-proxy';
     wrap.add(sil);
     this.mgr.scene.silhouette.addSilhouette(sil);
     if (this.procedural) this.procedural.rig.visible = false;
+  }
+
+  /**
+   * Re-resolves the loaded model's clips after `spec.animations` changed (or
+   * was cleared); a no-op when the clips resolve the same.
+   */
+  refreshClips(): void {
+    const m = this.model;
+    if (!m) return;
+    const clips = resolveClips(m.all.map((c) => c.name), this.spec.animations);
+    if (ANIMATION_NAMES.every((n) => clips[n] === m.clips[n])) return;
+    m.mixer.stopAllAction();
+    m.clips = clips;
+    m.actions = clipActions(m.mixer, m.all, clips);
+    m.current = null;
   }
 
   private dropModel(): void {
@@ -455,12 +500,17 @@ export class CharacterManager {
     return this.chars.get(id);
   }
 
-  /** Adds or updates characters (fields of an existing character are merged; `model: null` restores the default avatar). */
+  /**
+   * Adds or updates characters. Fields of an existing character are merged
+   * ({@link mergeCharacterSpec}); `null` clears a field back to its default
+   * (`model: null` the default avatar, `name: null` the id as tag text, …) and
+   * every side effect of the field re-runs.
+   */
   upsert(specs: readonly CharacterSpec[], world: WorldModel, proj: Projection): Character[] {
     const players = new Set([...this.chars.values()].filter((c) => c.spec.isPlayer).map((c) => c.id));
     for (const s of specs) {
       if (s.isPlayer === true) players.add(s.id);
-      else if (s.isPlayer === false) players.delete(s.id);
+      else if (s.isPlayer === false || s.isPlayer === null) players.delete(s.id);
     }
     if (players.size > 1) throw Object.assign(new Error(`at most one character can be the player (got ${[...players].join(', ')})`), { code: 'invalid_character' });
     const out: Character[] = [];
@@ -469,7 +519,7 @@ export class CharacterManager {
       let ch = this.chars.get(s.id);
       const fresh = !ch;
       if (!ch) {
-        ch = new Character({ ...s }, this, gy);
+        ch = new Character(normalizeCharacterSpec(s), this, gy);
         this.chars.set(s.id, ch);
         this.group.add(ch.root);
         const p = s.position ? proj.toWorld(s.position) : this.spawnPoint(world, ch);
@@ -477,16 +527,21 @@ export class CharacterManager {
         ch.z = p.z;
       } else {
         const prevColor = ch.color, prevPlayer = !!ch.spec.isPlayer;
-        ch.spec = { ...ch.spec, ...s };
+        ch.spec = mergeCharacterSpec(ch.spec, s);
         if (s.position) {
           const p = proj.toWorld(s.position);
           ch.follower.setTrip([]);
           ch.x = p.x;
           ch.z = p.z;
         }
-        if (ch.color !== prevColor || !!ch.spec.isPlayer !== prevPlayer) this.rebuildProcedural(ch);
+        if (ch.color !== prevColor || !!ch.spec.isPlayer !== prevPlayer) {
+          this.rebuildProcedural(ch);
+          // The tag's player style and accent are fixed when it is created: recreate it on the next frame.
+          if (ch.tag) { ch.tag.remove(); ch.tag = null; }
+        }
       }
       ch.root.scale.setScalar(ch.spec.scale ?? 1);
+      ch.refreshClips();
       ch.setModel(ch.spec.model?.uri ?? null);
       if (fresh) ch.root.position.set(ch.x, ch.y, ch.z);
       if (!ch.spec.showNameTag && ch.tag) { ch.tag.remove(); ch.tag = null; }
