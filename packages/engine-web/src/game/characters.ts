@@ -54,7 +54,7 @@ import { clamp, cssHexToNumber, mixHex, offsetHslHex, wrapDeg } from '../util/ma
 import { snap } from '../world/graph.js';
 import type { WorldModel } from '../world/model.js';
 import { Follower, groundYFor, KMH, SPEED, type FollowerBody } from './follower.js';
-import { buildVehicles, capsule, stepVehicles, switchVehicle, type PartFn, type VehicleSet } from './vehicles.js';
+import { buildVehicles, capsule, PLANE_SCALE, PLANE_TOP_Y, stepVehicles, switchVehicle, type PartFn, type VehicleSet } from './vehicles.js';
 
 /** Height of the procedural character in world units (glTF models are scaled to it). */
 export const CHARACTER_HEIGHT = 1.9;
@@ -111,15 +111,19 @@ export function realSpeedMps(speedUnits: number, mode: TravelMode): number {
 
 /**
  * Name tag anchor relative to the character root (world units): above the
- * head when walking, just above the roof of the car, and above the middle car
- * of the subway ghost train (its cars trail behind the character), so the tag
- * stays on the vehicle while riding. `vehicleScale` is the vehicle pop-in
- * scale (0..1).
+ * head when walking, just above the roof of the car, just above the plane
+ * (clear of its tail fin) while flying, and above the middle car of the
+ * subway ghost train (its cars trail behind the character), so the tag stays
+ * on the vehicle while riding. `vehicleScale` is the vehicle pop-in scale
+ * (0..1).
  */
 export function nameTagAnchor(mode: TravelMode, yaw: number, scale = 1, vehicleScale = 1): { dx: number; dy: number; dz: number } {
   if (mode === 'subway' && vehicleScale > 0.55) {
     const back = SUBWAY_MIDDLE_CAR_Z * vehicleScale * scale;
     return { dx: Math.sin(yaw) * back, dy: SUBWAY_TAG_HEIGHT * vehicleScale * scale, dz: Math.cos(yaw) * back };
+  }
+  if (mode === 'plane' && vehicleScale > 0.55) {
+    return { dx: 0, dy: (PLANE_TOP_Y * PLANE_SCALE * vehicleScale + PLANE_TAG_GAP) * scale, dz: 0 };
   }
   return { dx: 0, dy: (mode === 'car' ? 2.0 : 2.3) * scale, dz: 0 };
 }
@@ -127,6 +131,8 @@ export function nameTagAnchor(mode: TravelMode, yaw: number, scale = 1, vehicleS
 /** Local z of the ghost train's middle car (see `buildVehicles`) and the tag height over it. */
 const SUBWAY_MIDDLE_CAR_Z = -2.2;
 const SUBWAY_TAG_HEIGHT = 1.25;
+/** Gap between the plane's highest point and the tag; also covers the tail rising when the nose pitches down. */
+const PLANE_TAG_GAP = 0.3;
 
 const hashId = (id: string): number => {
   let h = 2166136261;

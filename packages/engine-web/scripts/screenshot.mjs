@@ -50,6 +50,10 @@ const SCENARIOS = [
   { name: 'labels-sticker-town-day', hash: 'layout=town&preset=urban&tod=day&labels=sticker&dist=60&pitch=45&bearing=28&settle=1200' },
   { name: 'labels-ground-town-day', hash: 'layout=town&preset=urban&tod=day&labels=ground&dist=45&pitch=50&bearing=28&settle=800' },
   { name: 'labels-sign-town-day', hash: 'layout=town&preset=urban&tod=day&labels=sign&dist=40&pitch=42&bearing=28&settle=800' },
+  // location puck just above the scale bar: shown while clear of it, hidden once its projected marker would overlap
+  { name: 'puck-hud-far-clear', hash: 'layout=town&preset=urban&tod=day&ui=1&player=1&dist=110&pitch=45&bearing=0&x=-19.49&z=-51.3&settle=300' },
+  { name: 'puck-hud-far', hash: 'layout=town&preset=urban&tod=day&ui=1&player=1&dist=110&pitch=45&bearing=0&x=-19.49&z=-55.13&settle=300' },
+  { name: 'puck-hud-close', hash: 'layout=town&preset=urban&tod=day&ui=1&player=1&dist=14&pitch=45&bearing=0&x=-28.88&z=-23.59&settle=300' },
   // real GLB (offline CC0 fixture from scripts/make-glb-fixture.mjs) loaded as the player character
   { name: 'glb-character-town-day', hash: 'layout=town&preset=soft&tod=day&player=1&model=/fixtures/box-character.glb&dist=12&pitch=30&bearing=28&settle=500' },
   { name: 'sample-labels-custom-ui', hash: 'layout=sample&preset=modern&tod=day&labels=holo&content=custom&ui=1&player=1&dist=62&pitch=42&bearing=20&x=0&z=4&settle=1500' },

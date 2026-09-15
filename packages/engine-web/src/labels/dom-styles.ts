@@ -11,7 +11,7 @@
 import type { LabelContent, LabelContentMode, LabelsSpec } from '@maprama/protocol';
 import type { CameraController } from '../core/camera.js';
 import { ICON_COLORS, POI_GLYPHS } from './icons.js';
-import { domLabelVisible, resolveLabelContent, rotatedBox, uprightAngle, overlaps, type Box, type DomLabelStyle, type LabelEntry } from './index.js';
+import { clampLabelX, domLabelVisible, resolveLabelContent, rotatedBox, uprightAngle, overlaps, type Box, type DomLabelStyle, type LabelEntry } from './index.js';
 
 const STYLE_ID = 'maprama-engine-labels-style';
 const FONT = `'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',system-ui,sans-serif`;
@@ -176,6 +176,8 @@ export class DomLabels {
       }
       l.el.style.display = '';
       if (!l.w) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
+      // keep the whole (rotated) label inside the viewport horizontally instead of clipping it at the edge
+      sx = clampLabelX(sx, (Math.abs(Math.cos(ang)) * l.w + Math.abs(Math.sin(ang)) * l.h) / 2, W);
       const box = rotatedBox(sx, sy, l.w, l.h, ang);
       if (placed.some((p) => overlaps(p, box))) { l.el.style.display = 'none'; l.shown = false; continue; }
       placed.push(box);

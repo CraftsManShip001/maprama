@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { CharacterSpec, LngLat, Projection } from '@maprama/protocol';
-import { AnimationClip, AnimationMixer, Box3, Group, MeshBasicMaterial, Vector3, type Mesh, type Object3D } from 'three';
+import { AnimationClip, AnimationMixer, Box3, Group, Mesh, MeshBasicMaterial, Vector3, type Object3D } from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
 import type { SceneApi } from '../scene-api.js';
+import type { MaterialFactory } from '../theme/materials.js';
 import type { WorldModel } from '../world/model.js';
 import {
   CHARACTER_HEIGHT,
@@ -20,6 +21,7 @@ import {
   resolveClips,
 } from './characters.js';
 import { SPEED } from './follower.js';
+import { buildVehicles, PLANE_SCALE, PLANE_TOP_Y, type PartFn } from './vehicles.js';
 
 describe('clearing spec fields (null = back to the default)', () => {
   it('normalizes null and undefined fields away without touching the input', () => {
@@ -188,6 +190,34 @@ describe('name tag anchor', () => {
     expect(east.dz).toBeCloseTo(0, 9);
     // before the train has popped in, the tag stays on the character
     expect(nameTagAnchor('subway', 0, 1, 0)).toEqual({ dx: 0, dy: 2.3, dz: 0 });
+  });
+
+  it('sits just above the plane while flying', () => {
+    // the plane's real geometry: its highest point is the tail fin at PLANE_TOP_Y
+    const root = new Group();
+    const part: PartFn = (parent, geo, mat, x, y, z) => {
+      const g = new Group();
+      g.position.set(x, y, z);
+      g.add(new Mesh(geo, mat));
+      parent.add(g);
+      return g;
+    };
+    const m = new MeshBasicMaterial();
+    const set = buildVehicles(root, part, { make: () => new MeshBasicMaterial() } as unknown as MaterialFactory, { skin: m, tire: m, chrome: m, glassDark: m }, []);
+    set.plane.group.scale.setScalar(1);
+    root.updateMatrixWorld(true);
+    expect(new Box3().setFromObject(set.plane.group).max.y).toBeCloseTo(PLANE_TOP_Y, 6);
+
+    const top = PLANE_TOP_Y * PLANE_SCALE;
+    const a = nameTagAnchor('plane', 1.2);
+    expect(a.dx).toBe(0);
+    expect(a.dz).toBe(0);
+    expect(a.dy).toBeGreaterThan(top);
+    expect(a.dy).toBeLessThan(top + 0.5);
+    expect(a.dy).toBeLessThan(nameTagAnchor('walk', 1.2).dy);
+    expect(nameTagAnchor('plane', 0, 2).dy).toBeCloseTo(2 * a.dy, 9);
+    // before the plane has popped in, the tag stays above the character's head
+    expect(nameTagAnchor('plane', 0, 1, 0)).toEqual({ dx: 0, dy: 2.3, dz: 0 });
   });
 });
 
