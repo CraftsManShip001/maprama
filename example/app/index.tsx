@@ -18,7 +18,7 @@ const SCREENS: Entry[] = [
   { slug: 'buildings', href: '/buildings', title: '7. Geofence & buildings', description: 'Plaza geofence enter/exit log; press a building to edit color, roof, massing and state.' },
   { slug: 'multiplayer', href: '/multiplayer', title: '8. Overlays & multiplayer', description: 'CharacterLayer of simulated remote players (1 s ticks, interpolated) and a MapOverlay card on a POI.' },
   { slug: 'native', href: '/native', title: '9. Native engine (M2c)', description: 'engine="native": the Seongsu world as 3D MapLibre buildings in theme colours with a custom layer for roofs (gable / dome), facade windows and details, outlines and the captured flag, themes and time of day, a captured building, map / building presses, a MapOverlay card, map UI, camera presets and a project/unproject round trip.' },
-  { slug: 'native-game', href: '/native-game', title: '10. Native engine (M3a)', description: 'engine="native" game systems as style layers: a walker on the simulated location source, travel to near / far presets with a route line and live ETA, drops placed on the route and collected on the way, a geofence with enter / exit events and the location puck.' },
+  { slug: 'native-game', href: '/native-game', title: '10. Native engine (M3b)', description: 'engine="native" game systems with 3D models in the custom layer: the example glTF robot walking the simulated location source, the procedural player travelling to near / far presets with a route line and live ETA, 3D drops placed on the route and collected on the way, one of each drop item, a geofence with enter / exit events, the location puck, an occlusion close-up behind a building and 1 / 10 / 50 character crowds.' },
 ];
 
 export default function CatalogIndex() {
