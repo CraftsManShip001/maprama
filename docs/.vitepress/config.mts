@@ -30,6 +30,7 @@ const guide: DefaultTheme.SidebarItem[] = [
     items: [
       { text: '월드 데이터와 타일', link: '/guide/world-data' },
       { text: '카메라', link: '/guide/camera' },
+      { text: '2D ⇄ 2.5D 뷰 모드', link: '/guide/view-modes' },
       { text: '콘텐츠 인셋 (바텀시트)', link: '/guide/content-inset' },
       { text: '테마', link: '/guide/themes' },
       { text: '라벨', link: '/guide/labels' },

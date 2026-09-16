@@ -87,6 +87,11 @@ Use `world={{ kind: 'data', world }}` with a `WorldData` JSON built by
   per-building styles and React Native views pinned to map coordinates
   (`MapOverlay`).
 - Device, simulated or externally pushed location.
+- A **2D map mode** alongside the 2.5D diorama (`view="2d"`, or `ref.setView`),
+  switched only by your app: filled footprints instead of extruded buildings, no
+  shadow pass, no distance fog, anchors on the ground and the pitch locked at 0.
+  It is also the cheap mode — 20–100× fewer draw calls — so it doubles as a
+  low-end-device fallback.
 
 ## Engines
 
