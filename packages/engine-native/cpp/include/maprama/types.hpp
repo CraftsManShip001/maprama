@@ -89,7 +89,7 @@ enum class LabelContentMode : std::uint8_t { NameAndType, NameOnly, TextOnly, Cu
 enum class LabelKind : std::uint8_t { Road, District, Poi };
 enum class LabelIcon : std::uint8_t { Subway, Cafe, Store, Music, School, Book, Plaza, Park, Avenue, Street, District, Water };
 enum class SubscriptionTopic : std::uint8_t { CharacterPosition, CameraChange, TravelProgress };
-enum class RequestMethod : std::uint8_t { Project, Unproject, SnapToRoad, Route };
+enum class RequestMethod : std::uint8_t { Project, Unproject, SnapToRoad, Route, FitBounds };
 
 /// Specialised per enum: `values` lists protocol strings in enum order.
 template <class E>
@@ -121,7 +121,7 @@ template <> struct EnumNames<LabelContentMode> { static constexpr std::array<std
 template <> struct EnumNames<LabelKind> { static constexpr std::array<std::string_view, 3> values{"road", "district", "poi"}; };
 template <> struct EnumNames<LabelIcon> { static constexpr std::array<std::string_view, 12> values{"subway", "cafe", "store", "music", "school", "book", "plaza", "park", "avenue", "street", "district", "water"}; };
 template <> struct EnumNames<SubscriptionTopic> { static constexpr std::array<std::string_view, 3> values{"character:position", "camera:change", "travel:progress"}; };
-template <> struct EnumNames<RequestMethod> { static constexpr std::array<std::string_view, 4> values{"project", "unproject", "snapToRoad", "route"}; };
+template <> struct EnumNames<RequestMethod> { static constexpr std::array<std::string_view, 5> values{"project", "unproject", "snapToRoad", "route", "fitBounds"}; };
 // clang-format on
 
 template <class E>

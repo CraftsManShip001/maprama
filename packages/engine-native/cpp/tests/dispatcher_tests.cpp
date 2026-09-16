@@ -108,10 +108,10 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
     }
 
     if (type == "request") {
-      // project/unproject need an attached, laid-out native map (none here) -> not_ready; snapToRoad/route are
-      // answered by the M3a game session once a world is loaded (not_ready before).
+      // project/unproject/fitBounds need an attached, laid-out native map (none here) -> not_ready;
+      // snapToRoad/route are answered by the M3a game session once a world is loaded (not_ready before).
       const std::string& method = decoded.find("method")->asString();
-      const bool mapMethod = method == "project" || method == "unproject";
+      const bool mapMethod = method == "project" || method == "unproject" || method == "fitBounds";
       const bool expectOk = !mapMethod && engine->worldStore().loaded();
       bool ok = newEvents == 1;
       if (ok) {

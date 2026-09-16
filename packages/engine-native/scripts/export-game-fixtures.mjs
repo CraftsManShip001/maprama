@@ -1138,7 +1138,11 @@ function mulberry(seed) {
 }
 
 const zoomOut = {
-  constants: { near: 55, far: 110 },
+  constants: { near: 55, far: 110, rangeRef: ZO.RANGE_REF },
+  rangeScale: [0, 14, 55, 110, 149.9, 150, 150.1, 200, 300, 416, 900, 1000].map((distance) => ({
+    distance,
+    k: ZO.rangeScale(distance),
+  })),
   targets: zoomTargets,
   traces: [
     ...ZOOM_BEHAVIORS.map((b) =>
@@ -1155,7 +1159,104 @@ const zoomOut = {
     runZoomOut('reduce motion', [...zoomHold('mapColors', 90, 0.1), ...zoomHold('mapColors', 150, 0.1), ...zoomHold('keepGameView', 60, 0.1)], true),
     runZoomOut('random walk 7', zoomRandom(7)),
     runZoomOut('random walk 42', zoomRandom(42)),
+    // Beyond the reference distance the factor rests at 1 and only the range stretch moves.
+    runZoomOut('keepGameView: past the reference distance', [
+      ...zoomRamp('keepGameView', 120, 420, 1.5),
+      ...zoomHold('keepGameView', 420, 0.5),
+      ...zoomRamp('keepGameView', 420, 900, 1),
+      ...zoomHold('keepGameView', 900, 0.5),
+      ...zoomRamp('keepGameView', 900, 60, 1),
+    ]),
+    runZoomOut('none: stretches without a factor', [...zoomHold('none', 416, 0.3), ...zoomHold('none', 60, 0.3)]),
+    runZoomOut('mapColors: wide', [...zoomRamp('mapColors', 150, 600, 1), ...zoomHold('mapColors', 600, 0.5)]),
   ],
+};
+
+// ---------------------------------------------------------------------------
+// Camera distance limits in meters + fitBounds geometry
+// ---------------------------------------------------------------------------
+
+const CAM = await import(src('core/camera.ts'));
+const FIT = await import(src('core/fit-bounds.ts'));
+
+/** `limitsInUnits` at the world scales apps pick, for the ranges they ask for. */
+const limitCases = [];
+for (const unitMeters of [8, 16, 24]) {
+  for (const limits of [{}, { min: 120 }, { max: 3330 }, { min: 60, max: 3330 }, { min: 0.5, max: 100000 }, { min: 4000, max: 1000 }]) {
+    const wanted = CAM.limitsInUnits(limits, unitMeters);
+    const cam = new CAM.CameraController();
+    const effective = cam.setDistanceLimits(wanted.min, wanted.max);
+    limitCases.push({
+      unitMeters,
+      limits,
+      wantedUnits: wanted,
+      effective,
+      // What the clamp does to a camera asked to go all the way in and all the way out.
+      clampedMinMeters: cam.clampDistance(-1e9) * unitMeters,
+      clampedMaxMeters: cam.clampDistance(1e9) * unitMeters,
+    });
+  }
+}
+
+const frustum = [0.5, 14, 36, 110, 150, 150.1, 300, 416, 900, 1000].map((distance) => ({
+  distance,
+  near: CAM.nearFor(distance),
+  far: CAM.farFor(distance),
+}));
+
+const fitPad = (v) => (typeof v === 'number' ? { top: v, right: v, bottom: v, left: v } : { top: 0, right: 0, bottom: 0, left: 0, ...v });
+const fitBox = (half, cx = 0, cz = 0) => [
+  { x: cx - half, z: cz + half },
+  { x: cx + half, z: cz + half },
+  { x: cx + half, z: cz - half },
+  { x: cx - half, z: cz - half },
+];
+
+const fitCases = [];
+for (const [name, input, orientation] of [
+  ['square, straight down', { corners: fitBox(40), pitch: 0, bearing: 0 }, 'keep'],
+  ['square, game pitch', { corners: fitBox(40), pitch: 50, bearing: 28 }, 'keep'],
+  ['square, max pitch', { corners: fitBox(40), pitch: 60, bearing: 137 }, 'keep'],
+  ['off-centre box', { corners: fitBox(30, 120, -45), pitch: 45, bearing: 0 }, 'keep'],
+  ['asymmetric padding', { corners: fitBox(40), pitch: 50, bearing: 28, padding: { top: 80, right: 16, bottom: 160, left: 16 } }, 'keep'],
+  ['uniform padding', { corners: fitBox(40), pitch: 0, bearing: 0, padding: 24 }, 'keep'],
+  ['wide landscape viewport', { corners: fitBox(40), width: 844, height: 390, pitch: 50, bearing: 28 }, 'keep'],
+  ['tiny box hits the minimum', { corners: fitBox(0.2), pitch: 0, bearing: 0 }, 'keep'],
+  ['degenerate box', { corners: fitBox(0, 10, 10), pitch: 50, bearing: 28 }, 'keep'],
+  ['huge box hits the maximum', { corners: fitBox(400), pitch: 50, bearing: 28, maxDistance: 150 }, 'keep'],
+  ['auto keeps when it fits', { corners: fitBox(40), pitch: 50, bearing: 28 }, 'auto'],
+  ['auto resets when it must', { corners: fitBox(40), pitch: 60, bearing: 28, maxDistance: 250 }, 'auto'],
+  ['reset always looks north', { corners: fitBox(40), pitch: 50, bearing: 28 }, 'reset'],
+  ['non-square box', { corners: [{ x: -90, z: 20 }, { x: 90, z: 20 }, { x: 90, z: -20 }, { x: -90, z: -20 }], pitch: 50, bearing: 28 }, 'keep'],
+]) {
+  const full = {
+    corners: input.corners,
+    width: input.width ?? 390,
+    height: input.height ?? 760,
+    padding: fitPad(input.padding ?? 0),
+    fovDeg: P.CAMERA_FOV_DEG,
+    pitch: input.pitch,
+    bearing: input.bearing,
+    minDistance: input.minDistance ?? CAM.DIST_MIN,
+    maxDistance: input.maxDistance ?? CAM.DIST_HARD_MAX,
+    startDistance: input.startDistance ?? 36,
+  };
+  fitCases.push({ name, orientation, input: full, out: FIT.fitBounds({ ...full, orientation }) });
+}
+
+const camera = {
+  constants: {
+    fovDeg: P.CAMERA_FOV_DEG,
+    distMinUnits: CAM.DIST_MIN,
+    distMaxUnits: CAM.DIST_MAX,
+    hardMinUnits: CAM.DIST_HARD_MIN,
+    hardMaxUnits: CAM.DIST_HARD_MAX,
+    fitIterations: FIT.FIT_ITERATIONS,
+  },
+  visibleSpan: [0, 100, 1200, 3330].map((d) => ({ distance: d, span: P.visibleSpanMeters(d) })),
+  limits: limitCases,
+  frustum,
+  fit: fitCases,
 };
 
 // ---------------------------------------------------------------------------
@@ -1164,6 +1265,7 @@ const zoomOut = {
 
 const files = {
   'zoom-out.json': zoomOut,
+  'camera.json': camera,
   'travel-plan.json': { worlds: worldSpecs, plans, routes, snaps, helpers, times: planTimes },
   'travel-trace.json': { worlds: worldSpecs, traces },
   'location.json': { worlds: worldSpecs, ...location },

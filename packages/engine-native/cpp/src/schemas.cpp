@@ -194,17 +194,41 @@ struct Schemas {
                                             {"bearing", number},
                                             {"follow", nullable(nonEmptyString)},
                                             {"animate", anyOf({boolean, object({{"durationMs", nonNeg}})})},
+                                            {"minDistanceMeters", positiveNumber},
+                                            {"maxDistanceMeters", positiveNumber},
                                         });
     const Check mapUiSpec = object(
         {}, {{"locationPuck", boolean}, {"scaleBar", boolean}, {"zoomButtons", boolean}, {"attribution", boolean}});
 
     // messages.ts — commands
     const Check travelModes = array(oneOfEnum<TravelMode>(), 1);
+    // geo.ts `checkLngLatBounds`: valid corners, and `ne` really north-east of `sw`.
+    const Check lngLatBoundsObject = object({{"ne", lngLat}, {"sw", lngLat}});
+    const Check lngLatBounds = [lngLatBoundsObject](const Value* v, const std::string& p) -> Error {
+      if (Error err = lngLatBoundsObject(v, p)) return err;
+      const Value* ne = v->find("ne");
+      const Value* sw = v->find("sw");
+      const double neLat = ne->find("lat")->asNumber(), swLat = sw->find("lat")->asNumber();
+      const double neLng = ne->find("lng")->asNumber(), swLng = sw->find("lng")->asNumber();
+      if (neLat < swLat) return p + ": ne.lat must be >= sw.lat";
+      if (neLng < swLng) {
+        return p + ": ne.lng must be >= sw.lng (a box across the antimeridian is not supported)";
+      }
+      return std::nullopt;
+    };
+    const Check fitPadding = anyOf(
+        {nonNeg, object({}, {{"top", nonNeg}, {"right", nonNeg}, {"bottom", nonNeg}, {"left", nonNeg}})});
     Fields requestChecks = {
         {"project", object({{"coordinate", lngLat}})},
         {"unproject", object({{"x", number}, {"y", number}})},
         {"snapToRoad", object({{"coordinate", lngLat}}, {{"maxDistanceMeters", nonNeg}})},
         {"route", object({{"from", lngLat}, {"to", lngLat}, {"modes", travelModes}})},
+        {"fitBounds", object({{"bounds", lngLatBounds}},
+                             {{"padding", fitPadding},
+                              {"pitch", range(0, 90)},
+                              {"bearing", number},
+                              {"orientation", oneOf({"auto", "keep", "reset"})},
+                              {"animate", anyOf({boolean, object({{"durationMs", nonNeg}})})}})},
     };
     const Check subscriptionTopic = oneOfEnum<SubscriptionTopic>();
     const Check requestHeader =

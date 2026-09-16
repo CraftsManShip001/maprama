@@ -121,7 +121,9 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
     }
     case 19: {  // request -> MapSession (project/unproject, M1), GameSession (snapToRoad/route, M3a)
       const std::optional<RequestMethod> method = parseEnum<RequestMethod>(msg.find("method")->asString());
-      if (session != nullptr && method && (*method == RequestMethod::Project || *method == RequestMethod::Unproject)) {
+      if (session != nullptr && method &&
+          (*method == RequestMethod::Project || *method == RequestMethod::Unproject ||
+           *method == RequestMethod::FitBounds)) {
         ++stats_.handled;
         session->request(msg.find("requestId")->asString(), *method, *msg.find("params"));
         return;

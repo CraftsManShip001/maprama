@@ -35,6 +35,11 @@ MAPRAMA_TEST(m4_zoom_out_target_matches_engine_web) {
     ++n;
   }
   ctx.check(n == 51, "3 behaviours x 17 distances");
+  ctx.check(num(*fx.find("constants"), "rangeRef") == maprama::kZoomOutRangeRefUnits, "range reference = 150 world units");
+  for (const Value& c : fx.find("rangeScale")->items()) {
+    const double d = num(c, "distance");
+    ctx.near(maprama::zoomOutRangeScale(d), num(c, "k"), 1e-12, "zoomOutRangeScale(" + std::to_string(d) + ")");
+  }
 }
 
 MAPRAMA_TEST(m4_zoom_out_controller_matches_engine_web) {

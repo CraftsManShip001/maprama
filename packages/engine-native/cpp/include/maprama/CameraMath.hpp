@@ -10,6 +10,9 @@
 //   (web-map zoom on 256-px tiles, engine-web's `zoomToMeters`) is exactly MapLibre zoom + 1.
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 #include "maprama/MapAdapter.hpp"
 #include "maprama/types.hpp"
 
@@ -24,6 +27,10 @@ inline constexpr double kMapLibreTileSize = 512.0;
 /// engine-web `DIST_MIN` / `DIST_MAX` in world units (multiplied by the world's `unitMeters`).
 inline constexpr double kDistanceMinUnits = 14.0;
 inline constexpr double kDistanceMaxUnits = 150.0;
+/// engine-web `DIST_HARD_MIN` / `DIST_HARD_MAX`: the range an app's `minDistanceMeters` /
+/// `maxDistanceMeters` are clamped into, in world units.
+inline constexpr double kDistanceHardMinUnits = 2.0;
+inline constexpr double kDistanceHardMaxUnits = 1000.0;
 /// engine-web `PITCH_MIN` / `PITCH_MAX` (degrees).
 inline constexpr double kPitchMin = 0.0;
 inline constexpr double kPitchMax = 60.0;
@@ -49,5 +56,59 @@ double webZoomToDistance(double webZoom, double lat, double viewportHeight);
 double normalizeBearing(double degrees);
 
 double clampValue(double value, double lo, double hi);
+
+// ---- fitBounds (port of engine-web `core/fit-bounds.ts`) -------------------------------------------
+//
+// Scale free: the whole input is one length unit, so the core runs it in meters (its `CameraState`
+// distance) where engine-web runs it in world units. Fixture-compared step for step.
+
+/// engine-web `FIT_ITERATIONS`.
+inline constexpr int kFitIterations = 24;
+
+/// engine-web `FitOrientation`.
+enum class FitOrientation : std::uint8_t { Auto, Keep, Reset };
+
+/// Padding kept free inside the viewport, in density-independent pixels.
+struct FitPadding {
+  double top = 0.0;
+  double right = 0.0;
+  double bottom = 0.0;
+  double left = 0.0;
+};
+
+/// A ground point on the camera's plane, in the same length unit as the distances.
+struct FitPoint {
+  double x = 0.0;
+  double z = 0.0;
+};
+
+struct FitBoundsInput {
+  std::vector<FitPoint> corners;
+  double width = 1.0;
+  double height = 1.0;
+  FitPadding padding;
+  double fovDeg = kReferenceFovDeg;
+  double pitch = 0.0;
+  double bearing = 0.0;
+  double minDistance = 0.0;
+  double maxDistance = 0.0;
+  double startDistance = 0.0;
+};
+
+struct FitBoundsOutput {
+  double x = 0.0;
+  double z = 0.0;
+  double distance = 0.0;
+  double pitch = 0.0;
+  double bearing = 0.0;
+  bool fitted = false;
+  bool distanceLimited = false;
+};
+
+/// engine-web `fitBoundsOrbit`: frames `corners` inside the padded rectangle at the given orientation.
+FitBoundsOutput fitBoundsOrbit(const FitBoundsInput& input);
+
+/// engine-web `fitBounds`: `fitBoundsOrbit` plus the `orientation` rule.
+FitBoundsOutput fitBounds(const FitBoundsInput& input, FitOrientation orientation);
 
 }  // namespace maprama::camera_math

@@ -8,6 +8,7 @@
 
 #include "maprama/CameraMath.hpp"
 #include "maprama/ProceduralWorld.hpp"
+#include "maprama/Projection.hpp"
 #include "maprama/TravelLogic.hpp"
 #include "maprama/WorldStore.hpp"
 #include "maprama/protocol.hpp"
@@ -38,6 +39,28 @@ std::optional<LngLat> lngLatMember(const Value& object, std::string_view key) {
   const Value* v = member(object, key);
   if (v == nullptr || !v->isObject()) return std::nullopt;
   return LngLat{numberMember(*v, "lng").value_or(0.0), numberMember(*v, "lat").value_or(0.0)};
+}
+
+/// `animate`: `true` = the engine default duration, an object = its `durationMs`, absent = no animation.
+double animationMs(const Value& spec) {
+  const Value* animate = member(spec, "animate");
+  if (animate == nullptr) return 0.0;
+  if (animate->isBoolean()) return animate->asBool() ? camera_math::kDefaultAnimationMs : 0.0;
+  if (animate->isObject()) return numberMember(*animate, "durationMs").value_or(0.0);
+  return 0.0;
+}
+
+/// `FitBoundsParams.padding`: one number for all four sides, or a per-side object.
+camera_math::FitPadding fitPadding(const Value& params) {
+  const Value* p = member(params, "padding");
+  if (p == nullptr) return {};
+  if (p->isNumber()) {
+    const double v = p->asNumber();
+    return {v, v, v, v};
+  }
+  if (!p->isObject()) return {};
+  return {numberMember(*p, "top").value_or(0.0), numberMember(*p, "right").value_or(0.0),
+          numberMember(*p, "bottom").value_or(0.0), numberMember(*p, "left").value_or(0.0)};
 }
 
 Value lngLatValue(const LngLat& ll) { return Value::object({{"lng", ll.lng}, {"lat", ll.lat}}); }
@@ -494,6 +517,9 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
 }
 
 void MapSession::setCamera(const Value& spec, std::string_view command) {
+  // The limits come first: a spec that widens the range and moves out in one command must not be
+  // clamped by the range it replaces.
+  applyCameraLimits(spec);
   const std::optional<LngLat> center = lngLatMember(spec, "center");
   // engine-web: `follow` is resolved first (an unknown character fails the whole command); a `center` without
   // `follow` stops following.
@@ -521,11 +547,10 @@ void MapSession::setCamera(const Value& spec, std::string_view command) {
   }
   if (const std::optional<double> bearing = numberMember(spec, "bearing")) target.bearing = *bearing;
 
-  double durationMs = 0.0;
-  if (const Value* animate = member(spec, "animate")) {
-    if (animate->isBoolean() && animate->asBool()) durationMs = cm::kDefaultAnimationMs;
-    if (animate->isObject()) durationMs = numberMember(*animate, "durationMs").value_or(0.0);
-  }
+  moveCameraTo(target, animationMs(spec));
+}
+
+void MapSession::moveCameraTo(const CameraState& target, double durationMs) {
   if (durationMs > 0 && canMoveCamera()) {
     // The adapter animates and reports every intermediate camera; the state follows those reports.
     animatingUntilMs_ = clock_() + durationMs;
@@ -536,6 +561,92 @@ void MapSession::setCamera(const Value& spec, std::string_view command) {
   state_ = target;
   sendState();
   cameraChanged();
+}
+
+void MapSession::fitBounds(const std::string& requestId, const Value& params) {
+  const WorldData* w = world_.world();
+  if (!worldReady_ || w == nullptr) {
+    respondError(requestId, kNotReadyCode, "no world loaded (send init first)");
+    return;
+  }
+  // A tangent plane on the world origin with one unit = one meter: the fit math is scale free, so
+  // running it in meters is engine-web's world-unit run times `unitMeters` (fixture-compared).
+  Result<Projection> projection = Projection::create(ProjectionOptions{w->origin, 1.0});
+  if (!projection.ok()) {
+    respondError(requestId, kNotReadyCode, projection.error);
+    return;
+  }
+  const Projection& proj = *projection.value;
+  const Value* bounds = member(params, "bounds");
+  const LngLat ne = bounds != nullptr ? lngLatMember(*bounds, "ne").value_or(LngLat{}) : LngLat{};
+  const LngLat sw = bounds != nullptr ? lngLatMember(*bounds, "sw").value_or(LngLat{}) : LngLat{};
+  const auto corner = [&proj](double lng, double lat) {
+    const WorldPoint p = proj.toWorld(LngLat{lng, lat});
+    return camera_math::FitPoint{p.x, p.z};
+  };
+
+  camera_math::FitBoundsInput in;
+  in.corners = {corner(sw.lng, sw.lat), corner(ne.lng, sw.lat), corner(ne.lng, ne.lat), corner(sw.lng, ne.lat)};
+  in.width = viewport_.width;
+  in.height = viewport_.height;
+  in.padding = fitPadding(params);
+  in.fovDeg = cm::kReferenceFovDeg;
+  const std::optional<double> pitch = numberMember(params, "pitch");
+  const std::optional<double> bearing = numberMember(params, "bearing");
+  in.pitch = cm::clampValue(pitch.value_or(state_.pitch), cm::kPitchMin, cm::kPitchMax);
+  in.bearing = bearing.value_or(state_.bearing);
+  in.minDistance = distanceMin();
+  in.maxDistance = distanceMax();
+  in.startDistance = state_.distance;
+
+  // An explicit pitch / bearing is an instruction, so it turns `auto`'s fallback off.
+  cm::FitOrientation orientation = pitch || bearing ? cm::FitOrientation::Keep : cm::FitOrientation::Auto;
+  if (const Value* o = member(params, "orientation")) {
+    if (o->isString()) {
+      const std::string& name = o->asString();
+      orientation = name == "keep"    ? cm::FitOrientation::Keep
+                    : name == "reset" ? cm::FitOrientation::Reset
+                                      : cm::FitOrientation::Auto;
+    }
+  }
+  const cm::FitBoundsOutput out = cm::fitBounds(in, orientation);
+
+  if (hooks_ != nullptr) hooks_->setFollow(std::nullopt);
+  const LngLat center = proj.toLngLat(WorldPoint{out.x, out.z});
+  CameraState target{center, out.distance, out.pitch, out.bearing};
+  moveCameraTo(target, animationMs(params));
+  respondOk(requestId, Value::object({
+                           {"camera", Value::object({{"center", lngLatValue(center)},
+                                                     {"distance", out.distance},
+                                                     {"pitch", out.pitch},
+                                                     {"bearing", cm::normalizeBearing(out.bearing)}})},
+                           {"fitted", out.fitted},
+                           {"distanceLimited", out.distanceLimited},
+                       }));
+}
+
+void MapSession::applyCameraLimits(const Value& spec) {
+  const std::optional<double> wantMin = numberMember(spec, "minDistanceMeters");
+  const std::optional<double> wantMax = numberMember(spec, "maxDistanceMeters");
+  if (!wantMin && !wantMax) return;
+  if (wantMin) limitMinMeters_ = *wantMin;
+  if (wantMax) limitMaxMeters_ = *wantMax;
+  const double u = unitMeters();
+  const double askMin = limitMinMeters_ ? *limitMinMeters_ / u : cm::kDistanceMinUnits;
+  const double askMax = limitMaxMeters_ ? *limitMaxMeters_ / u : cm::kDistanceMaxUnits;
+  // MapLibre owns the gestures: its zoom bounds have to follow the new range or a pinch could leave it.
+  pushLimits();
+  const double effMin = distanceMin() / u, effMax = distanceMax() / u;
+  if (askMin == effMin && askMax == effMax) return;
+  const std::string key = "cameraLimits:" + json::numberToString(askMin) + "/" + json::numberToString(askMax) + "/" +
+                          json::numberToString(u);
+  if (!warned_.insert(key).second) return;
+  const auto meters = [u](double units) { return json::numberToString(std::round(units * u)) + " m"; };
+  emitError(kCameraLimitsClampedCode,
+            "camera distance range " + meters(askMin) + "-" + meters(askMax) +
+                " is outside what this engine can render at " + json::numberToString(u) +
+                " m per world unit; using " + meters(effMin) + "-" + meters(effMax),
+            false);
 }
 
 void MapSession::setTheme(const Value& themeSpec) {
@@ -662,6 +773,10 @@ void MapSession::unsubscribeCamera() { subscriptions_.unsubscribe(SubscriptionTo
 void MapSession::request(const std::string& requestId, RequestMethod method, const Value& params) {
   if (!viewReady()) {
     respondError(requestId, kNotReadyCode, "the map view is not ready (no laid-out native view is attached)");
+    return;
+  }
+  if (method == RequestMethod::FitBounds) {
+    fitBounds(requestId, params);
     return;
   }
   const std::uint64_t token = nextToken_++;
@@ -1043,14 +1158,19 @@ double MapSession::referenceLat() const {
   return worldReady_ && w != nullptr ? w->origin.lat : state_.center.lat;
 }
 
+// The app's limits are meters and the engine's defaults are world units; both are resolved to world
+// units for the world in force, clamped into what the renderer can serve, and handed back in meters.
 double MapSession::distanceMin() const {
-  const WorldData* w = world_.world();
-  return cm::kDistanceMinUnits * (w != nullptr ? w->unitMeters : kDefaultUnitMeters);
+  const double u = unitMeters();
+  const double want = limitMinMeters_ ? *limitMinMeters_ / u : cm::kDistanceMinUnits;
+  return cm::clampValue(want, cm::kDistanceHardMinUnits, cm::kDistanceHardMaxUnits) * u;
 }
 
 double MapSession::distanceMax() const {
-  const WorldData* w = world_.world();
-  return cm::kDistanceMaxUnits * (w != nullptr ? w->unitMeters : kDefaultUnitMeters);
+  const double u = unitMeters();
+  const double lo = distanceMin() / u;
+  const double want = limitMaxMeters_ ? *limitMaxMeters_ / u : cm::kDistanceMaxUnits;
+  return cm::clampValue(want, lo, cm::kDistanceHardMaxUnits) * u;
 }
 
 // ---------------------------------------------------------------------------------------------------
