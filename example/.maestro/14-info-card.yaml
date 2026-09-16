@@ -1,0 +1,82 @@
+# Info cards and focusOn: the "tap → camera → card" sequence an app wires itself.
+#
+# The engine does none of it automatically. This flow follows what the screen does: press a place,
+# watch `focusOn` resolve with the camera it reached, see the card go up, press an action button
+# (`infoCard:press` with an `actionId`), press the close button through the screen's own control
+# (`infoCard:dismiss` is only a report — the app removes the card), and switch the anchor.
+appId: dev.maprama.catalog
+name: Info cards float over a place and focusOn frames them
+tags:
+  - info-card
+  - camera
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: info-card
+
+- assertVisible:
+    id: "card-open"
+    text: "card: none"
+
+# Open the first place: focusOn resolves with a real camera distance, then the card goes up.
+- tapOn:
+    id: "card-open-0"
+    waitToSettleTimeoutMs: 1000
+- extendedWaitUntil:
+    visible:
+      id: "card-focus"
+      text: "focusOn: [0-9]+ m · fitted (true|false).*"
+    timeout: 30000
+- assertVisible:
+    id: "card-open"
+    text: "card: .+"
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: screenshots/14-info-card
+
+# focusOn by card id: the same request, resolved against the card's own anchor and height.
+- tapOn:
+    id: "card-focus-again"
+    waitToSettleTimeoutMs: 1000
+- extendedWaitUntil:
+    visible:
+      id: "card-focus"
+      text: "focusOn: [0-9]+ m · fitted (true|false).*"
+    timeout: 30000
+
+# The ground anchor: the beam starts on the map surface instead of on a roof.
+- tapOn:
+    id: "card-anchor-ground"
+    waitToSettleTimeoutMs: 1000
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: screenshots/14-info-card-ground
+
+# The event log lives below the fold of the control panel; swipe the panel, not the map.
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        text: ".*focusOn done.*"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- assertVisible:
+    text: ".*marker:press|.*focusOn done.*"
+
+# Closing is the app's decision: the screen's own button removes the card.
+- scrollUntilVisible:
+    element:
+      id: "card-close"
+    direction: UP
+    timeout: 10000
+- tapOn:
+    id: "card-close"
+    waitToSettleTimeoutMs: 1000
+- assertVisible:
+    id: "card-open"
+    text: "card: none"
+- takeScreenshot: screenshots/14-info-card-closed

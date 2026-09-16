@@ -4,7 +4,7 @@ This file is the hand-off summary: what works today, what is known to be missing
 milestone is meant to contain. `README.md` describes the library, `packages/engine-native/DESIGN.md` the
 native engine's design and parity matrix, `CHANGELOG.md` the released versions.
 
-_Last updated: 2026-09-16._
+_Last updated: 2026-09-17._
 
 ## Where the project stands
 
@@ -37,6 +37,9 @@ _Last updated: 2026-09-16._
 
 ## Known gaps and limitations
 
+- **No native info cards.** `setInfoCard` / `removeInfoCard` / `focusOn` are decoded and validated by
+  the C++ core but not drawn or answered (warn-logged; `focusOn` responds `unsupported`), so an app
+  on `engine="native"` gets no card and no focus move. engine-web implements all three.
 - **Label limitations on the native engine.** Labels are native views, so they are never occluded by
   buildings, and the `ground` / `sign` 3D styles are drawn as the `app` / `sticker` card looks.
 - **Performance numbers are simulator/emulator only.** No real-device measurements, binary size or cold
@@ -89,6 +92,19 @@ Driven by the first integrator (a location-based game app). Their priority order
    frustum ranges with the camera (unchanged at and below the old 150-unit cap), so a 3.3 km view is not a wall
    of fog. Raising `unitMeters` is no longer the workaround — it rescales buildings, characters and the
    *minimum* distance with it.
+
+5. ~~**Info cards and `focusOn`**~~ — **done in engine-web** (unreleased): `setInfoCard` /
+   `removeInfoCard` draw a structured holographic place card over a coordinate (title, subtitle,
+   place icon, badges, rating, detail rows, action buttons), with `infoCard:press` /
+   `infoCard:dismiss` events, and the `focusOn` request frames a card's anchor and the height it
+   floats at. Cards win every collision, are clamped into the visible area (`ui.contentInset`), are
+   one accessibility element each, and hold an active render source only while their entrance /
+   exit transition runs — a static map with five cards up still measures **0 idle frames**. The
+   engine deliberately does **not** wire "tap → camera → card": it hands out the press, the camera
+   request and the card, and the app composes them (`example/app/info-card.tsx`, `docs/guide/info-cards.md`).
+   **Native remains open**: the C++ core decodes and validates the two commands, the two events and
+   `focusOn` (fixture-conformance tested), then warn-logs and ignores them — the native info-card
+   views and a native `focusOn` are the remaining work.
 
 Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
 PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
@@ -173,13 +189,15 @@ Measured by an app team porting their map onto v0.1.0, useful as a support-matri
 - `npm test` runs the JS suites, the C++ core tests and the fixture conformance checks; `npm run build`
   builds workspaces in dependency order.
 - End-to-end flows live in `example/.maestro/` and run with Maestro 2.10 on a simulator/emulator. The native
-  flows are 05 (M1 + procedural + remount), 06 (M2a), 07 (M2c), 08 (M3a + M3b), 10 (M4).
+  flows are 05 (M1 + procedural + remount), 06 (M2a), 07 (M2c), 08 (M3a + M3b), 10 (M4). Flow 14
+  (info cards + `focusOn`) is **written but not yet run** — it needs a simulator build.
 - CocoaPods needs `LANG=en_US.UTF-8`; Android builds need `JAVA_HOME` on JDK 17 and `ANDROID_HOME`.
 - `node packages/engine-web/scripts/idle-frames.mjs --repeats 2 --seconds 10 --settle 8000` answers "does a
   static map actually stop rendering?" — it drives headless Chrome, loads the dev sample world as a `data`
   source and reports rendered frames plus `scene.activeSources()` per configuration. Measured on
   2026-09-17: a `data` world with a traffic-free theme draws **0 frames** when static, with or without
-  `prefers-reduced-motion`, labels on or off; a theme with ambient traffic (`urban`, `modern`, `soft`) never
+  `prefers-reduced-motion`, labels on or off, **and with one or five info cards up (with or without
+  labels)**; a theme with ambient traffic (`urban`, `modern`, `soft`) never
   idles, and reduced motion does **not** release that holder. Non-zero counts from this harness are host-limited
   (software GL) — only the zero / non-zero distinction is meaningful.
 - Expo iOS builds break on paths containing spaces — keep the checkout on a space-free path.

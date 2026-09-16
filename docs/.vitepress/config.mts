@@ -34,6 +34,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: '테마', link: '/guide/themes' },
       { text: '라벨', link: '/guide/labels' },
       { text: '마커(핀)', link: '/guide/markers' },
+      { text: '정보 카드와 focusOn', link: '/guide/info-cards' },
     ],
   },
   {
