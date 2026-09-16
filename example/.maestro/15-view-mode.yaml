@@ -33,11 +33,13 @@ tags:
 - takeScreenshot: screenshots/15-view-2d
 
 # A pitch in 2D is refused, loudly: the screen logs the `view_pitch_locked` message.
+# The log lines are matched by text alone: `EventLog` puts its `testID` on the wrapping `View`,
+# which carries no accessibility text of its own, so an `id: view-log` + `text:` selector can
+# never match a line. This is what flows 11 / 13 / 14 do with their own event logs.
 - tapOn:
     id: "view-try-pitch"
 - extendedWaitUntil:
     visible:
-      id: "view-log"
       text: ".*refused:.*view keeps the pitch at 0.*"
     timeout: 10000
 # …and the map is still flat afterwards (the refusal did not leave it half-tilted).
@@ -51,7 +53,6 @@ tags:
     id: "view-ref-25d"
 - extendedWaitUntil:
     visible:
-      id: "view-log"
       text: ".*ref.setView\\('2.5d'\\) settled after [0-9]+ ms.*"
     timeout: 15000
 - assertVisible:
@@ -65,7 +66,6 @@ tags:
     id: "view-ref-2d"
 - extendedWaitUntil:
     visible:
-      id: "view-log"
       text: ".*ref.setView\\('2d'\\) settled after [0-9]+ ms.*"
     timeout: 15000
 - assertVisible:
