@@ -70,10 +70,17 @@ Driven by the first integrator (a location-based game app). Their priority order
    engine ornaments, label/marker placement, `overlay:positions` and the `camera:idle` bounds, plus
    engine-drawn attribution that can be repositioned instead of switched off.
 
-Also requested, lower priority: `ref.setWorld(source)` without a remount, `minDistanceMeters` /
-`maxDistanceMeters` props and `fitBounds(bounds, padding)` (today the clamp is 14–150 **world units**, so the
-metre range scales with `WorldData.unitMeters`), then tile-backed worlds with a PMTiles pipeline in
-`tools/osm` and a flat basemap outside the diorama.
+4. **Camera distance limits** — `minDistanceMeters` / `maxDistanceMeters` props and `fitBounds(bounds, padding)`.
+   The clamp is 14–150 **world units**, so the metre range scales with `WorldData.unitMeters`: at the usual
+   8 m/unit the camera stops at 1,200 m (≈1.4 km of ground at 45° pitch), which is not enough for a
+   city-overview first screen (the integrator needs ≈3.3 km and sees only 5 of 18 pins at maximum zoom-out).
+   Raising `unitMeters` when building the world is the current workaround and is being measured; it also
+   rescales buildings and travel speeds, so proper limits are wanted either way. The camera's 40° field of view
+   is not exposed either, so integrators hardcode it to convert distance into a ground radius.
+
+Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
+PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
+needs tiles + `setWorld` + the camera limits; a single-city "diorama view" screen works today within ~1.4 km.
 
 ### Backlog from the same integration review
 
@@ -98,6 +105,20 @@ Each of these is a real gap found while answering an integrator's questions agai
   GET, no user identifiers, CORS needed for the WebView engine), and an explicit statement that a plain
   `<MapramaView world theme />` never starts demo behaviour (the default location source is `external`;
   `simulated` and characters are opt-in).
+
+## Verified by the first integration spike (2026-09-16)
+
+Measured by an app team porting their map onto v0.1.0, useful as a support-matrix data point:
+
+- The **web engine installs and typechecks on Expo 54 / RN 0.81.5 / React 19.1.0** with no peer warnings, from
+  the v0.1.0 tarballs. An Expo 57 upgrade is not required for the web engine (the native engine still needs a
+  development build).
+- `expo prebuild` works from a path containing **Korean (NFD) characters**; with `location: false` the config
+  plugin adds no location permission, only a `dev.maprama.features` meta-data entry.
+- `maprama-osm` built a 9.82 km² world (2,457 buildings) in **4.1 s → 580 KB** (≈59 KB/km²). **77 % of the
+  building heights were heuristic**, so merging national building data (`--kr-buildings`) is effectively
+  required for realistic skylines. World scale is set with `--unit-meters` (default 8), which also scales the
+  simplification tolerance, the minimum building area and the stored heights.
 
 ## Testing notes
 
