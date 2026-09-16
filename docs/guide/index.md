@@ -65,6 +65,7 @@ SDK(컴포넌트, 프로토콜, 엔진, CLI)는 **Apache-2.0**으로 공개합�
 | 어떤 glTF든 캐릭터, 다른 플레이어 레이어 | `Character`, `CharacterLayer` | [캐릭터와 모델](./characters) |
 | 기기 GPS·외부 위치·시뮬레이션, 도보~비행기·지하철 이동 | `location` prop, `ref.travel` | [위치와 이동](./location-travel) |
 | 드롭, 기기 판정 + 서버 검증 + 웹훅 | `DropLayer` | [드롭과 서버 검증](./drops) |
+| 앱 소유 지도 핀: 고정 크기, 우선순위 충돌, 접근성, 부분 갱신 | `MarkerLayer` | [마커(핀)](./markers) |
 | 원형 지오펜스, 건물 탭과 건물별 스타일 | `Geofence`, `setBuildingStyle` | [지오펜스와 건물](./geofences-buildings) |
 | 좌표에 붙는 RN 뷰, 멀티플레이 보간 | `MapOverlay`, `subscribe` | [오버레이와 멀티플레이](./overlays-multiplayer) |
 

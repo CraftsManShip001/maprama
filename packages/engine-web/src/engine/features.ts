@@ -26,6 +26,7 @@ import type {
   OverlayAnchor,
   Projection,
   SetDropLayerCommand,
+  SetMarkerLayerCommand,
   SubscriptionTopic,
   TravelMode,
   LngLat,
@@ -42,7 +43,8 @@ import { AmbientTraffic } from '../game/traffic.js';
 import { TravelManager } from '../game/travel.js';
 import { ensureLabelStyles } from '../labels/dom-styles.js';
 import { LabelController } from '../labels/controller.js';
-import { hudExclusions, overlaps } from '../labels/index.js';
+import { hudExclusions, overlaps, type Box } from '../labels/index.js';
+import { MarkerLayers, type MarkerPress } from '../labels/markers.js';
 import type { SceneApi, SubscriptionHandler } from '../scene-api.js';
 import { Attribution } from '../ui/attribution.js';
 import { LocationPuck } from '../ui/puck.js';
@@ -68,6 +70,7 @@ export class Features {
   readonly fenceVisuals = new GeofenceVisuals();
   readonly traffic = new AmbientTraffic();
   readonly labels: LabelController;
+  readonly markers: MarkerLayers;
   readonly puck = new LocationPuck();
   readonly positionTopic = new ThrottledTopic();
   readonly progressTopic = new ThrottledTopic();
@@ -76,6 +79,7 @@ export class Features {
   private anchors: OverlayAnchor[] = [];
   private content: Record<string, LabelContent> = {};
   private dropLayers = new Map<string, SetDropLayerCommand>();
+  private markerBoxes: Box[] = [];
   private geofenceSpecs: GeofenceSpec[] = [];
   private pendingChars: CharacterSpec[] = [];
   private lastPosition = new Map<string, string>();
@@ -105,6 +109,10 @@ export class Features {
       now: () => performance.now() / 1000,
     });
     this.labels = new LabelController(scene);
+    this.markers = new MarkerLayers(
+      () => this.labels.domLayer(),
+      (press) => this.emitMarkerPress(press),
+    );
     this.routes.name = 'routes';
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
 
@@ -217,6 +225,41 @@ export class Features {
     for (const d of this.collector.removeLayer(layerId)) this.dropVisuals.remove(d);
   }
 
+  /**
+   * Creates or replaces a marker layer (markers are matched by id, so a
+   * colour-only change is a field write). The frame that draws the result comes
+   * from the dispatcher's per-command render request, so an idle map repaints.
+   */
+  setMarkerLayer(cmd: SetMarkerLayerCommand): void {
+    this.markers.setLayer(cmd, this.scene.world() ? this.scene.projection() : null);
+  }
+
+  removeMarkerLayer(layerId: string): void {
+    this.markers.removeLayer(layerId);
+  }
+
+  /**
+   * Emits `marker:press` when a press at CSS pixel coordinates hits a visible
+   * marker. The engine calls this before picking buildings or the ground, so a
+   * marker press never also produces `building:press` / `map:press`.
+   */
+  pressMarker(x: number, y: number): boolean {
+    const hit = this.markers.hitTest(x, y);
+    if (!hit) return false;
+    this.emitMarkerPress(hit);
+    return true;
+  }
+
+  private emitMarkerPress(press: MarkerPress): void {
+    this.scene.emit({
+      type: 'marker:press',
+      layerId: press.layerId,
+      markerId: press.markerId,
+      coordinate: press.coordinate,
+      point: { x: press.point.x, y: press.point.y },
+    });
+  }
+
   setGeofences(list: GeofenceSpec[]): void {
     this.geofenceSpecs = list.map((g) => ({ ...g }));
     const world = this.scene.world();
@@ -238,6 +281,7 @@ export class Features {
     this.dropVisuals.dispose();
     this.fenceVisuals.clear();
     this.traffic.clear();
+    this.markers.dispose();
     this.labels.dispose();
     this.puck.dispose();
     if (this.ui) {
@@ -283,6 +327,7 @@ export class Features {
     this.location.setKind(this.scene.locationSource());
     for (const d of this.collector.layerIds()) for (const s of this.collector.removeLayer(d)) this.dropVisuals.remove(s);
     for (const cmd of this.dropLayers.values()) this.applyDropLayer(cmd, world);
+    this.markers.reproject(newProj);
     this.applyGeofences(world);
     this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
     this.lastPosition.clear();
@@ -435,8 +480,10 @@ export class Features {
     const world = this.scene.world();
     if (!world) return;
     const ui = this.scene.ui();
-    this.labels.update(this.content, ui, this.groundY(), now);
     const exclusions = hudExclusions(cam.width, cam.height, ui);
+    // Markers are placed first and reserve their boxes for the label pass.
+    this.markerBoxes = this.markers.update(cam, exclusions, this.groundY());
+    this.labels.update(this.content, ui, this.groundY(), now, this.markerBoxes);
     if (this.chars.chars.size) this.chars.updateTags(cam, this.scene.zoomOutFactor(), this.labels.domLayer(), exclusions);
     if (this.puck.group.visible) {
       // Keep the puck out of the HUD margins (attribution, scale bar, zoom buttons, screen edges). The marker

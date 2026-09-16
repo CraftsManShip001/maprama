@@ -8,8 +8,8 @@
 
 앱이 쓰는 API입니다.
 
-- 컴포넌트: [`MapramaView`](/api/reference/react-native/variables/MapramaView), [`Character`](/api/reference/react-native/functions/Character), [`CharacterLayer`](/api/reference/react-native/functions/CharacterLayer), [`DropLayer`](/api/reference/react-native/functions/DropLayer), [`Geofence`](/api/reference/react-native/functions/Geofence), [`MapOverlay`](/api/reference/react-native/functions/MapOverlay)
-- props: [`MapramaViewProps`](/api/reference/react-native/interfaces/MapramaViewProps), [`CharacterProps`](/api/reference/react-native/interfaces/CharacterProps), [`DropLayerProps`](/api/reference/react-native/type-aliases/DropLayerProps)
+- 컴포넌트: [`MapramaView`](/api/reference/react-native/variables/MapramaView), [`Character`](/api/reference/react-native/functions/Character), [`CharacterLayer`](/api/reference/react-native/functions/CharacterLayer), [`DropLayer`](/api/reference/react-native/functions/DropLayer), [`MarkerLayer`](/api/reference/react-native/functions/MarkerLayer), [`Geofence`](/api/reference/react-native/functions/Geofence), [`MapOverlay`](/api/reference/react-native/functions/MapOverlay)
+- props: [`MapramaViewProps`](/api/reference/react-native/interfaces/MapramaViewProps), [`CharacterProps`](/api/reference/react-native/interfaces/CharacterProps), [`DropLayerProps`](/api/reference/react-native/type-aliases/DropLayerProps), [`MarkerLayerProps`](/api/reference/react-native/interfaces/MarkerLayerProps)
 - ref: [`MapramaViewRef`](/api/reference/react-native/interfaces/MapramaViewRef)
 - 훅: [`useMapramaView`](/api/reference/react-native/functions/useMapramaView), [`useCharacterPosition`](/api/reference/react-native/functions/useCharacterPosition), [`useCameraState`](/api/reference/react-native/functions/useCameraState)
 - 엔진 호스트: [`EngineHost`](/api/reference/react-native/interfaces/EngineHost), [`registerEngineHost`](/api/reference/react-native/functions/registerEngineHost), [`createMessageChannelHost`](/api/reference/react-native/functions/createMessageChannelHost)
@@ -21,6 +21,7 @@
 
 - 테마: [`ThemeSpec`](/api/reference/protocol/interfaces/ThemeSpec), [`resolveTheme`](/api/reference/protocol/functions/resolveTheme), [`PRESETS`](/api/reference/protocol/variables/PRESETS)
 - 월드: [`WorldData`](/api/reference/protocol/interfaces/WorldData), [`WorldSource`](/api/reference/protocol/type-aliases/WorldSource), [`validateWorldData`](/api/reference/protocol/functions/validateWorldData)
+- 마커: [`MarkerSpec`](/api/reference/protocol/interfaces/MarkerSpec), [`SetMarkerLayerCommand`](/api/reference/protocol/interfaces/SetMarkerLayerCommand), [`MarkerPressEvent`](/api/reference/protocol/interfaces/MarkerPressEvent)
 - 좌표: [`createProjection`](/api/reference/protocol/functions/createProjection), [`haversineMeters`](/api/reference/protocol/functions/haversineMeters)
 - 메시지: [`EngineCommand`](/api/reference/protocol/type-aliases/EngineCommand), [`EngineEvent`](/api/reference/protocol/type-aliases/EngineEvent), [`encodeCommand`](/api/reference/protocol/functions/encodeCommand), [`decodeEvent`](/api/reference/protocol/functions/decodeEvent)
 

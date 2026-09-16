@@ -217,6 +217,10 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
           break;
       }
       return;
+    case 20:  // setMarkerLayer -> marker layers (engine-web v1; the native views are a follow-up)
+    case 21:  // removeMarkerLayer
+      ignoreNotImplemented(envelope);
+      return;
     default:  // unreachable: decodeCommand rejects unknown types
       ignoreNotImplemented(envelope, "unknown command type");
       return;

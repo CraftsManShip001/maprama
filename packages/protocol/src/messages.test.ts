@@ -124,6 +124,32 @@ const commands: CommandFixtures = {
     { type: 'setDropLayer', layerId: 'empty', collectRadiusMeters: 0, drops: [] },
   ],
   removeDropLayer: [{ type: 'removeDropLayer', layerId: 'music' }],
+  setMarkerLayer: [
+    {
+      type: 'setMarkerLayer',
+      layerId: 'poi',
+      markers: [
+        { id: 'm1', coordinate: here },
+        {
+          id: 'm2',
+          coordinate: there,
+          icon: { uri: 'data:image/svg+xml;base64,PHN2Zy8+' },
+          color: '#FF8800',
+          priority: 10,
+          alwaysVisible: true,
+          accessibilityLabel: 'Gyeongbokgung, Blue',
+        },
+        { id: 'm3', coordinate: here, icon: 'dot', color: '#0A7', priority: -1, alwaysVisible: false },
+      ],
+      selectedId: 'm2',
+      selectedScale: 1.4,
+      size: 44,
+      anchor: 'center',
+    },
+    { type: 'setMarkerLayer', layerId: 'empty', markers: [] },
+    { type: 'setMarkerLayer', layerId: 'poi', markers: [{ id: 'm1', coordinate: here }], selectedId: null },
+  ],
+  removeMarkerLayer: [{ type: 'removeMarkerLayer', layerId: 'poi' }],
   setGeofences: [{ type: 'setGeofences', geofences: [{ id: 'g1', center: here, radiusMeters: 100 }] }],
   setBuildingStyle: [
     {
@@ -169,6 +195,7 @@ const events: EventFixtures = {
   ],
   'map:press': [{ type: 'map:press', coordinate: here }],
   'building:press': [{ type: 'building:press', buildingId: 'b1', coordinate: here }],
+  'marker:press': [{ type: 'marker:press', layerId: 'poi', markerId: 'm2', coordinate: there, point: { x: 180.5, y: 402 } }],
   'drop:collect': [{ type: 'drop:collect', layerId: 'music', dropId: 'd1', characterId: 'me', coordinate: there, collectId: 'c-3f9a' }],
   'travel:start': [
     { type: 'travel:start', requestId: 't1', characterId: 'me', legs: [{ mode: 'walk', meters: 120 }, { mode: 'subway', meters: 3400 }, { mode: 'walk', meters: 80 }] },
@@ -199,8 +226,11 @@ describe('fixtures cover the protocol', () => {
   it('has fixtures for every command and event type', () => {
     expect(Object.keys(commands).sort()).toEqual([...ENGINE_COMMAND_TYPES].sort());
     expect(Object.keys(events).sort()).toEqual([...ENGINE_EVENT_TYPES].sort());
-    expect(ENGINE_COMMAND_TYPES).toHaveLength(20);
-    expect(ENGINE_EVENT_TYPES).toHaveLength(16);
+    expect(ENGINE_COMMAND_TYPES).toHaveLength(22);
+    expect(ENGINE_EVENT_TYPES).toHaveLength(17);
+    // New messages are appended, so the index of an existing one never moves.
+    expect(ENGINE_COMMAND_TYPES.slice(-2)).toEqual(['setMarkerLayer', 'removeMarkerLayer']);
+    expect(ENGINE_EVENT_TYPES.at(-1)).toBe('marker:press');
     expect(PROTOCOL_VERSION).toBe(1);
   });
 });
@@ -301,6 +331,17 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'setDropLayer', layerId: 'l', collectRadiusMeters: 5, drops: [{ id: 'd', type: 'model', coordinate: here }] }, '$.msg.drops[0].model'],
       [{ type: 'setDropLayer', layerId: 'l', collectRadiusMeters: -1, drops: [] }, '$.msg.collectRadiusMeters'],
       [{ type: 'setDropLayer', layerId: 'l', collectRadiusMeters: 1, drops: [{ id: 'd', type: 'coin', coordinate: here, rarity: 'epic' }] }, '$.msg.drops[0].rarity'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ coordinate: here }] }, '$.msg.markers[0].id'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ id: 'm', coordinate: here, icon: 'star' }] }, '$.msg.markers[0].icon'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ id: 'm', coordinate: here, icon: { uri: '' } }] }, '$.msg.markers[0].icon'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ id: 'm', coordinate: here, color: 'red' }] }, '$.msg.markers[0].color'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ id: 'm', coordinate: here, priority: '1' }] }, '$.msg.markers[0].priority'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [{ id: 'm', coordinate: here, alwaysVisible: 1 }] }, '$.msg.markers[0].alwaysVisible'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [], anchor: 'middle' }, '$.msg.anchor'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [], selectedScale: 0 }, '$.msg.selectedScale'],
+      [{ type: 'setMarkerLayer', layerId: 'l', markers: [], size: -4 }, '$.msg.size'],
+      [{ type: 'setMarkerLayer', layerId: '', markers: [] }, '$.msg.layerId'],
+      [{ type: 'removeMarkerLayer' }, '$.msg.layerId'],
       [{ type: 'subscribe', topic: 'fps', throttleMs: 10 }, '$.msg.topic'],
       [{ type: 'subscribe', topic: 'camera:change' }, '$.msg.throttleMs'],
       [{ type: 'request', requestId: 'q', method: 'teleport', params: {} }, '$.msg.method'],
@@ -353,6 +394,9 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'camera:change', camera: { center: here, distance: 1, pitch: 1 } }, '$.msg.camera.bearing'],
       [{ type: 'overlay:positions', positions: [{ id: 'o', x: 1, y: 2 }] }, '$.msg.positions[0].visible'],
       [{ type: 'labelsIndex', labels: [{ id: 'l', kind: 'shop', name: 'x', lngLat: here }] }, '$.msg.labels[0].kind'],
+      [{ type: 'marker:press', layerId: 'poi', markerId: 'm', coordinate: here }, '$.msg.point'],
+      [{ type: 'marker:press', layerId: 'poi', markerId: 'm', coordinate: here, point: { x: 1 } }, '$.msg.point.y'],
+      [{ type: 'marker:press', layerId: 'poi', markerId: '', coordinate: here, point: { x: 1, y: 2 } }, '$.msg.markerId'],
       [{ type: 'response', requestId: 'q', ok: true }, '$.msg.result'],
       [{ type: 'response', requestId: 'q', ok: false }, '$.msg.error'],
       [{ type: 'response', requestId: 'q', ok: 'true', result: 1 }, '$.msg.ok'],

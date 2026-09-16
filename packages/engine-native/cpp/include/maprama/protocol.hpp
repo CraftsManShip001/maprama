@@ -23,19 +23,20 @@ inline constexpr int kWorldDataVersion = 1;
 /// `Number.MAX_SAFE_INTEGER` (upper bound of `seq`).
 inline constexpr std::uint64_t kMaxSafeInteger = 9007199254740991ULL;
 
-/// `ENGINE_COMMAND_TYPES`, in declaration order.
-inline constexpr std::array<std::string_view, 20> kEngineCommandTypes{
+/// `ENGINE_COMMAND_TYPES`, in declaration order (new commands are appended, so indices are stable).
+inline constexpr std::array<std::string_view, 22> kEngineCommandTypes{
     "init",         "setTheme",         "setLabels",         "setLabelContent", "setUi",
     "setCamera",    "upsertCharacters", "removeCharacters",  "setLocationSource", "pushLocation",
     "travel",       "cancelTravel",     "setDropLayer",      "removeDropLayer", "setGeofences",
     "setBuildingStyle", "setOverlayAnchors", "subscribe",    "unsubscribe",     "request",
+    "setMarkerLayer", "removeMarkerLayer",
 };
 
-/// `ENGINE_EVENT_TYPES`, in declaration order.
-inline constexpr std::array<std::string_view, 16> kEngineEventTypes{
+/// `ENGINE_EVENT_TYPES`, in declaration order (new events are appended, so indices are stable).
+inline constexpr std::array<std::string_view, 17> kEngineEventTypes{
     "ready",          "error",         "labelsIndex",    "map:press",      "building:press", "drop:collect",
     "travel:start",   "travel:progress", "travel:arrive", "travel:cancel", "geofence:enter", "geofence:exit",
-    "character:position", "camera:change", "overlay:positions", "response",
+    "character:position", "camera:change", "overlay:positions", "response", "marker:press",
 };
 
 struct ValidationResult {

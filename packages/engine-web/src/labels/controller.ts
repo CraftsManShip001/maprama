@@ -15,7 +15,7 @@ import type { SceneApi } from '../scene-api.js';
 import type { WorldModel } from '../world/model.js';
 import { DomLabels, ensureLabelStyles } from './dom-styles.js';
 import { HoloLabels } from './holo.js';
-import { buildLabelEntries, hudExclusions, iconTileFor, toLabelInfo, type DomLabelStyle, type LabelEntry } from './index.js';
+import { buildLabelEntries, hudExclusions, iconTileFor, toLabelInfo, type Box, type DomLabelStyle, type LabelEntry } from './index.js';
 import { WorldLabels3D } from './world3d.js';
 
 export const DEFAULT_LABEL_STYLE: LabelStyle = 'holo';
@@ -85,8 +85,12 @@ export class LabelController {
     if (this.world3d) this.world3d.built = '';
   }
 
-  /** Per-frame update after the camera moved. */
-  update(content: Readonly<Record<string, LabelContent>>, ui: MapUiSpec, groundY: number, now: number): void {
+  /**
+   * Per-frame update after the camera moved. `reserved` holds boxes already
+   * taken by earlier passes (the marker layers, which are placed first), so
+   * labels never cover a marker.
+   */
+  update(content: Readonly<Record<string, LabelContent>>, ui: MapUiSpec, groundY: number, now: number, reserved: readonly Box[] = []): void {
     const world = this.world;
     if (!world) return;
     const spec = resolveLabels(this.scene.labels());
@@ -103,7 +107,7 @@ export class LabelController {
     layer.classList.toggle('night', night);
     const tile = iconTileFor(spec.icons, night);
     for (const t of ['white', 'black', 'color']) layer.classList.toggle(`hi-${t}`, tile === t);
-    const exclusions = hudExclusions(cam.width, cam.height, ui);
+    const exclusions = reserved.length ? [...hudExclusions(cam.width, cam.height, ui), ...reserved] : hudExclusions(cam.width, cam.height, ui);
 
     if (style && DOM_STYLES.includes(style)) {
       if (!this.dom) this.dom = new DomLabels(layer);

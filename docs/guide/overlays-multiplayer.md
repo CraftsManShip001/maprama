@@ -4,6 +4,10 @@
 
 가게 카드, 말풍선, 버튼처럼 상호작용이 필요한 UI는 엔진이 아니라 React Native 뷰로 그리고 지도 좌표에 붙입니다.
 
+::: tip 핀 수십 개라면 `MarkerLayer`
+앵커마다 화면 좌표가 브리지를 왕복하므로 `MapOverlay`는 소수의 카드에 맞습니다. 서버에서 받은 POI 핀처럼 수십 개를 얹을 때는 [마커(핀)](./markers)를 쓰세요. 엔진이 직접 그려서 팬 중에도 밀리지 않고, 충돌·z 순서·접근성·부분 갱신을 함께 처리합니다.
+:::
+
 ```tsx
 <MapramaView world={world}>
   <MapOverlay coordinate={shop.coord} anchor="bottom" offset={{ x: 0, y: -8 }} hideWhenOffscreen>

@@ -115,6 +115,50 @@ export interface DropSpec {
   payload?: JsonValue;
 }
 
+/** Built-in marker base shapes. */
+export const MARKER_SHAPES = ['pin', 'dot'] as const;
+/** Base shape a marker is drawn with; a custom icon is drawn inside it. */
+export type MarkerShape = (typeof MARKER_SHAPES)[number];
+
+/**
+ * A custom marker icon drawn inside the base shape: a `data:image/svg+xml`,
+ * `https:`, `file:` or bundled asset URI.
+ */
+export interface MarkerImage {
+  uri: string;
+}
+
+/** What a marker shows: a built-in base shape, or a custom image on the base shape. */
+export type MarkerIcon = MarkerShape | MarkerImage;
+
+/** Which point of the marker sits on its coordinate. */
+export const MARKER_ANCHORS = ['bottom', 'center', 'top'] as const;
+/** Marker anchor; `bottom` (the default) puts the pin tip on the coordinate. */
+export type MarkerAnchor = (typeof MARKER_ANCHORS)[number];
+
+/**
+ * An app-owned map pin drawn by the engine at a fixed screen size.
+ *
+ * Markers live in layers (`setMarkerLayer`) and are matched by `id` across
+ * updates: an engine must apply a changed `color` or selection without
+ * reloading the icon or recreating the marker's view.
+ */
+export interface MarkerSpec {
+  /** Stable id, unique within its layer. */
+  id: string;
+  coordinate: LngLat;
+  /** Base shape, or a custom image on the base shape. Default `'pin'`. */
+  icon?: MarkerIcon;
+  /** Tint of the base shape as a CSS hex string (e.g. `'#2F5BEA'`). Engine accent when absent. */
+  color?: string;
+  /** Collision priority; higher wins. Default 0. */
+  priority?: number;
+  /** Never hidden by collision (placed before the others). Default false. */
+  alwaysVisible?: boolean;
+  /** Text a screen reader announces for this marker (e.g. `"Gyeongbokgung, Blue"`). */
+  accessibilityLabel?: string;
+}
+
 /** A circular geofence. */
 export interface GeofenceSpec {
   id: string;
@@ -242,6 +286,20 @@ export const checkDropSpec: Check = (v, p) => {
     ? `${p}.model: required when type is "model"`
     : null;
 };
+
+const markerIcon: Check = anyOf(oneOf(MARKER_SHAPES), object({ uri: nonEmptyString }));
+
+/** @internal */
+export const checkMarkerSpec: Check = object(
+  { id: nonEmptyString, coordinate: checkLngLat },
+  {
+    icon: markerIcon,
+    color: cssHexColor,
+    priority: number,
+    alwaysVisible: boolean,
+    accessibilityLabel: string,
+  },
+);
 
 /** @internal */
 export const checkGeofenceSpec: Check = object({

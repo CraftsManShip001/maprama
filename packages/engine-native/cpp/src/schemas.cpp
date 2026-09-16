@@ -163,6 +163,15 @@ struct Schemas {
                  ? Error(p + ".model: required when type is \"model\"")
                  : Error();
     };
+    const Check markerIcon = anyOf({oneOf({"pin", "dot"}), object({{"uri", nonEmptyString}})});
+    const Check markerSpec = object({{"id", nonEmptyString}, {"coordinate", lngLat}},
+                                    {
+                                        {"icon", markerIcon},
+                                        {"color", cssHexColor},
+                                        {"priority", number},
+                                        {"alwaysVisible", boolean},
+                                        {"accessibilityLabel", str},
+                                    });
     const Check geofenceSpec =
         object({{"id", nonEmptyString}, {"center", lngLat}, {"radiusMeters", positiveNumber}});
     const Check buildingStyle = object({}, {
@@ -240,6 +249,13 @@ struct Schemas {
            }
            return std::nullopt;  // unreachable: method validated by oneOf
          }},
+        // Appended after `request`, mirroring messages.ts.
+        {"setMarkerLayer", object({{"layerId", id}, {"markers", array(markerSpec)}},
+                                  {{"selectedId", nullable(nonEmptyString)},
+                                   {"selectedScale", positiveNumber},
+                                   {"size", positiveNumber},
+                                   {"anchor", oneOf({"bottom", "center", "top"})}})},
+        {"removeMarkerLayer", object({{"layerId", id}})},
     };
     engineCommand = discriminated("type", std::move(commands));
 
@@ -289,6 +305,11 @@ struct Schemas {
            if (Error err = responseHeader(v, p)) return err;
            return v->find("ok")->asBool() ? responseOk(v, p) : responseError(v, p);
          }},
+        // Appended after `response`, mirroring messages.ts.
+        {"marker:press", object({{"layerId", id},
+                                 {"markerId", id},
+                                 {"coordinate", lngLat},
+                                 {"point", object({{"x", number}, {"y", number}})}})},
     };
     engineEvent = discriminated("type", std::move(events));
   }

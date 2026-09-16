@@ -2,7 +2,7 @@
  * `@maprama/react-native`: a 2.5D game map for React Native.
  *
  * - {@link MapramaView} with {@link Character}, {@link CharacterLayer}, {@link DropLayer},
- *   {@link Geofence} and {@link MapOverlay} children.
+ *   {@link MarkerLayer}, {@link Geofence} and {@link MapOverlay} children.
  * - Imperative API via `ref` ({@link MapramaViewRef}) or {@link useMapramaView}.
  * - Opt-in continuous values with {@link useCharacterPosition} and {@link useCameraState}.
  * - Swappable engine hosts via {@link registerEngineHost}.
@@ -23,6 +23,12 @@ export {
 } from './components/DropLayer';
 export { Geofence } from './components/Geofence';
 export { MapOverlay } from './components/MapOverlay';
+export {
+  MarkerLayer,
+  resolveMarkerIcon,
+  DEFAULT_MARKER_SIZE,
+  DEFAULT_SELECTED_SCALE,
+} from './components/MarkerLayer';
 
 export { useMapramaView } from './hooks/useMapramaView';
 export { useCharacterPosition, type UseCharacterPositionOptions } from './hooks/useCharacterPosition';
@@ -83,6 +89,9 @@ export type {
   LabelContentFunction,
   MapOverlayAnchor,
   MapOverlayProps,
+  MarkerIconInput,
+  MarkerLayerProps,
+  MarkerPressInfo,
   ModelInput,
   RequestOptions,
   ServiceDropLayerProps,
@@ -105,6 +114,10 @@ export type {
   LocationFix,
   LocationSourceKind,
   MapUiSpec,
+  MarkerAnchor,
+  MarkerIcon,
+  MarkerShape,
+  MarkerSpec,
   ScreenPoint,
   ThemeSpec,
   TravelMode,

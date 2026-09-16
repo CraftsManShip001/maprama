@@ -276,6 +276,29 @@ const commandSamples = {
     params: { coordinate: ll, maxDistanceMeters: 30 },
   },
   request_route: { type: 'request', requestId: 'q4', method: 'route', params: { from: ll, to: ll2, modes: ['car'] } },
+  setMarkerLayer: {
+    type: 'setMarkerLayer',
+    layerId: 'poi',
+    markers: [
+      {
+        id: 'm1',
+        coordinate: ll,
+        icon: { uri: 'data:image/svg+xml;base64,PHN2Zy8+' },
+        color: '#FF8800',
+        priority: 10,
+        alwaysVisible: true,
+        accessibilityLabel: 'Gyeongbokgung, Blue',
+      },
+      { id: 'm2', coordinate: ll2, icon: 'dot', color: '#abc', priority: -1, alwaysVisible: false },
+      { id: 'm3', coordinate: ll },
+    ],
+    selectedId: 'm1',
+    selectedScale: 1.4,
+    size: 44,
+    anchor: 'center',
+  },
+  setMarkerLayer_cleared: { type: 'setMarkerLayer', layerId: 'poi', markers: [], selectedId: null },
+  removeMarkerLayer: { type: 'removeMarkerLayer', layerId: 'poi' },
 };
 
 const eventSamples = {
@@ -290,6 +313,7 @@ const eventSamples = {
   },
   'map:press': { type: 'map:press', coordinate: ll },
   'building:press': { type: 'building:press', buildingId: 'b1', coordinate: ll },
+  'marker:press': { type: 'marker:press', layerId: 'poi', markerId: 'm1', coordinate: ll, point: { x: 180.5, y: 402 } },
   'drop:collect': {
     type: 'drop:collect',
     layerId: 'l1',

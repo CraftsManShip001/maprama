@@ -169,6 +169,10 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
         }
         ctx.check(started, "[" + name + "] -> travel:start");
       }
+    } else if (type == "setMarkerLayer" || type == "removeMarkerLayer") {
+      // Marker layers are implemented by engine-web (v1); the native core decodes and validates them,
+      // then warn-logs and ignores them until the native marker views land (DESIGN.md §5.1, M5).
+      ctx.check(newEvents == 0 && notImplemented, "[" + name + "] warn-logged as an ignored command");
     } else {
       ctx.check(false, "[" + name + "] command type not covered by the dispatcher test");
     }
