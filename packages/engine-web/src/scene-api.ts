@@ -111,6 +111,12 @@ export interface SceneApi {
    * Renders one more frame. Idempotent within a frame. Call it after changing
    * anything visible from outside a frame hook (a command handler, an async
    * asset load, a DOM event…) — the loop is idle while nothing animates.
+   *
+   * It also marks the shadow map as stale, because a change made from outside
+   * a frame may have added, removed or moved something that casts a shadow.
+   * (The shadow map is otherwise only redrawn when the sun / shadow camera
+   * moved or an active source says the scene is still moving, so a frame drawn
+   * only to rotate the camera or to move DOM labels skips the depth pass.)
    */
   requestRender(): void;
   /**
@@ -118,6 +124,11 @@ export interface SceneApi {
    * release function is called. `tag` is informational; holders are reference
    * counted, so every holder releases its own hold and releasing twice is a
    * no-op. Anything that animates over time must hold a source.
+   *
+   * A held tag also keeps the shadow map refreshing, unless the tag is known
+   * not to touch the 3D scene (`labels`, `camera:change`). Unknown tags count
+   * as scene motion, so an extension that animates a mesh is correct by
+   * default.
    */
   addActiveSource(tag: string): () => void;
   /** Tags currently holding the loop awake (diagnostics: "why does this map never go idle?"). */

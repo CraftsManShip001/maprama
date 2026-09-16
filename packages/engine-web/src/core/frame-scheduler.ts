@@ -41,6 +41,15 @@ export class FrameScheduler {
     return [...this.sources.keys()].sort();
   }
 
+  /**
+   * True when at least one held tag is **not** in `ignored`. Allocation free,
+   * so it can be asked once per frame (see the shadow update policy).
+   */
+  hasSourceExcept(ignored: ReadonlySet<string>): boolean {
+    for (const tag of this.sources.keys()) if (!ignored.has(tag)) return true;
+    return false;
+  }
+
   /** Keeps frames coming until the returned release function is called (calling it twice is a no-op). */
   addSource(tag: string): () => void {
     this.sources.set(tag, (this.sources.get(tag) ?? 0) + 1);

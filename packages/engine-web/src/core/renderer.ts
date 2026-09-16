@@ -12,6 +12,15 @@
  * Note that the simulation only advances inside {@link RenderCore.step}:
  * anything that has to keep moving must hold a source.
  *
+ * ## Shadow map
+ *
+ * The shadow map is **not** redrawn on every frame either. three's
+ * `shadowMap.autoUpdate` is off and {@link ShadowUpdatePolicy} turns
+ * `needsUpdate` on for the frames that need it — see `shadow-update.ts`.
+ * Anything that changes shadow-casting content outside a frame hook must call
+ * {@link RenderCore.requestShadowUpdate} (the scene API's `requestRender()`
+ * already does).
+ *
  * @module
  */
 
@@ -33,6 +42,7 @@ import {
 import type { RenderParams } from '../theme/params.js';
 import type { CameraController } from './camera.js';
 import { FrameScheduler } from './frame-scheduler.js';
+import { SHADOW_INERT_SOURCES, ShadowUpdatePolicy, shadowMapSizeFor } from './shadow-update.js';
 
 /** Frame hook: `dt` seconds (clamped to 0.05), `t` total seconds. */
 export type FrameHook = (dt: number, t: number) => void;
@@ -71,6 +81,7 @@ export class RenderCore {
   private running = false;
   private contextLost = false;
   private readonly scheduler = new FrameScheduler();
+  private readonly shadows = new ShadowUpdatePolicy();
   private readonly canvas: HTMLCanvasElement;
   private readonly depthOnly = new MeshBasicMaterial({ colorWrite: false });
 
@@ -84,12 +95,15 @@ export class RenderCore {
     r.autoClear = false;
     r.shadowMap.enabled = true;
     r.shadowMap.type = PCFShadowMap;
+    // The shadow map is redrawn on demand (see `shadow-update.ts`), not once per `render()` call.
+    r.shadowMap.autoUpdate = false;
     this.anisotropy = Math.min(8, r.capabilities.getMaxAnisotropy());
 
     this.scene.fog = new Fog(0xd9dfe0, 45, 150);
     this.scene.add(this.hemi, this.sun, this.sun.target, this.world);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    const size = shadowMapSizeFor(globalThis.navigator?.userAgent);
+    this.sun.shadow.mapSize.set(size, size);
     Object.assign(this.sun.shadow.camera, { left: -48, right: 48, top: 48, bottom: -48, near: 1, far: 160 });
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.03;
@@ -105,6 +119,7 @@ export class RenderCore {
         self.hasSilhouettes = true;
         // A new silhouette (and the first one, which turns the extra passes on) changes the picture.
         self.requestRender();
+        self.requestShadowUpdate();
       },
       createMaterial(color, opacity = 0.9) {
         return new MeshBasicMaterial({ color, depthFunc: GreaterDepth, depthWrite: false, fog: false, transparent: true, opacity });
@@ -132,6 +147,8 @@ export class RenderCore {
     this.sun.castShadow = p.shadows;
     this.sunDir = p.sun.dir;
     this.requestRender();
+    // Lighting changed and the caller is about to rebuild the static world and the buildings.
+    this.requestShadowUpdate();
   }
 
   /** Sets the drawing buffer size (CSS pixels). Reallocates the drawing buffer, so it always draws a frame. */
@@ -148,6 +165,17 @@ export class RenderCore {
    */
   requestRender(): void {
     this.scheduler.request();
+  }
+
+  /**
+   * Redraws the shadow map on the next frame. Call it (in addition to
+   * {@link requestRender}) after adding, removing or moving anything that casts
+   * or receives a shadow from outside a frame hook — a command, an async model,
+   * a rebuilt world. Camera movement needs no call: the policy compares the
+   * shadow camera itself.
+   */
+  requestShadowUpdate(): void {
+    this.shadows.invalidate();
   }
 
   /**
@@ -212,6 +240,7 @@ export class RenderCore {
     this.contextLost = false;
     // Full recovery (rebuilding GPU resources) is not implemented yet; at least draw again.
     this.requestRender();
+    this.requestShadowUpdate();
   };
 
   /** Runs hooks, updates the camera / sun and renders one frame. */
@@ -224,8 +253,29 @@ export class RenderCore {
     this.sun.target.position.set(o.x, 0, o.z);
     this.sun.target.updateMatrixWorld();
     for (const h of [...this.renderHooks]) h(dt, this.time);
+    this.updateShadowMap();
     this.render();
     this.frames++;
+  }
+
+  /**
+   * Decides whether this frame redraws the shadow map. Runs after the frame
+   * hooks, so the held sources and the sun / shadow camera describe the frame
+   * that is about to be drawn.
+   */
+  private updateShadowMap(): void {
+    const sc = this.sun.shadow.camera, t = this.sun.target.position, d = this.sunDir;
+    this.renderer.shadowMap.needsUpdate = this.shadows.next({
+      enabled: this.sun.castShadow,
+      x: t.x,
+      z: t.z,
+      dirX: d[0],
+      dirY: d[1],
+      dirZ: d[2],
+      extent: sc.right,
+      far: sc.far,
+      moving: this.scheduler.hasSourceExcept(SHADOW_INERT_SOURCES),
+    });
   }
 
   render(): void {
