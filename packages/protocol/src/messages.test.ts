@@ -38,6 +38,7 @@ const commands: CommandFixtures = {
       ui: { locationPuck: true, scaleBar: true, zoomButtons: false, attribution: true },
       camera: { center: here, distance: 240, pitch: 50, bearing: 0, follow: 'me', animate: { durationMs: 300 } },
       locationSource: 'simulated',
+      view: '2d',
     },
     {
       type: 'init',
@@ -255,6 +256,11 @@ const commands: CommandFixtures = {
     { type: 'setInfoCard', card: { id: 'bare', coordinate: there, content: { title: 'Only a title' } } },
   ],
   removeInfoCard: [{ type: 'removeInfoCard', id: 'poi-3821' }],
+  setView: [
+    { type: 'setView', view: '2d' },
+    { type: 'setView', view: '2.5d', animate: false },
+    { type: 'setView', view: '2d', animate: { durationMs: 400 } },
+  ],
 };
 
 const events: EventFixtures = {
@@ -324,17 +330,21 @@ const events: EventFixtures = {
     { type: 'infoCard:press', id: 'poi-3821', actionId: 'route' },
   ],
   'infoCard:dismiss': [{ type: 'infoCard:dismiss', id: 'poi-3821' }],
+  'view:change': [
+    { type: 'view:change', view: '2d', animating: true },
+    { type: 'view:change', view: '2.5d', animating: false },
+  ],
 };
 
 describe('fixtures cover the protocol', () => {
   it('has fixtures for every command and event type', () => {
     expect(Object.keys(commands).sort()).toEqual([...ENGINE_COMMAND_TYPES].sort());
     expect(Object.keys(events).sort()).toEqual([...ENGINE_EVENT_TYPES].sort());
-    expect(ENGINE_COMMAND_TYPES).toHaveLength(24);
-    expect(ENGINE_EVENT_TYPES).toHaveLength(20);
+    expect(ENGINE_COMMAND_TYPES).toHaveLength(25);
+    expect(ENGINE_EVENT_TYPES).toHaveLength(21);
     // New messages are appended, so the index of an existing one never moves.
-    expect(ENGINE_COMMAND_TYPES.slice(-4)).toEqual(['setMarkerLayer', 'removeMarkerLayer', 'setInfoCard', 'removeInfoCard']);
-    expect(ENGINE_EVENT_TYPES.slice(-4)).toEqual(['marker:press', 'camera:idle', 'infoCard:press', 'infoCard:dismiss']);
+    expect(ENGINE_COMMAND_TYPES.slice(-5)).toEqual(['setMarkerLayer', 'removeMarkerLayer', 'setInfoCard', 'removeInfoCard', 'setView']);
+    expect(ENGINE_EVENT_TYPES.slice(-5)).toEqual(['marker:press', 'camera:idle', 'infoCard:press', 'infoCard:dismiss', 'view:change']);
     expect(SUBSCRIPTION_TOPICS.at(-1)).toBe('camera:idle');
     expect(REQUEST_METHODS.at(-1)).toBe('focusOn');
     expect(PROTOCOL_VERSION).toBe(1);

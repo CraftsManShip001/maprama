@@ -167,6 +167,7 @@ const commandSamples = {
     ui: { locationPuck: true, scaleBar: false, zoomButtons: true, attribution: true },
     camera: { center: ll, distance: 120, zoom: 16, pitch: 45, bearing: 30, follow: 'player', animate: { durationMs: 300 } },
     locationSource: 'simulated',
+    view: '2d',
   },
   init_url: {
     type: 'init',
@@ -364,6 +365,9 @@ const commandSamples = {
   },
   setInfoCard_minimal: { type: 'setInfoCard', card: { id: 'bare', coordinate: ll2, content: { title: 'Only a title' } } },
   removeInfoCard: { type: 'removeInfoCard', id: 'poi-3821' },
+  setView: { type: 'setView', view: '2d' },
+  setView_animated: { type: 'setView', view: '2.5d', animate: { durationMs: 400 } },
+  setView_instant: { type: 'setView', view: '2d', animate: false },
 };
 
 const eventSamples = {
@@ -416,6 +420,7 @@ const eventSamples = {
   'infoCard:press': { type: 'infoCard:press', id: 'poi-3821' },
   'infoCard:press_action': { type: 'infoCard:press', id: 'poi-3821', actionId: 'route' },
   'infoCard:dismiss': { type: 'infoCard:dismiss', id: 'poi-3821' },
+  'view:change': { type: 'view:change', view: '2d', animating: true },
 };
 
 // ---------------------------------------------------------------------------
@@ -586,6 +591,10 @@ const extraCommandCases = [
   ['infoCard negative rating count', { type: 'setInfoCard', card: { id: 'c', coordinate: ll, content: { title: 't', rating: { value: 4, count: -1 } } } }],
   ['infoCard action without id', { type: 'setInfoCard', card: { id: 'c', coordinate: ll, content: { title: 't', actions: [{ label: 'go' }] } } }],
   ['removeInfoCard empty id', { type: 'removeInfoCard', id: '' }],
+  ['setView unknown mode', { type: 'setView', view: '3d' }],
+  ['setView missing mode', { type: 'setView' }],
+  ['setView animate negative duration', { type: 'setView', view: '2d', animate: { durationMs: -1 } }],
+  ['init unknown view mode', { ...commandSamples.init_url, view: 'flat' }],
   ['color #RRGGBBAA', { type: 'setBuildingStyle', buildingId: 'b', style: { color: '#11223344' } }],
   ['color #RRGGB', { type: 'setBuildingStyle', buildingId: 'b', style: { color: '#11223' } }],
   ['color with newline', { type: 'setBuildingStyle', buildingId: 'b', style: { color: '#112233\n' } }],

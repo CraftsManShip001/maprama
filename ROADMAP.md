@@ -106,6 +106,19 @@ Driven by the first integrator (a location-based game app). Their priority order
    `focusOn` (fixture-conformance tested), then warn-logs and ignores them — the native info-card
    views and a native `focusOn` are the remaining work.
 
+6. ~~**2D ⇄ 2.5D view modes**~~ — **done in engine-web** (unreleased): `view` / `ref.setView` /
+   `setView` / `init.view` switch between the tilted diorama and a flat map (filled footprints with
+   an outline, no shadow pass, no fog or mood overlays, no street clutter, anchors flattened to the
+   ground, pitch pinned at 0 and locked against gestures). Only the app switches it. Transitions
+   animate by default and hold an active render source only while they run, so a static 2D map
+   still measures **0 idle frames** (`scripts/idle-frames.mjs`). It is also the cheap mode:
+   `scripts/view-cost.mjs` measures 2,950 → 29 draw calls per frame and 5.9 → 17.4 fps while
+   panning on the 428-building Seongsu sample. A pitch sent while 2D is in force is refused with a
+   non-fatal `view_pitch_locked` error and the rest of the command is applied.
+   **Native remains open**: the C++ core decodes and validates `setView` and `init.view`
+   (fixture-conformance tested) and then warn-logs and ignores them; the native flat renderer,
+   the pitch lock and the transition are the remaining work.
+
 Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
 PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
 needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far as the app's
@@ -127,10 +140,11 @@ Each of these is a real gap found while answering an integrator's questions agai
   build the world without `pois` / `stations`.
 - **Batch `project`.** Only one coordinate per request today, while the native adapter already projects
   overlay anchors in batches. A `projectMany` request would let an app place 40–60 pins within a frame.
-- **Gesture toggles.** Rotation, pitch and zoom cannot be disabled individually; the native adapter always
-  enables rotate and pitch. This breaks flat-view layouts: an app that sizes its screen for pitch 0° cannot
-  stop the user from tilting, and tilting pushes the far half of the screen beyond `fogFar`, so
-  `theme.zoomOut: 'keepGameView'` becomes mandatory rather than a choice.
+- **Gesture toggles.** Rotation and zoom still cannot be disabled individually, and the native adapter
+  always enables rotate and pitch. The flat-layout half of this is **solved in engine-web** by
+  `view: '2d'`, which pins the pitch at 0, locks the pitch gesture and removes the fog (so nothing is
+  pushed beyond `fogFar` and `theme.zoomOut: 'keepGameView'` is a choice again). What is left is a
+  per-gesture switch for apps that want pitch 0 *inside* the 2.5D view, or want to lock rotation.
 - **`MapOverlay` ordering.** No `zIndex` and no collision avoidance; stacking follows child order.
 - **`engine-native` distribution.** Private and source-built: the C++ core compiles inside the app build and
   there are no prebuilt XCFramework / AAR artifacts, so adoption needs a development build (no Expo Go). A
@@ -190,14 +204,18 @@ Measured by an app team porting their map onto v0.1.0, useful as a support-matri
   builds workspaces in dependency order.
 - End-to-end flows live in `example/.maestro/` and run with Maestro 2.10 on a simulator/emulator. The native
   flows are 05 (M1 + procedural + remount), 06 (M2a), 07 (M2c), 08 (M3a + M3b), 10 (M4). Flow 14
-  (info cards + `focusOn`) is **written but not yet run** — it needs a simulator build.
+  (info cards + `focusOn`) and flow 15 (2D ⇄ 2.5D view modes) are **written but not yet run** — they
+  need a simulator build.
+- `node packages/engine-web/scripts/view-cost.mjs` compares the two view modes at one camera:
+  draw calls and triangles per frame (exact), fps while panning (host-relative, software GL) and
+  idle frames. It fails when the flat view idles worse than the tilted one.
 - CocoaPods needs `LANG=en_US.UTF-8`; Android builds need `JAVA_HOME` on JDK 17 and `ANDROID_HOME`.
 - `node packages/engine-web/scripts/idle-frames.mjs --repeats 2 --seconds 10 --settle 8000` answers "does a
   static map actually stop rendering?" — it drives headless Chrome, loads the dev sample world as a `data`
   source and reports rendered frames plus `scene.activeSources()` per configuration. Measured on
   2026-09-17: a `data` world with a traffic-free theme draws **0 frames** when static, with or without
-  `prefers-reduced-motion`, labels on or off, **and with one or five info cards up (with or without
-  labels)**; a theme with ambient traffic (`urban`, `modern`, `soft`) never
+  `prefers-reduced-motion`, labels on or off, **with one or five info cards up (with or without
+  labels)**, and **in the 2D view mode** (labels on or off, five cards up); a theme with ambient traffic (`urban`, `modern`, `soft`) never
   idles, and reduced motion does **not** release that holder. Non-zero counts from this harness are host-limited
   (software GL) — only the zero / non-zero distinction is meaningful.
 - Expo iOS builds break on paths containing spaces — keep the checkout on a space-free path.

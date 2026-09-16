@@ -25,9 +25,11 @@ import type {
   RequestMethod,
   RequestParamsMap,
   RequestResultMap,
+  SetViewCommand,
   SubscriptionTopic,
   TravelLeg,
   TravelMode,
+  ViewMode,
 } from '@maprama/protocol';
 import { throttle } from './batching';
 import { MapramaError, normalizeErrorCode, type MapramaErrorCode } from './errors';
@@ -36,6 +38,7 @@ import type {
   FitBoundsOptions,
   FocusOnOptions,
   FocusOnTarget,
+  SetViewOptions,
   MapramaErrorEvent,
   MapramaViewRef,
   EngineEventOf,
@@ -126,6 +129,8 @@ export class MapController implements MapramaViewRef {
   private disposed = false;
   private engineInfo: EngineInfo | null = null;
   private lastFix: LocationFix | null = null;
+  /** `setView` callers waiting for the transition to settle (see {@link MapController.setView}). */
+  private viewWaiters: (() => void)[] = [];
   private queue: EngineCommand[] = [];
   private readonly listeners = new Map<string, Set<AnyListener>>();
   private readonly requests = new Map<string, PendingRequest>();
@@ -164,6 +169,8 @@ export class MapController implements MapramaViewRef {
     this.listeners.clear();
     this.queue = [];
     this.disposed = true;
+    // A view transition that will never report back must not leave an awaiting caller hanging.
+    this.settleViewWaiters();
   }
 
   /** Sends a command now when initialised, otherwise queues it (flushed in order after `init`). */
@@ -210,6 +217,10 @@ export class MapController implements MapramaViewRef {
         break;
       case 'error':
         this.options.onError?.({ code: normalizeErrorCode(event.code), message: event.message, fatal: event.fatal });
+        break;
+      case 'view:change':
+        // `animating: true` only announces the start; the promise waits for the settled one.
+        if (!event.animating) this.settleViewWaiters();
         break;
       case 'response': {
         const pending = this.requests.get(event.requestId);
@@ -318,6 +329,22 @@ export class MapController implements MapramaViewRef {
 
   setCamera(camera: CameraSpec): void {
     this.send({ type: 'setCamera', camera });
+  }
+
+  setView(view: ViewMode, options: SetViewOptions = {}): Promise<void> {
+    const command: SetViewCommand = { type: 'setView', view };
+    if (options.durationMs !== undefined) command.animate = { durationMs: options.durationMs };
+    else if (options.animate !== undefined) command.animate = options.animate;
+    this.send(command);
+    if (this.disposed) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.viewWaiters.push(resolve);
+    });
+  }
+
+  /** Settles every `setView` promise (the transition landed, or there will be no answer). */
+  private settleViewWaiters(): void {
+    for (const resolve of this.viewWaiters.splice(0)) resolve();
   }
 
   pushLocation(fix: LocationFix): void {
@@ -559,6 +586,9 @@ export class MapController implements MapramaViewRef {
   }
 
   private rejectPending(code: MapramaErrorCode, message: string): void {
+    // `setView` resolves rather than rejects: the engine is gone, so the mode is whatever the next
+    // engine starts in, and an app awaiting a visual transition should not have to catch for that.
+    this.settleViewWaiters();
     // Rejected work must not reach an engine that becomes ready later.
     this.queue = this.queue.filter((c) => c.type !== 'request' && c.type !== 'travel');
     for (const [requestId, pending] of [...this.requests]) {

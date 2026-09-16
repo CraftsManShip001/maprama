@@ -58,6 +58,9 @@ export function rangeScale(distance: number): number {
   return Math.max(1, distance / RANGE_REF);
 }
 
+/** How far the fog range is pushed out at full flatness (see {@link ZoomOutController.update}). */
+export const FLAT_FOG_SCALE = 40;
+
 /** Change in {@link rangeScale} below which the look is not re-applied. */
 const SCALE_EPS = 1e-3;
 
@@ -71,6 +74,7 @@ export class ZoomOutController {
   animating = false;
   private applied = -1;
   private appliedScale = -1;
+  private appliedView = -1;
   private mode: ZoomOutBehavior | null = null;
   private mapMats: MeshBasicMaterial[] = [];
 
@@ -129,9 +133,17 @@ export class ZoomOutController {
   invalidate(): void {
     this.applied = -1;
     this.appliedScale = -1;
+    this.appliedView = -1;
   }
 
-  update(dt: number, distance: number, params: RenderParams, targets: ZoomOutTargets, reduceMotion: boolean): void {
+  /**
+   * @param view Flatness of the 2D view (0 = 2.5D, 1 = 2D); default 0, so the
+   *   native engine's conformance calls are unchanged. The fog and the street
+   *   clutter are applied here rather than by the view controller because this
+   *   is their single owner: a later zoom-out re-apply would otherwise
+   *   overwrite whatever the view had written.
+   */
+  update(dt: number, distance: number, params: RenderParams, targets: ZoomOutTargets, reduceMotion: boolean, view = 0): void {
     const behavior = params.zoomOut;
     const target = zoomOutTarget(behavior, distance);
     this.t += (target - this.t) * (reduceMotion ? 1 : Math.min(1, dt * 6));
@@ -144,21 +156,27 @@ export class ZoomOutController {
     // Beyond the reference distance the fog and shadow ranges are stretched with the camera, so the
     // look at 3 km is the look at 1.2 km. `k` is 1 below it, and the applied-value guard tracks it too.
     const k = rangeScale(distance);
-    if (Math.abs(t - this.applied) > APPLY_EPS || Math.abs(k - this.appliedScale) > SCALE_EPS || this.applied < 0 || this.mode !== behavior) {
+    if (Math.abs(t - this.applied) > APPLY_EPS || Math.abs(k - this.appliedScale) > SCALE_EPS || view !== this.appliedView || this.applied < 0 || this.mode !== behavior) {
       this.applied = t;
       this.appliedScale = k;
+      this.appliedView = view;
       this.mode = behavior;
       for (const m of this.mapMats) {
         m.opacity = mt * 0.92;
         m.visible = mt > 0.01;
       }
       this.scaleY = 1 - mt * 0.6;
-      targets.fog.near = (params.fog.near + t * 110) * k;
-      targets.fog.far = (params.fog.far + t * 260) * k;
+      // Flattening pushes the fog range out until nothing on screen is inside it: at pitch 0 every
+      // ground pixel is about equally far away, so distance fog is a flat wash, not depth.
+      const fk = k * (1 + (FLAT_FOG_SCALE - 1) * view);
+      targets.fog.near = (params.fog.near + t * 110) * fk;
+      targets.fog.far = (params.fog.far + t * 260) * fk;
       const ext = (48 + t * 95) * k, sc = targets.shadowCamera;
       sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.far = (160 + t * 200) * k;
       sc.updateProjectionMatrix();
-      targets.clutter.visible = t < 0.5;
+      // Lamp posts, benches and parked cars are small 3D props: read from straight above they are
+      // blobs, and they are the densest part of the static world. The flat view drops them.
+      targets.clutter.visible = t < 0.5 && view < 0.5;
       targets.setHazeFade(t, mt > 0);
     }
   }

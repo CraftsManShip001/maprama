@@ -47,9 +47,17 @@ for (const cards of [1, 5]) {
 }
 CONFIGS.push({ name: 'realistic / 5 info cards + labels on / no-reduce-motion', preset: 'realistic', labels: {}, cam: LABEL_CAM, rm: false, pan: false, cards: 5 });
 
+// the 2D view: a flat map must reach 0 idle frames exactly like the 2.5D one, with and without
+// labels, and with info cards up (whose anchors it flattens onto the ground).
+for (const labels of [{ key: 'labels off', spec: { enabled: false }, cam: PLAZA_CAM }, { key: 'labels on', spec: {}, cam: LABEL_CAM }]) {
+  CONFIGS.push({ name: `realistic / 2d / ${labels.key} / no-reduce-motion`, preset: 'realistic', labels: labels.spec, cam: labels.cam, rm: false, pan: false, view: '2d' });
+}
+CONFIGS.push({ name: 'realistic / 2d / 5 info cards + labels on / no-reduce-motion', preset: 'realistic', labels: {}, cam: LABEL_CAM, rm: false, pan: false, cards: 5, view: '2d' });
+
 // panning reference (default config, no reduce motion)
 CONFIGS.push({ name: 'realistic / labels off / no-reduce-motion / PANNING', preset: 'realistic', labels: { enabled: false }, rm: false, pan: true });
 CONFIGS.push({ name: 'urban / labels off / no-reduce-motion / PANNING', preset: 'urban', labels: { enabled: false }, rm: false, pan: true });
+CONFIGS.push({ name: 'realistic / 2d / labels off / no-reduce-motion / PANNING', preset: 'realistic', labels: { enabled: false }, rm: false, pan: true, view: '2d' });
 
 const onlyIdx = argv.indexOf('--only');
 if (onlyIdx >= 0) {
@@ -125,7 +133,7 @@ const evaluate = async (sessionId, expression, awaitPromise = false) => {
   return r.result.value;
 };
 
-const initScript = (preset, labels, cam, cards = 0) => `(async () => {
+const initScript = (preset, labels, cam, cards = 0, view = '2.5d') => `(async () => {
   const world = await (await fetch('./sample-world.json')).json();
   const e = window.__engine;
   await e.dispatch({ type: 'init',
@@ -133,13 +141,15 @@ const initScript = (preset, labels, cam, cards = 0) => `(async () => {
     theme: { base: ${JSON.stringify(preset)}, timeOfDay: 'day', zoomOut: 'keepGameView' },
     labels: ${JSON.stringify(labels)},
     ui: {},
-    locationSource: 'external' });
+    locationSource: 'external',
+    view: ${JSON.stringify(view)} });
   const s = e.scene, w = s.world();
   const cam = ${JSON.stringify(cam)};
   await e.dispatch({ type: 'setCamera', camera: {
     center: s.toLngLat(cam ? { x: cam.x, z: cam.z } : { x: w.start.x, z: w.start.z }),
     distance: (cam ? cam.dist : 48) * w.unitMeters,
-    pitch: cam ? cam.pitch : 40,
+    // The 2D view owns the pitch and refuses one it will not apply, so it is only sent in 2.5D.
+    ...(${JSON.stringify(view)} === '2d' ? {} : { pitch: cam ? cam.pitch : 40 }),
     bearing: cam ? cam.bearing : 28 } });
   const cards = ${JSON.stringify(cards)};
   if (cards > 0) {
@@ -194,7 +204,7 @@ async function runOnce(cfg) {
       if (await evaluate(sessionId, 'window.__MAPRAMA_READY__ === true')) break;
       await sleep(250);
     }
-    const info = await evaluate(sessionId, initScript(cfg.preset, cfg.labels, cfg.cam, cfg.cards ?? 0), true);
+    const info = await evaluate(sessionId, initScript(cfg.preset, cfg.labels, cfg.cam, cfg.cards ?? 0, cfg.view ?? '2.5d'), true);
     await sleep(SETTLE_MS);
 
     // a holo card is on screen exactly when its root is not display:none (the root is a

@@ -28,6 +28,8 @@ import { basisFor, groundAt } from './fit-bounds.js';
 
 export const PITCH_MIN = 0;
 export const PITCH_MAX = 60;
+/** Pitch the "to north" affordance settles at (clamped into the pitch limits in force). */
+export const TO_NORTH_PITCH = 45;
 /** Default closest camera distance, in world units (112 m at the default 8 m per unit). */
 export const DIST_MIN = 14;
 /** Default furthest camera distance, in world units (1,200 m at the default 8 m per unit). */
@@ -122,6 +124,12 @@ function visibleAxis(size: number, before: number, after: number): { start: numb
   return { start: Math.max(0, before) * k, length: Math.max(1, size - total * k) };
 }
 
+/** The pitch limits in force, in degrees. `min === max` means the pitch is pinned (2D view). */
+export interface PitchLimits {
+  min: number;
+  max: number;
+}
+
 /** The distance limits in force, in world units, and whether the renderer had to narrow the request. */
 export interface DistanceLimits {
   min: number;
@@ -169,6 +177,8 @@ export class CameraController {
   private readonly tmp = new Vector3();
   private distMin = DIST_MIN;
   private distMax = DIST_MAX;
+  private pitchLo = PITCH_MIN;
+  private pitchHi = PITCH_MAX;
 
   constructor(camera?: PerspectiveCamera) {
     this.camera = camera ?? new PerspectiveCamera(CAMERA_FOV_DEG, 1, NEAR_BASE, FAR_BASE);
@@ -204,6 +214,50 @@ export class CameraController {
   /** Clamps a distance (world units) into the limits in force. */
   clampDistance(distance: number): number {
     return clamp(Number.isFinite(distance) ? distance : this.orbit.distance, this.distMin, this.distMax);
+  }
+
+  /** The pitch limits in force, in degrees. */
+  get pitchLimits(): Readonly<PitchLimits> {
+    return { min: this.pitchLo, max: this.pitchHi };
+  }
+
+  /** True while the pitch cannot be changed at all (`min === max`) — the 2D view pins it at 0. */
+  get pitchLocked(): boolean {
+    return this.pitchHi <= this.pitchLo;
+  }
+
+  /**
+   * Replaces the pitch limits, in degrees, inside `[PITCH_MIN, PITCH_MAX]`.
+   *
+   * This is how the 2D view mode owns the pitch: it narrows the window to
+   * `[0, 0]` (and, while a view transition runs, to the single interpolated
+   * value), which re-clamps the pitch **now** and keeps gestures inside it.
+   * A running camera transition is re-clamped too — its target pitch would
+   * otherwise tilt the map back up a few frames later — while its position,
+   * distance and bearing keep animating untouched, so a `setCamera` and a
+   * `setView` issued together do not cancel each other.
+   */
+  setPitchLimits(min: number, max: number): void {
+    const lo = clamp(Number.isFinite(min) ? min : PITCH_MIN, PITCH_MIN, PITCH_MAX);
+    const hi = clamp(Number.isFinite(max) ? max : PITCH_MAX, lo, PITCH_MAX);
+    if (lo === this.pitchLo && hi === this.pitchHi) return;
+    this.pitchLo = lo;
+    this.pitchHi = hi;
+    const tr = this.transition;
+    if (tr) {
+      tr.from.pitch = this.clampPitch(tr.from.pitch);
+      tr.to.pitch = this.clampPitch(tr.to.pitch);
+    }
+    const p = this.clampPitch(this.orbit.pitch);
+    if (p !== this.orbit.pitch) {
+      this.orbit.pitch = p;
+      this.markChanged();
+    }
+  }
+
+  /** Clamps a pitch (degrees) into the limits in force. */
+  clampPitch(pitch: number): number {
+    return clamp(Number.isFinite(pitch) ? pitch : this.orbit.pitch, this.pitchLo, this.pitchHi);
   }
 
   /** Sets the viewport size in CSS pixels. */
@@ -293,7 +347,7 @@ export class CameraController {
     this.transition = null;
     this.toNorthActive = false;
     this.orbit.bearing = this.orbit.bearing + dBearing;
-    this.orbit.pitch = clamp(this.orbit.pitch + dPitch, PITCH_MIN, PITCH_MAX);
+    this.orbit.pitch = this.clampPitch(this.orbit.pitch + dPitch);
     this.markChanged('gesture');
   }
 
@@ -317,14 +371,18 @@ export class CameraController {
     return this.followId;
   }
 
-  /** Animates bearing to north and pitch to 45° (a map-UI affordance, so `gesture`). */
+  /**
+   * Animates bearing to north and pitch to 45° (a map-UI affordance, so
+   * `gesture`). The pitch target is clamped into the limits in force, so in the
+   * 2D view the button only turns the map north and leaves it flat.
+   */
   toNorth(): void {
     this.toNorthActive = true;
     this.moveReason = 'gesture';
     this.notifyActivity();
     if (this.reduceMotion) {
       this.orbit.bearing = 0;
-      this.orbit.pitch = 45;
+      this.orbit.pitch = this.clampPitch(TO_NORTH_PITCH);
       this.toNorthActive = false;
       this.markChanged('gesture');
     }
@@ -386,11 +444,12 @@ export class CameraController {
     if (this.toNorthActive) {
       const d = wrapDeg(-this.orbit.bearing);
       const k = Math.min(1, dt * 6);
+      const targetPitch = this.clampPitch(TO_NORTH_PITCH);
       this.orbit.bearing += d * k;
-      this.orbit.pitch += (45 - this.orbit.pitch) * k;
-      if (Math.abs(d) < 0.3 && Math.abs(45 - this.orbit.pitch) < 0.3) {
+      this.orbit.pitch += (targetPitch - this.orbit.pitch) * k;
+      if (Math.abs(d) < 0.3 && Math.abs(targetPitch - this.orbit.pitch) < 0.3) {
         this.orbit.bearing = 0;
-        this.orbit.pitch = 45;
+        this.orbit.pitch = targetPitch;
         this.toNorthActive = false;
       }
       this.dirty = true;
@@ -523,7 +582,7 @@ export class CameraController {
       x: Number.isFinite(o.x) ? o.x : 0,
       z: Number.isFinite(o.z) ? o.z : 0,
       distance: this.clampDistance(o.distance),
-      pitch: clamp(o.pitch, PITCH_MIN, PITCH_MAX),
+      pitch: this.clampPitch(o.pitch),
       bearing: Number.isFinite(o.bearing) ? o.bearing : 0,
     };
   }

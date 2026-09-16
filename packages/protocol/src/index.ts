@@ -236,6 +236,7 @@ export type {
   SetOverlayAnchorsCommand,
   SetThemeCommand,
   SetUiCommand,
+  SetViewCommand,
   SnapToRoadResult,
   SubscribeCommand,
   SubscriptionTopic,
@@ -247,4 +248,8 @@ export type {
   TravelStartEvent,
   UnsubscribeCommand,
   UpsertCharactersCommand,
+  ViewChangeEvent,
 } from './messages.js';
+
+export { DEFAULT_VIEW_MODE, VIEW_MODES, VIEW_TRANSITION_MS } from './view.js';
+export type { ViewMode } from './view.js';

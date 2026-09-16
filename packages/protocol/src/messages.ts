@@ -65,6 +65,7 @@ import {
 } from './labels.js';
 import { checkInfoCardSpec, type InfoCardSpec } from './info-card.js';
 import { checkThemeSpec, type ThemeSpec } from './theme.js';
+import { checkViewMode, type ViewMode } from './view.js';
 import { checkWorldSource, type WorldSource } from './world.js';
 
 /** Protocol version carried in every envelope's `v`. */
@@ -84,6 +85,8 @@ export interface InitCommand {
   /** Initial camera; engine default framing when absent. */
   camera?: CameraSpec;
   locationSource: LocationSourceKind;
+  /** Initial render view mode; `DEFAULT_VIEW_MODE` (`'2.5d'`) when absent. */
+  view?: ViewMode;
 }
 
 /** Replaces the theme. */
@@ -238,6 +241,24 @@ export interface SetInfoCardCommand {
 export interface RemoveInfoCardCommand {
   type: 'removeInfoCard';
   id: string;
+}
+
+/**
+ * Switches the render view mode (see `ViewMode`).
+ *
+ * The transition is **animated by default** (`animate` absent is treated as
+ * `true`): the buildings grow or sink and the pitch interpolates over
+ * {@link VIEW_TRANSITION_MS}. `animate: false` applies the mode on the next
+ * frame. Sending the mode the engine is already in is a no-op that still
+ * answers with one `view:change`.
+ *
+ * @see `VIEW_TRANSITION_MS`, `DEFAULT_VIEW_MODE`
+ */
+export interface SetViewCommand {
+  type: 'setView';
+  view: ViewMode;
+  /** `false` to switch instantly; `{ durationMs }` for a custom duration. Default `true`. */
+  animate?: boolean | { durationMs: number };
 }
 
 /** Replaces all geofences. */
@@ -496,7 +517,8 @@ export type EngineCommand =
   | UnsubscribeCommand
   | RequestCommand
   | SetInfoCardCommand
-  | RemoveInfoCardCommand;
+  | RemoveInfoCardCommand
+  | SetViewCommand;
 
 /** Command `type` tag. */
 export type EngineCommandType = EngineCommand['type'];
@@ -802,6 +824,22 @@ export interface InfoCardDismissEvent {
   id: string;
 }
 
+/**
+ * The render view mode changed, or a view transition ended.
+ *
+ * Emitted twice for an animated switch — once with `animating: true` when it
+ * starts, once with `animating: false` when it settles — and once with
+ * `animating: false` for an instant switch or for a `setView` that asked for
+ * the mode the engine is already in. `view` is always the mode being moved
+ * **to**, so a host can flip its own 2D chrome the moment the transition starts
+ * and wait for `animating: false` before measuring anything.
+ */
+export interface ViewChangeEvent {
+  type: 'view:change';
+  view: ViewMode;
+  animating: boolean;
+}
+
 /** Screen position of an overlay anchor. */
 export interface OverlayPosition extends ScreenPoint {
   id: string;
@@ -859,7 +897,8 @@ export type EngineEvent =
   | ResponseEvent
   | CameraIdleEvent
   | InfoCardPressEvent
-  | InfoCardDismissEvent;
+  | InfoCardDismissEvent
+  | ViewChangeEvent;
 
 /** Event `type` tag. */
 export type EngineEventType = EngineEvent['type'];
@@ -943,7 +982,7 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
       ui: checkMapUiSpec,
       locationSource: oneOf(LOCATION_SOURCE_KINDS),
     },
-    { camera: checkCameraSpec },
+    { camera: checkCameraSpec, view: checkViewMode },
   ),
   setTheme: object({ theme: checkThemeSpec }),
   setLabels: object({ labels: checkLabelsSpec }),
@@ -994,6 +1033,8 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
   removeMarkerLayer: object({ layerId: id }),
   setInfoCard: object({ card: checkInfoCardSpec }),
   removeInfoCard: object({ id }),
+  // view.ts, appended after the info-card commands.
+  setView: object({ view: checkViewMode }, { animate: anyOf(boolean, object({ durationMs: nonNegativeNumber })) }),
 };
 
 const cameraState: Check = object({
@@ -1055,6 +1096,7 @@ const eventChecks: { [K in EngineEventType]: Check } = {
   }),
   'infoCard:press': object({ id }, { actionId: nonEmptyString }),
   'infoCard:dismiss': object({ id }),
+  'view:change': object({ view: checkViewMode, animating: boolean }),
 };
 
 /** Every command `type`, in declaration order. */

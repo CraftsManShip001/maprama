@@ -83,7 +83,11 @@ export class HoloLabels {
     }
   }
 
-  update(cam: CameraController, mode: LabelContentMode, entries: Readonly<Record<string, LabelContent>>, exclusions: readonly Box[], groundY: number, now: number): void {
+  /**
+   * @param heightScale How much of the hologram's stalk is drawn (1 = 2.5D,
+   *   0 = the flat 2D view, where a card sits flat on its own coordinate).
+   */
+  update(cam: CameraController, mode: LabelContentMode, entries: Readonly<Record<string, LabelContent>>, exclusions: readonly Box[], groundY: number, now: number, heightScale = 1): void {
     const tx = cam.orbit.x, tz = cam.orbit.z, dist = cam.orbit.distance;
     const v = cam.view, X0 = v.x, Y0 = v.y, W = v.width, H = v.height;
     const cands: HoloCandidate[] = [];
@@ -95,7 +99,7 @@ export class HoloLabels {
       let onScreen = false, top = { x: 0, y: 0 };
       if (eligible) {
         this.applyContent(h, mode, entries);
-        const g = cam.worldToScreen(e.x, groundY, e.z), t = cam.worldToScreen(e.x, groundY + HOLO_HEIGHT[e.kind], e.z);
+        const g = cam.worldToScreen(e.x, groundY, e.z), t = cam.worldToScreen(e.x, groundY + HOLO_HEIGHT[e.kind] * heightScale, e.z);
         onScreen = inFront(cam, e.x, e.z) && t.x >= X0 - 0.01 * W && t.x <= X0 + 1.01 * W && t.y >= Y0 + 0.01 * H && t.y <= Y0 + 0.99 * H;
         anchors.set(e.id, { gx: g.x, gy: g.y, tx: t.x });
         if (onScreen && !h.w) {

@@ -203,6 +203,7 @@ export type ModelLoader = (uri: string) => Promise<Object3D>;
 export class BuildingRenderer {
   readonly group = new Group();
   private entries = new Map<string, Entry>();
+  private readonly styleMap = new Map<string, BuildingOverride>();
   private ctx: RenderContext | null = null;
   private modelCache = new Map<string, Promise<Object3D>>();
   private _animating = false;
@@ -221,6 +222,7 @@ export class BuildingRenderer {
     const sameWorld = this.ctx?.world === ctx.world;
     this.ctx = ctx;
     const oldStyles = sameWorld ? new Map([...this.entries].map(([id, e]) => [id, e.style])) : new Map<string, BuildingOverride>();
+    if (!sameWorld) this.styleMap.clear();
     clearGroup(this.group);
     this.entries.clear();
     for (const b of ctx.world.buildings) {
@@ -246,11 +248,28 @@ export class BuildingRenderer {
     const e = this.entries.get(id);
     if (!e) return false;
     e.style = style ? overrideFromStyle(style) : {};
+    if (style) this.styleMap.set(id, e.style);
+    else this.styleMap.delete(id);
     if (!e.style.modelUri) { e.model = null; e.modelUri = null; }
     this.buildOne(e);
     e.bounce = 0.3;
     if (e.style.modelUri && e.modelUri !== e.style.modelUri) this.loadReplacement(e, e.style.modelUri);
     return true;
+  }
+
+  /**
+   * Hides (or shows) every extruded building. The 2D view sets this once the
+   * transition is over: with the group invisible three skips the whole subtree,
+   * so the thousands of building draw calls and the shadow pass over them cost
+   * nothing at all — collapsing them to zero height would still submit them.
+   */
+  setHidden(hidden: boolean): void {
+    this.group.visible = !hidden;
+  }
+
+  /** True while the extruded buildings are hidden (the flat view draws the footprints instead). */
+  private get hidden(): boolean {
+    return !this.group.visible;
   }
 
   /** Short squash-and-stretch feedback (e.g. on press). */
@@ -266,6 +285,33 @@ export class BuildingRenderer {
     e.group.updateMatrixWorld();
     v.applyMatrix4(e.group.matrixWorld);
     return { id, top: { x: v.x, y: v.y, z: v.z }, model: e.b };
+  }
+
+  /**
+   * The style overrides in force, by building id — the live map, so the flat
+   * renderer can read it once per rebuild without allocating.
+   */
+  get styles(): ReadonlyMap<string, BuildingOverride> {
+    return this.styleMap;
+  }
+
+  /**
+   * The building whose footprint contains a ground point, or `null`.
+   *
+   * This is how a press is resolved in the 2D view: the extruded meshes are
+   * hidden there (and collapsed to zero height, so a ray would graze a
+   * degenerate prism), while the flat layer is a handful of merged meshes with
+   * no per-building identity. A ground point against the footprints costs one
+   * linear scan per press — never per frame — and gives the same answer the
+   * 2.5D raycast would for a tap on a roof.
+   */
+  pickAt(x: number, z: number): { id: string; point: Vector3 } | null {
+    for (const e of this.entries.values()) {
+      const b = e.b;
+      if (!pointInPolygon(x, z, b.footprint)) continue;
+      return { id: b.id, point: new Vector3(x, this.ctx?.world.buildingBaseY ?? 0, z) };
+    }
+    return null;
   }
 
   /** First building hit by a ray. */
@@ -290,6 +336,12 @@ export class BuildingRenderer {
 
   /** Per-frame animation: bounce, zoom-out height scale, landmark spin, captured glow. */
   step(dt: number, t: number, scaleY: number, reduceMotion: boolean): void {
+    // Nothing here is visible in the flat view, and a spinning landmark or a pulsing captured glow
+    // that nobody can see must not keep the on-demand render loop awake.
+    if (this.hidden) {
+      this._animating = false;
+      return;
+    }
     const k = 0.28 + (reduceMotion ? 0 : Math.sin(t * 3) * 0.14);
     let animating = false;
     for (const e of this.entries.values()) {
@@ -318,6 +370,7 @@ export class BuildingRenderer {
   dispose(): void {
     clearGroup(this.group);
     this.entries.clear();
+    this.styleMap.clear();
   }
 
   // -------------------------------------------------------------------------

@@ -1,0 +1,76 @@
+# 2D ⇄ 2.5D: the declarative prop, the awaited ref call, and the two rules about pitch.
+#
+# The engine never switches the mode by itself, so every step here is the app asking for it. The
+# flow also proves the refusal contract: `setCamera({ pitch })` in 2D is answered with a non-fatal
+# `view_pitch_locked` error (which the screen logs) and the rest of the camera is still applied —
+# the mode is never silently broken.
+appId: dev.maprama.catalog
+name: 2D and 2.5D view modes switch both ways
+tags:
+  - view-mode
+  - camera
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: view-mode
+
+- assertVisible:
+    id: "view-state"
+    text: "view: 2.5d.*pitch free.*"
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: screenshots/15-view-25d
+
+# Declarative: the `view` prop. One chip press → one `setView`, animated.
+- tapOn:
+    id: "view-mode-2d"
+- assertVisible:
+    id: "view-state"
+    text: "view: 2d.*pitch locked at 0.*"
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: screenshots/15-view-2d
+
+# A pitch in 2D is refused, loudly: the screen logs the `view_pitch_locked` message.
+- tapOn:
+    id: "view-try-pitch"
+- extendedWaitUntil:
+    visible:
+      id: "view-log"
+      text: ".*refused:.*view keeps the pitch at 0.*"
+    timeout: 10000
+# …and the map is still flat afterwards (the refusal did not leave it half-tilted).
+- assertVisible:
+    id: "view-state"
+    text: "view: 2d.*"
+- takeScreenshot: screenshots/15-view-2d-pitch-refused
+
+# Imperative: `ref.setView` resolves only when the transition has settled.
+- tapOn:
+    id: "view-ref-25d"
+- extendedWaitUntil:
+    visible:
+      id: "view-log"
+      text: ".*ref.setView\\('2.5d'\\) settled after [0-9]+ ms.*"
+    timeout: 15000
+- assertVisible:
+    id: "view-state"
+    text: "view: 2.5d.*"
+
+# The instant path: no animation, same end state.
+- tapOn:
+    id: "view-animate"
+- tapOn:
+    id: "view-ref-2d"
+- extendedWaitUntil:
+    visible:
+      id: "view-log"
+      text: ".*ref.setView\\('2d'\\) settled after [0-9]+ ms.*"
+    timeout: 15000
+- assertVisible:
+    id: "view-state"
+    text: "view: 2d.*instant.*"
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: screenshots/15-view-2d-instant

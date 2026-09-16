@@ -555,7 +555,7 @@ export class Features {
     const exclusions = hudExclusions(cam.width, cam.height, ui, cam.inset);
     // Info cards win every collision: they are placed first, never dropped, and their boxes
     // become exclusions for the markers and then for the labels.
-    this.infoCardBoxes = this.infoCards.update(cam, this.scene.projection(), now);
+    this.infoCardBoxes = this.infoCards.update(cam, this.scene.projection(), now, this.scene.anchorHeightScale());
     const beforeMarkers = this.infoCardBoxes.length ? [...exclusions, ...this.infoCardBoxes] : exclusions;
     this.markerBoxes = this.markers.update(cam, beforeMarkers, this.groundY());
     const reserved = this.infoCardBoxes.length ? [...this.infoCardBoxes, ...this.markerBoxes] : this.markerBoxes;

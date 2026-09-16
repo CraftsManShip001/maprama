@@ -215,6 +215,31 @@ describe('prop diffs', () => {
     ]);
   });
 
+  it('sends the view mode with init only when it is not the default', async () => {
+    await render(<Map view="2.5d" />);
+    await emit(READY);
+    const [initDefault] = commands();
+    expect(initDefault).not.toHaveProperty('view');
+    clearPosted();
+
+    await render(<Map view="2d" />);
+    await emit(READY);
+    expect(commands()[0]).toMatchObject({ type: 'init', view: '2d' });
+  });
+
+  it('sends setView when the view prop changes, and nothing when it does not', async () => {
+    const { rerender } = await readyMap({ view: '2.5d' });
+    await rerender(<Map view="2.5d" />);
+    expect(commandTypes()).toEqual([]);
+
+    await rerender(<Map view="2d" />);
+    expect(commands()).toEqual([{ type: 'setView', view: '2d' }]);
+    clearPosted();
+
+    await rerender(<Map view="2.5d" />);
+    expect(commands()).toEqual([{ type: 'setView', view: '2.5d' }]);
+  });
+
   it('switches the location source', async () => {
     const { rerender } = await readyMap({ location: { source: 'external' } });
     await rerender(<Map location={{ source: 'simulated' }} />);

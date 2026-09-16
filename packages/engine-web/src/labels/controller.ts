@@ -119,7 +119,7 @@ export class LabelController {
     if (style === 'holo') {
       if (!this.holo) this.holo = new HoloLabels(layer);
       if (!this.holoBuilt) { this.holo.build(this.entries); this.holoBuilt = true; }
-      this.holo.update(cam, spec.content, content, exclusions, groundY, now);
+      this.holo.update(cam, spec.content, content, exclusions, groundY, now, this.scene.anchorHeightScale());
     } else this.holo?.hide();
 
     if (style === 'ground' || style === 'sign') {

@@ -7,7 +7,7 @@
  */
 
 import { clamp, DEG } from '../util/math.js';
-import { PITCH_MAX, PITCH_MIN, type CameraController } from './camera.js';
+import type { CameraController } from './camera.js';
 
 export interface GestureHandlers {
   /** Tap at CSS pixel coordinates relative to the element. */
@@ -72,7 +72,10 @@ export class GestureController {
       const n = this.twoInfo() as Extract<Gesture, { type: 'two' }>;
       this.cam.zoomTo((g.dist0 * g.len) / n.len);
       const o = this.cam.orbit;
-      this.cam.rotateBy(g.bearing0 + (n.ang - g.ang) / DEG - o.bearing, clamp(g.pitch0 - (n.midY - g.midY) * 0.3, PITCH_MIN, PITCH_MAX) - o.pitch);
+      // The pitch limits in force decide how far a two-finger drag may tilt: the 2D view pins them
+      // at [0, 0], so the twist and the pinch keep working while the tilt does nothing.
+      const pl = this.cam.pitchLimits;
+      this.cam.rotateBy(g.bearing0 + (n.ang - g.ang) / DEG - o.bearing, clamp(g.pitch0 - (n.midY - g.midY) * 0.3, pl.min, pl.max) - o.pitch);
       return;
     }
     if (g.type === 'maybe' && Math.hypot(p.x - g.sx, p.y - g.sy) > 6) g.type = g.rotate ? 'rotate' : 'pan';

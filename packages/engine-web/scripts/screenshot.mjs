@@ -61,6 +61,13 @@ const SCENARIOS = [
   { name: 'info-card-roof', hash: 'layout=sample&preset=modern&tod=day&labels=holo&cards=1&cardAnchor=roof&cardsOn=building&dist=26&pitch=50&bearing=200&x=-13&z=11&settle=1200' },
   { name: 'info-card-inset', hash: 'layout=sample&preset=modern&tod=day&labels=holo&ui=1&cards=1&cardAnchor=auto&inset=300&dist=34&pitch=52&bearing=20&x=2.7&z=-3.5&settle=1200' },
   { name: 'info-cards-five-night', hash: 'layout=sample&preset=urban&tod=night&labels=holo&cards=5&cardAnchor=auto&dist=70&pitch=48&bearing=20&x=0&z=4&settle=1200' },
+  // 2D ⇄ 2.5D view mode: the same framing in both modes, a mid-transition frame, and 2D with
+  // labels and markers (their anchors are flattened onto the ground).
+  { name: 'view-25d-town-day', hash: 'layout=town&preset=urban&tod=day&view=2.5d&dist=100&pitch=45&bearing=28&x=0&z=0' },
+  { name: 'view-2d-town-day', hash: 'layout=town&preset=urban&tod=day&view=2d&dist=100&bearing=28&x=0&z=0' },
+  { name: 'view-transition-town-day', hash: 'layout=town&preset=urban&tod=day&view=2.5d&viewTo=2d&viewAt=0.5&dist=100&pitch=45&bearing=28&x=0&z=0' },
+  { name: 'view-2d-labels-cards', hash: 'layout=sample&preset=modern&tod=day&view=2d&labels=holo&cards=2&cardAnchor=auto&ui=1&dist=62&bearing=20&x=0&z=4&settle=1500' },
+  { name: 'view-25d-labels-cards', hash: 'layout=sample&preset=modern&tod=day&view=2.5d&labels=holo&cards=2&cardAnchor=auto&ui=1&dist=62&pitch=42&bearing=20&x=0&z=4&settle=1500' },
   { name: 'sample-labels-custom-ui', hash: 'layout=sample&preset=modern&tod=day&labels=holo&content=custom&ui=1&player=1&dist=62&pitch=42&bearing=20&x=0&z=4&settle=1500' },
   // real OSM sample produced by tools/osm (read-only; skipped when absent)
   { name: 'seongsu-urban-day', hash: 'layout=sample&world=/osm-samples/seongsu.world.json&preset=urban&tod=day&dist=60&pitch=45', requires: join(repo, 'tools/osm/samples/seongsu.world.json') },

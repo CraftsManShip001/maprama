@@ -15,6 +15,30 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- **2D ⇄ 2.5D view modes** (`view` prop / `ref.setView` / `setView` command /
+  `init.view`): the same map drawn either as the tilted diorama (`'2.5d'`, the
+  default) or as a flat map (`'2d'`). The engine **never** switches on its own —
+  no zoom threshold, no device class — so a declarative prop and an imperative
+  call never fight. A pitch of 0 is not what makes it a map, so the flat mode
+  also drops the building extrusion for filled footprints with an outline, turns
+  the shadow pass off, removes the distance fog and the mood overlays, hides the
+  street clutter and flattens every floating anchor (holo label stalks, drop
+  items, roof-anchored info cards) onto the ground — a perspective camera
+  projects a raised point away from its own coordinate even when looking
+  straight down. The pitch is pinned at 0 **and locked against gestures**; a
+  `setCamera` / `fitBounds` / `focusOn` pitch is refused with one non-fatal
+  `view_pitch_locked` error while the rest of the command still applies, rather
+  than being silently ignored. Transitions animate by default
+  (`VIEW_TRANSITION_MS`, 450 ms; `animate: false` for an instant switch),
+  interpolate building height and pitch together, and retarget from the current
+  state when a second `setView` arrives mid-flight; `ref.setView` resolves when
+  the transition settles and `view:change` reports its start and end. The flat
+  mode is also **the cheap mode**: one merged fill mesh per colour plus one
+  outline mesh for the whole world, measured at 20–100× fewer draw calls and
+  1.5–2.9× the panning frame rate (`packages/engine-web/scripts/view-cost.mjs`),
+  while a static 2D map still draws **0 idle frames**. Native: the C++ core
+  decodes and validates the command and `init.view`, then warn-logs and ignores
+  them — the native flat view is a follow-up.
 - **Holographic info cards** (`<InfoCard>` / `setInfoCard` / `removeInfoCard`):
   a structured place card floating over a coordinate on a beam — title,
   subtitle, place icon, status badges, a rating, detail rows and action

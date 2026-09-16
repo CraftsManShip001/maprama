@@ -236,7 +236,13 @@ export class InfoCards {
    * Projects and positions every card. Returns the boxes of the visible ones,
    * which the marker and label passes take as exclusions.
    */
-  update(cam: CameraController, proj: Projection, now: number): Box[] {
+  /**
+   * @param heightScale How much of the column a card floats over is drawn
+   *   (1 = 2.5D, 0 = the flat 2D view, where the card sits on its coordinate).
+   *   A roof anchor's `baseY` needs no scaling: it is re-read from the building,
+   *   which the flat view has already brought down to the ground.
+   */
+  update(cam: CameraController, proj: Projection, now: number, heightScale = 1): Box[] {
     this.lastNow = now;
     if (this.views.size === 0) {
       if (this.boxes.length) this.boxes = [];
@@ -271,7 +277,7 @@ export class InfoCards {
         if (y !== null) a.baseY = y;
       }
       const foot = cam.worldToScreen(a.x, a.baseY, a.z);
-      const top = cam.worldToScreen(a.x, a.baseY + a.height, a.z);
+      const top = cam.worldToScreen(a.x, a.baseY + a.height * heightScale, a.z);
       if (!view.w) {
         view.root.style.display = '';
         view.w = view.card.offsetWidth;
