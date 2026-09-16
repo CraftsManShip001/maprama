@@ -93,6 +93,8 @@ export class Engine implements EngineHandle {
   private followResolver: ((id: string) => FollowTarget | null) | null = null;
   private features: Features | null = null;
   private cameraSub: { throttleMs: number; last: number; pending: boolean } | null = null;
+  /** Active render sources currently held, by tag (see {@link hold}). */
+  private readonly holds = new Map<string, () => void>();
   private readonly reduceMotion: boolean;
 
   constructor(private readonly container: HTMLElement, private readonly options: EngineOptions) {
@@ -171,6 +173,8 @@ export class Engine implements EngineHandle {
     if (this.destroyed) return;
     this.destroyed = true;
     for (const c of this.cleanups.splice(0)) c();
+    for (const release of this.holds.values()) release();
+    this.holds.clear();
     this.features?.dispose();
     this.features = null;
     this.options.transport.close?.();
@@ -369,6 +373,25 @@ export class Engine implements EngineHandle {
         sub.pending = false;
         this.emit({ type: 'camera:change', camera: this.cameraState() });
       }
+    }
+    // Keep the loop awake exactly while the part-1 renderers still animate. A camera subscription
+    // that is still pending also needs one more frame to get its throttled event out.
+    this.hold('camera', this.cam.animating);
+    this.hold('zoomOut', this.zoomOut.animating);
+    this.hold('buildings', this.buildingsR.animating);
+    this.hold('camera:change', !!sub?.pending);
+  }
+
+  /** Acquires / releases the active render source `tag` so it is held exactly while `want` is true. */
+  private hold(tag: string, want: boolean): void {
+    const release = this.holds.get(tag);
+    if (want === !!release) return;
+    if (want) {
+      const core = this.core;
+      if (core) this.holds.set(tag, core.addActiveSource(tag));
+    } else {
+      release!();
+      this.holds.delete(tag);
     }
   }
 

@@ -108,7 +108,7 @@ export class LabelController {
     if (style && DOM_STYLES.includes(style)) {
       if (!this.dom) this.dom = new DomLabels(layer);
       if (!this.domBuilt) { this.dom.build(this.entries); this.domBuilt = true; }
-      this.dom.update(cam, style as DomLabelStyle, spec, content, this.scene.zoomOutFactor(), exclusions);
+      this.dom.update(cam, style as DomLabelStyle, spec, content, this.scene.zoomOutFactor(), exclusions, now);
     } else this.dom?.hide();
 
     if (style === 'holo') {
@@ -127,6 +127,14 @@ export class LabelController {
       this.world3d.group.visible = true;
       this.world3d.step(cam.orbit.bearing);
     } else if (this.world3d) this.world3d.group.visible = false;
+  }
+
+  /**
+   * True while the labels still need frames: a holo card that was hidden has
+   * to be updated once more, 320 ms later, to leave the layout.
+   */
+  get animating(): boolean {
+    return this.holo?.animating ?? false;
   }
 
   /** Currently shown holo label ids (tooling). */

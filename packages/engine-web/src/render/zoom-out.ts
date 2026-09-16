@@ -20,7 +20,10 @@ import type { RenderParams } from '../theme/params.js';
 import { discsGeo, polyGeo, quadsGeo, ribbonGeo, type Disc, type Quad } from './geometry.js';
 import { clearGroup, noRaycast } from './parts.js';
 
-export const MAP_COLORS = { arterial: 0xf7c45c, casing: 0xd99a32, local: 0xffffff, alley: 0xf3f0ea, ground: 0xeeeae2, park: 0xc4e2b2, water: 0x9ccbeb };
+/** Distance from the zoom-out target below which the easing snaps onto it (and stops asking for frames). */
+const SNAP = 0.0005;
+
+export const MAP_COLORS ={ arterial: 0xf7c45c, casing: 0xd99a32, local: 0xffffff, alley: 0xf3f0ea, ground: 0xeeeae2, park: 0xc4e2b2, water: 0x9ccbeb };
 
 export interface ZoomOutTargets {
   fog: Fog;
@@ -41,6 +44,8 @@ export class ZoomOutController {
   t = 0;
   /** Building height multiplier (1 unless `mapColors`). */
   scaleY = 1;
+  /** True while `t` is still easing toward its target (see the on-demand render loop). */
+  animating = false;
   private applied = -1;
   private mode: ZoomOutBehavior | null = null;
   private mapMats: MeshBasicMaterial[] = [];
@@ -105,8 +110,12 @@ export class ZoomOutController {
     const behavior = params.zoomOut;
     const target = zoomOutTarget(behavior, distance);
     this.t += (target - this.t) * (reduceMotion ? 1 : Math.min(1, dt * 6));
+    // The easing only approaches its target: snap so it terminates and the loop can go idle.
+    if (Math.abs(target - this.t) < SNAP) this.t = target;
+    this.animating = this.t !== target;
     const t = this.t, mt = behavior === 'mapColors' ? t : 0;
-    if (Math.abs(t - this.applied) > 0.003 || this.applied < 0 || this.mode !== behavior) {
+    // The last (sub-threshold) step still has to be applied, otherwise the settled state is stale.
+    if (Math.abs(t - this.applied) > 0.003 || this.applied < 0 || this.mode !== behavior || (!this.animating && this.applied !== t)) {
       this.applied = t;
       this.mode = behavior;
       for (const m of this.mapMats) {

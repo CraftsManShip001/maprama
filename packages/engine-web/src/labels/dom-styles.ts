@@ -114,6 +114,9 @@ export function ensureLabelStyles(doc: Document): void {
   doc.head.appendChild(style);
 }
 
+/** Minimum gap (ms) between two DOM label placements (≈ every other frame at 60 fps). */
+const MIN_INTERVAL_MS = 24;
+
 interface DomLabel {
   entry: LabelEntry;
   el: HTMLDivElement;
@@ -126,7 +129,7 @@ interface DomLabel {
 /** The DOM label layer for the map-app styles. */
 export class DomLabels {
   private labels: DomLabel[] = [];
-  private frame = 0;
+  private lastUpdate = -Infinity;
 
   constructor(private readonly layer: HTMLElement) {}
 
@@ -152,8 +155,15 @@ export class DomLabels {
     for (const l of this.labels) if (l.shown) { l.el.style.display = 'none'; l.shown = false; }
   }
 
-  update(cam: CameraController, style: DomLabelStyle, spec: LabelsSpec, entries: Readonly<Record<string, LabelContent>>, zoomOut: number, exclusions: readonly Box[]): void {
-    if ((this.frame++ & 1) !== 0) return;
+  /**
+   * Places the labels. `now` is the frame timestamp (ms): placement is
+   * throttled to {@link MIN_INTERVAL_MS}, which skips every other frame at
+   * 60 fps like before but — unlike a frame counter — never skips an isolated
+   * on-demand frame (after a resize, say), which would leave labels stale.
+   */
+  update(cam: CameraController, style: DomLabelStyle, spec: LabelsSpec, entries: Readonly<Record<string, LabelContent>>, zoomOut: number, exclusions: readonly Box[], now: number): void {
+    if (now - this.lastUpdate < MIN_INTERVAL_MS) return;
+    this.lastUpdate = now;
     const mode: LabelContentMode = spec.content ?? 'nameAndType';
     const dist = cam.orbit.distance, W = cam.width, H = cam.height;
     const placed: Box[] = [...exclusions];

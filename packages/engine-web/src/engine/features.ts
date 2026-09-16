@@ -108,11 +108,6 @@ export class Features {
     this.routes.name = 'routes';
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
 
-    // With reduced motion the never-ending idle animations (character breathing, geofence pulses,
-    // the captured-building glow, zoom-out and camera easings) all collapse, so the features only
-    // need frames while something really moves — see `updateSources`. Without it they still run, so
-    // the loop stays awake as before.
-    if (!scene.reduceMotion) this.offs.push(scene.addActiveSource('features'));
     this.offs.push(
       scene.onWorldLoad((w) => this.worldLoaded(w)),
       scene.onThemeChange((p) => {
@@ -351,10 +346,27 @@ export class Features {
   /**
    * Keeps the render loop awake exactly while something still moves. Anything
    * that starts moving from outside a frame (a command, a gesture, an async
-   * model) asks for one frame, and this picks the source up on that frame.
+   * model) asks for one frame, and this picks the sources up on that frame.
+   *
+   * Runs at the end of `frame`, so every predicate describes the frame that
+   * was just stepped. The label source is handled in `beforeRender` instead,
+   * because a holo card can only be marked as fading out there.
    */
   private updateSources(): void {
-    this.hold('features:dynamic', this.dropVisuals.animating || this.traffic.animating || this.travel.active || this.location.animating || this.chars.chars.size > 0);
+    const rm = this.scene.reduceMotion;
+    this.hold('chars', this.chars.animating);
+    this.hold('travel', this.travel.active);
+    this.hold('drops', this.dropVisuals.animating);
+    this.hold('geofences', this.fenceVisuals.animating(rm));
+    this.hold('traffic', this.traffic.animating);
+    // The simulated walker only matters while a character follows it: otherwise its fixes
+    // change nothing on screen, and stepping it would keep a demo map rendering forever.
+    this.hold('location', this.location.animating && this.hasLocationFollower());
+  }
+
+  private hasLocationFollower(): boolean {
+    for (const c of this.chars.chars.values()) if (c.spec.follow === 'location') return true;
+    return false;
   }
 
   private frame(dt: number, t: number): void {
@@ -401,6 +413,13 @@ export class Features {
   }
 
   private beforeRender(): void {
+    this.project();
+    // A holo card is only marked as fading out here, so its source is picked up after projection
+    // (in `frame` it would be one frame stale, and the card would never leave the layout).
+    this.hold('labels', this.labels.animating);
+  }
+
+  private project(): void {
     const cam = this.scene.camera;
     const now = performance.now();
     if (this.anchors.length) {
