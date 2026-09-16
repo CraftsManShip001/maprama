@@ -202,7 +202,9 @@ function loadWorld(): void {
     locationSource: 'external',
   });
   let readyAt = -1;
-  disposeFrame = scene.onFrame(() => {
+  // Rendering is on demand: hold an active source until the world had its settle frames.
+  const releaseRender = scene.addActiveSource('playground:load');
+  const offFrame = scene.onFrame(() => {
     if (token !== loadToken) return;
     if (readyAt < 0) {
       const w = scene.world();
@@ -218,6 +220,10 @@ function loadWorld(): void {
       window.__MAPRAMA_PLAYGROUND_READY__ = true;
     }
   });
+  disposeFrame = () => {
+    offFrame();
+    releaseRender();
+  };
 }
 
 function afterWorldLoad(): void {

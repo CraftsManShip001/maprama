@@ -93,10 +93,14 @@ export class Engine implements EngineHandle {
   private followResolver: ((id: string) => FollowTarget | null) | null = null;
   private features: Features | null = null;
   private cameraSub: { throttleMs: number; last: number; pending: boolean } | null = null;
+  /** Active render sources currently held, by tag (see {@link hold}). */
+  private readonly holds = new Map<string, () => void>();
   private readonly reduceMotion: boolean;
 
   constructor(private readonly container: HTMLElement, private readonly options: EngineOptions) {
-    this.dispatcher = new Dispatcher((e) => this.emit(e));
+    // Almost every command changes what is on screen, and the render loop is idle when nothing
+    // animates: ask for exactly one frame after each of them.
+    this.dispatcher = new Dispatcher((e) => this.emit(e), () => this.core?.requestRender());
     this.cleanups.push(options.transport.onMessage((raw) => { void this.dispatcher.receive(raw); }));
     const win = container.ownerDocument.defaultView;
     this.reduceMotion = !!win?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -121,6 +125,8 @@ export class Engine implements EngineHandle {
     core.world.add(this.staticR.group, this.buildingsR.group, this.zoomOut.mapGroup, this.dynamic);
     this.dynamic.name = 'dynamic';
     this.buildingsR.onModelError = (id, uri, err) => this.emit({ type: 'error', code: 'model_load_failed', message: `building ${id}: failed to load ${uri}: ${err instanceof Error ? err.message : String(err)}`, fatal: false });
+    // A late-arriving glTF replacement rebuilds a building outside any frame hook.
+    this.buildingsR.onModelLoaded = () => core.requestRender();
 
     const resize = (): void => {
       const r = container.getBoundingClientRect();
@@ -141,6 +147,8 @@ export class Engine implements EngineHandle {
 
     this.cam.set(DEFAULT_ORBIT);
     this.cleanups.push(this.cam.onChange(() => { if (this.cameraSub) this.cameraSub.pending = true; }));
+    // Every input path (gestures, wheel, zoom buttons, setCamera) ends in the camera: one frame each.
+    this.cleanups.push(this.cam.onActivity(() => core.requestRender()));
     core.onFrame((dt, t) => this.frame(dt, t));
     this.scene = this.createSceneApi();
     this.features = new Features(this.scene);
@@ -165,6 +173,8 @@ export class Engine implements EngineHandle {
     if (this.destroyed) return;
     this.destroyed = true;
     for (const c of this.cleanups.splice(0)) c();
+    for (const release of this.holds.values()) release();
+    this.holds.clear();
     this.features?.dispose();
     this.features = null;
     this.options.transport.close?.();
@@ -364,6 +374,27 @@ export class Engine implements EngineHandle {
         this.emit({ type: 'camera:change', camera: this.cameraState() });
       }
     }
+    // Keep the loop awake exactly while the part-1 renderers still animate. A camera subscription
+    // that is still pending also needs one more frame to get its throttled event out.
+    this.hold('camera', this.cam.animating);
+    this.hold('zoomOut', this.zoomOut.animating);
+    this.hold('buildings', this.buildingsR.animating);
+    // Only while a world is loaded: without one the emit above never runs and `pending` would
+    // stay true forever, keeping the loop awake for nothing.
+    this.hold('camera:change', !!sub?.pending && !!this.worldModel);
+  }
+
+  /** Acquires / releases the active render source `tag` so it is held exactly while `want` is true. */
+  private hold(tag: string, want: boolean): void {
+    const release = this.holds.get(tag);
+    if (want === !!release) return;
+    if (want) {
+      const core = this.core;
+      if (core) this.holds.set(tag, core.addActiveSource(tag));
+    } else {
+      release!();
+      this.holds.delete(tag);
+    }
   }
 
   private tap(x: number, y: number): void {
@@ -371,6 +402,7 @@ export class Engine implements EngineHandle {
     const hit = this.buildingsR.pick(this.cam.rayAt(x, y));
     if (hit) {
       this.buildingsR.bounce(hit.id);
+      this.core?.requestRender(); // the bounce starts outside a frame hook
       this.emit({ type: 'building:press', buildingId: hit.id, coordinate: this.proj.toLngLat({ x: hit.point.x, z: hit.point.z }) });
       return;
     }
@@ -406,6 +438,9 @@ export class Engine implements EngineHandle {
       zoomOutFactor: () => self.zoomOut.t,
       onFrame: (hook) => core.onFrame(hook),
       onBeforeRender: (hook) => core.onBeforeRender(hook),
+      requestRender: () => core.requestRender(),
+      addActiveSource: (tag) => core.addActiveSource(tag),
+      activeSources: () => core.activeSources(),
       onThemeChange: (hook) => {
         self.themeHooks.add(hook);
         return () => { self.themeHooks.delete(hook); };

@@ -54,7 +54,7 @@ import { clamp, cssHexToNumber, mixHex, offsetHslHex, wrapDeg } from '../util/ma
 import { snap } from '../world/graph.js';
 import type { WorldModel } from '../world/model.js';
 import { Follower, groundYFor, KMH, type FollowerBody } from './follower.js';
-import { buildVehicles, capsule, PLANE_SCALE, PLANE_TOP_Y, stepVehicles, switchVehicle, type PartFn, type VehicleSet } from './vehicles.js';
+import { buildVehicles, capsule, PLANE_SCALE, PLANE_TOP_Y, stepVehicles, switchVehicle, VEHICLE_MODES, type PartFn, type VehicleSet } from './vehicles.js';
 
 /** Height of the procedural character in world units (glTF models are scaled to it). */
 export const CHARACTER_HEIGHT = 1.9;
@@ -81,6 +81,11 @@ const MAX_CADENCE = 2.2;
 const RUN_CADENCE = 1.6;
 /** Below this speed (world units / s) a character counts as standing. */
 const IDLE_SPEED = 1e-3;
+/** Yaw distance (radians, ≈0.06°) below which the turn easing snaps onto its target and stops. */
+const YAW_SNAP = 1e-3;
+
+/** Shortest signed angle (radians) for `a` wrapped to −π…π. */
+const wrapRad = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -402,6 +407,7 @@ export class Character implements FollowerBody {
     loadModel(uri).then((gltf) => {
       if (token !== this.loadToken || this.mgr.disposed) return;
       this.attachModel(gltf);
+      this.mgr.scene.requestRender(); // a late-arriving model changes the picture outside any frame hook
     }, (err: unknown) => {
       if (token !== this.loadToken || this.mgr.disposed) return;
       this.mgr.reportModelError(this.id, uri, err);
@@ -451,10 +457,26 @@ export class Character implements FollowerBody {
     if (a) { a.reset(); a.play(); }
   }
 
+  /**
+   * True while this character still needs frames. A glTF model always does
+   * (its mixer keeps playing the idle clip); a procedural body only breathes
+   * when motion is not reduced.
+   */
+  needsFrames(reduceMotion: boolean): boolean {
+    if (this.follower.active || this.follower.wait > 0 || this.speed > 0) return true;
+    if (Math.abs(this.y - this.follower.groundY) > 1e-3) return true; // still settling down
+    if (Math.abs(wrapRad(this.targetYaw - this.yaw)) > YAW_SNAP) return true;
+    if (this.vehicles) for (const k of VEHICLE_MODES) { const v = this.vehicles[k]; if (v.dir !== 0 || v.group.visible) return true; }
+    if (this.model) return true;
+    return !reduceMotion; // procedural idle breathing
+  }
+
   animate(dt: number, t: number, unitMeters: number, reduceMotion: boolean): void {
     let diff = this.targetYaw - this.yaw;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     this.yaw += diff * (reduceMotion ? 1 : Math.min(1, dt * 10));
+    // The easing only approaches the target: snap below a fraction of a degree so it terminates.
+    if (Math.abs(wrapRad(this.targetYaw - this.yaw)) < YAW_SNAP) this.yaw = this.targetYaw;
     this.root.rotation.y = this.yaw;
     this.root.position.set(this.x, this.y, this.z);
     const mode = this.mode, sp = this.speed, scale = this.spec.scale ?? 1;
@@ -539,6 +561,7 @@ export class CharacterManager {
   readonly group = new Group();
   readonly chars = new Map<string, Character>();
   disposed = false;
+  private _animating = false;
   private skin: Material | null = null;
   private vehicleMats: { tire: Material; chrome: Material; glassDark: Material } | null = null;
   private readonly eye = new MeshBasicMaterial({ color: 0x1e1a24 });
@@ -645,13 +668,25 @@ export class CharacterManager {
     }
   }
 
+  /**
+   * True while any character still needs frames (movement, a turn, a vehicle
+   * tween, a glTF mixer or idle breathing). Computed by {@link step}, so it
+   * describes the frame that was just stepped.
+   */
+  get animating(): boolean {
+    return this._animating;
+  }
+
   step(dt: number, t: number, unitMeters: number): void {
     const rm = this.scene.reduceMotion;
+    let animating = false;
     for (const ch of this.chars.values()) {
       ch.follower.step(dt);
       if (!ch.follower.active && ch.mode !== 'walk' && ch.follower.wait <= 0) ch.setMode('walk');
       ch.animate(dt, t, unitMeters, rm);
+      if (!animating && ch.needsFrames(rm)) animating = true;
     }
+    this._animating = animating;
   }
 
   /**

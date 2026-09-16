@@ -82,6 +82,8 @@ export class Features {
   private proj: Projection | null = null;
   private ui: { root: HTMLDivElement; scale: ScaleBar; zoom: ZoomButtons; attribution: Attribution } | null = null;
   private readonly offs: (() => void)[] = [];
+  /** Active render sources currently held, by tag (see {@link hold}). */
+  private readonly holds = new Map<string, () => void>();
 
   constructor(private readonly scene: SceneApi) {
     const emitError = (code: string, message: string): void => scene.emit({ type: 'error', code, message, fatal: false });
@@ -228,6 +230,8 @@ export class Features {
 
   dispose(): void {
     for (const off of this.offs.splice(0)) off();
+    for (const release of this.holds.values()) release();
+    this.holds.clear();
     this.location.dispose();
     this.travel.dispose();
     this.chars.dispose();
@@ -307,6 +311,8 @@ export class Features {
 
   private onLocationFix(fix: SmoothedFix & { raw: { x: number; z: number } }): void {
     for (const ch of this.chars.chars.values()) if (ch.spec.follow === 'location') this.driveToFix(ch, fix);
+    // A `device` watch or an external `pushLocation` arrives outside any frame hook.
+    this.scene.requestRender();
   }
 
   private driveToFix(ch: Character | undefined, fix: { x: number; z: number }): void {
@@ -323,9 +329,52 @@ export class Features {
     ch.follower.setTrip(trip.pts.length > 1 ? [{ mode: 'walk', pts: trip.pts }] : [], trip.speed);
   }
 
+  /**
+   * Acquires / releases the active render source `tag` so that it is held
+   * exactly while `want` is true (idempotent).
+   */
+  private hold(tag: string, want: boolean): void {
+    const release = this.holds.get(tag);
+    if (want === !!release) return;
+    if (want) this.holds.set(tag, this.scene.addActiveSource(tag));
+    else {
+      release!();
+      this.holds.delete(tag);
+    }
+  }
+
+  /**
+   * Keeps the render loop awake exactly while something still moves. Anything
+   * that starts moving from outside a frame (a command, a gesture, an async
+   * model) asks for one frame, and this picks the sources up on that frame.
+   *
+   * Runs at the end of `frame`, so every predicate describes the frame that
+   * was just stepped. The label source is handled in `beforeRender` instead,
+   * because a holo card can only be marked as fading out there.
+   */
+  private updateSources(): void {
+    const rm = this.scene.reduceMotion;
+    this.hold('chars', this.chars.animating);
+    this.hold('travel', this.travel.active);
+    this.hold('drops', this.dropVisuals.animating);
+    this.hold('geofences', this.fenceVisuals.animating(rm));
+    this.hold('traffic', this.traffic.animating);
+    // The simulated walker only matters while a character follows it: otherwise its fixes
+    // change nothing on screen, and stepping it would keep a demo map rendering forever.
+    this.hold('location', this.location.animating && this.hasLocationFollower());
+  }
+
+  private hasLocationFollower(): boolean {
+    for (const c of this.chars.chars.values()) if (c.spec.follow === 'location') return true;
+    return false;
+  }
+
   private frame(dt: number, t: number): void {
     const world = this.scene.world();
-    if (!world) return;
+    if (!world) {
+      this.updateSources();
+      return;
+    }
     const proj = this.scene.projection();
     this.location.step(dt);
     this.chars.step(dt, t, world.unitMeters);
@@ -360,9 +409,17 @@ export class Features {
       }
     }
     this.travel.progress(this.progressTopic, now);
+    this.updateSources();
   }
 
   private beforeRender(): void {
+    this.project();
+    // A holo card is only marked as fading out here, so its source is picked up after projection
+    // (in `frame` it would be one frame stale, and the card would never leave the layout).
+    this.hold('labels', this.labels.animating);
+  }
+
+  private project(): void {
     const cam = this.scene.camera;
     const now = performance.now();
     if (this.anchors.length) {

@@ -61,7 +61,17 @@ export class Dispatcher {
   private requests = new Map<string, (params: unknown) => unknown>();
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly emit: (event: EngineEvent) => void) {}
+  /**
+   * @param emit sends an event to the host.
+   * @param onCommand runs exactly once after every dispatched command (not
+   *   `request`), whether its handler succeeded or threw. The engine uses it to
+   *   ask the on-demand render loop for one frame, since almost every command
+   *   changes what is on screen.
+   */
+  constructor(
+    private readonly emit: (event: EngineEvent) => void,
+    private readonly onCommand: ((command: EngineCommand) => void) | null = null,
+  ) {}
 
   /** Registers (or replaces) the handler for a command type. `request` is routed internally; use {@link registerRequest}. */
   register<T extends Exclude<EngineCommandType, 'request'>>(type: T, handler: CommandHandler<T>): () => void {
@@ -134,6 +144,8 @@ export class Dispatcher {
     } catch (e) {
       const info = errorInfo(e);
       this.emit({ type: 'error', code: info.code, message: `${command.type}: ${info.message}`, fatal: info.fatal });
+    } finally {
+      this.onCommand?.(command);
     }
   }
 

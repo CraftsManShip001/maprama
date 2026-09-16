@@ -260,6 +260,15 @@ export class LocationService {
 
   constructor(private readonly deps: LocationServiceDeps) {}
 
+  /**
+   * True while the source produces fixes from {@link step} — only the
+   * simulated walker does. `device` and `external` fixes arrive from outside
+   * a frame, so they ask for a frame instead of holding one.
+   */
+  get animating(): boolean {
+    return this.kind === 'simulated' && !!this.walker;
+  }
+
   setKind(kind: LocationSourceKind): void {
     if (kind === this.kind && (kind !== 'device' || this.watchId !== null)) return;
     this.stopDevice();

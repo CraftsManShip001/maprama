@@ -55,6 +55,14 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 - The project was renamed from Diorama to **Maprama**; every package now lives
   under the `@maprama/` scope.
+- engine-web renders **on demand**. The `requestAnimationFrame` loop keeps
+  ticking, but a frame is only drawn (and the simulation only advances) while
+  something asked for one: a command, a gesture, an async asset, or a
+  subsystem that is animating. A map nobody is touching costs no frames, which
+  is what a WebView pays for in battery. Hosts see no behavioural change;
+  code using the internal `scene` API must call `scene.requestRender()` after
+  changing the scene outside a frame hook, and hold
+  `scene.addActiveSource(tag)` while animating something itself.
 
 ### Fixed
 

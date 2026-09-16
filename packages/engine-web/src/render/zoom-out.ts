@@ -20,7 +20,10 @@ import type { RenderParams } from '../theme/params.js';
 import { discsGeo, polyGeo, quadsGeo, ribbonGeo, type Disc, type Quad } from './geometry.js';
 import { clearGroup, noRaycast } from './parts.js';
 
-export const MAP_COLORS = { arterial: 0xf7c45c, casing: 0xd99a32, local: 0xffffff, alley: 0xf3f0ea, ground: 0xeeeae2, park: 0xc4e2b2, water: 0x9ccbeb };
+/** Change in the zoom-out factor below which nothing is re-applied (and no more frames are asked for). */
+const APPLY_EPS = 0.003;
+
+export const MAP_COLORS ={ arterial: 0xf7c45c, casing: 0xd99a32, local: 0xffffff, alley: 0xf3f0ea, ground: 0xeeeae2, park: 0xc4e2b2, water: 0x9ccbeb };
 
 export interface ZoomOutTargets {
   fog: Fog;
@@ -41,6 +44,8 @@ export class ZoomOutController {
   t = 0;
   /** Building height multiplier (1 unless `mapColors`). */
   scaleY = 1;
+  /** True while `t` is still easing toward its target (see the on-demand render loop). */
+  animating = false;
   private applied = -1;
   private mode: ZoomOutBehavior | null = null;
   private mapMats: MeshBasicMaterial[] = [];
@@ -105,8 +110,13 @@ export class ZoomOutController {
     const behavior = params.zoomOut;
     const target = zoomOutTarget(behavior, distance);
     this.t += (target - this.t) * (reduceMotion ? 1 : Math.min(1, dt * 6));
+    // The easing only approaches its target and never reaches it, so "still animating" is decided by
+    // the same epsilon that decides whether anything is re-applied below: once `t` is within it, the
+    // rendered state stops changing and the loop may go idle. `t` itself is left alone — the native
+    // engine reproduces this trajectory step for step (engine-native conformance suite).
+    this.animating = Math.abs(target - this.t) > APPLY_EPS;
     const t = this.t, mt = behavior === 'mapColors' ? t : 0;
-    if (Math.abs(t - this.applied) > 0.003 || this.applied < 0 || this.mode !== behavior) {
+    if (Math.abs(t - this.applied) > APPLY_EPS || this.applied < 0 || this.mode !== behavior) {
       this.applied = t;
       this.mode = behavior;
       for (const m of this.mapMats) {

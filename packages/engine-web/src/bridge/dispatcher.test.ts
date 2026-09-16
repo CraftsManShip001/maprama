@@ -85,6 +85,28 @@ describe('Dispatcher', () => {
     await d.dispatch({ type: 'setTheme', theme: {} });
     expect(order).toEqual(['ui', 'theme']);
   });
+
+  // On-demand rendering: the engine asks for one frame after every command.
+  it('calls onCommand exactly once per command, including when the handler throws', async () => {
+    const seen: string[] = [];
+    const d = new Dispatcher(() => {}, (cmd) => seen.push(cmd.type));
+    d.register('setUi', () => {});
+    d.register('setTheme', async () => { await new Promise((r) => setTimeout(r, 1)); });
+    d.register('setLabels', () => { throw new EngineError('boom', 'nope'); });
+    await d.dispatch({ type: 'setUi', ui: {} });
+    expect(seen).toEqual(['setUi']);
+    await d.dispatch({ type: 'setTheme', theme: {} });
+    await d.dispatch({ type: 'setLabels', labels: {} });
+    expect(seen).toEqual(['setUi', 'setTheme', 'setLabels']);
+  });
+
+  it('does not call onCommand for requests (they change nothing on screen)', async () => {
+    const seen: string[] = [];
+    const d = new Dispatcher(() => {}, (cmd) => seen.push(cmd.type));
+    d.registerRequest('project', () => ({ x: 1, y: 2, visible: true }));
+    await d.dispatch({ type: 'request', requestId: 'r', method: 'project', params: { coordinate: { lng: 127, lat: 37.5 } } });
+    expect(seen).toEqual([]);
+  });
 });
 
 describe('request handlers through the direct transport', () => {

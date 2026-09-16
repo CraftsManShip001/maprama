@@ -205,8 +205,11 @@ export class BuildingRenderer {
   private entries = new Map<string, Entry>();
   private ctx: RenderContext | null = null;
   private modelCache = new Map<string, Promise<Object3D>>();
+  private _animating = false;
   /** Called when a replacement model fails to load. */
   onModelError: ((id: string, uri: string, error: unknown) => void) | null = null;
+  /** Called after a replacement model arrived and the building was rebuilt (on-demand rendering needs a frame). */
+  onModelLoaded: ((id: string) => void) | null = null;
   loadModel: ModelLoader = (uri) => new GLTFLoader().loadAsync(uri).then((g) => g.scene);
 
   constructor() {
@@ -276,23 +279,40 @@ export class BuildingRenderer {
     return null;
   }
 
+  /**
+   * True while a building still needs frames: a running tap bounce, a
+   * spinning landmark or a pulsing captured glow. Computed by {@link step},
+   * so it describes the frame that was just stepped.
+   */
+  get animating(): boolean {
+    return this._animating;
+  }
+
   /** Per-frame animation: bounce, zoom-out height scale, landmark spin, captured glow. */
   step(dt: number, t: number, scaleY: number, reduceMotion: boolean): void {
     const k = 0.28 + (reduceMotion ? 0 : Math.sin(t * 3) * 0.14);
+    let animating = false;
     for (const e of this.entries.values()) {
       if (e.bounce > 0 && !reduceMotion) {
         e.bounce = Math.max(0, e.bounce - dt);
         e.group.scale.y = scaleY * (1 + Math.sin((1 - e.bounce / 0.35) * Math.PI) * 0.09);
+        animating = true;
       } else {
         e.bounce = 0;
         e.group.scale.y = scaleY;
       }
-      if (e.spin && !reduceMotion) e.spin.rotation.y += dt * 1.8;
+      if (e.spin && !reduceMotion) {
+        e.spin.rotation.y += dt * 1.8;
+        animating = true;
+      }
       for (const m of e.glow) {
         m.emissive.setHex(GLOW_COLOR);
         m.emissiveIntensity = k;
       }
+      // With reduced motion the glow is a constant, so it only needs the frame that applied it.
+      if (e.glow.length && !reduceMotion) animating = true;
     }
+    this._animating = animating;
   }
 
   dispose(): void {
@@ -314,6 +334,7 @@ export class BuildingRenderer {
       e.model = scene.clone(true);
       e.modelUri = uri;
       this.buildOne(e);
+      this.onModelLoaded?.(e.b.id);
     }).catch((err) => {
       if (e.style.modelUri === uri) this.onModelError?.(e.b.id, uri, err);
     });

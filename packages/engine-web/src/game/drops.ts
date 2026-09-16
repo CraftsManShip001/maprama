@@ -280,6 +280,20 @@ export class DropVisuals {
   /** Play a short chime on music drop collection when audio is unlocked. */
   sound = true;
 
+  /** Number of drop items on screen (appearing, idling or collecting). */
+  get count(): number {
+    return this.items.size;
+  }
+
+  /**
+   * True while the drops need frames. Every item animates: idle drops keep
+   * bobbing and spinning (slower, but not stopped, with reduced motion) and
+   * collected ones fly up until they are removed.
+   */
+  get animating(): boolean {
+    return this.items.size > 0;
+  }
+
   constructor(private readonly scene: SceneApi, private readonly options: DropVisualsOptions) {
     this.group.name = 'drops';
     scene.container.addEventListener('pointerdown', this.unlockAudio, { passive: true });
@@ -463,9 +477,11 @@ export class DropVisuals {
       const wrap = normalizeModel(instantiateModel(gltf), 1.1, true);
       wrap.position.y = -0.45;
       spin.add(wrap);
+      this.scene.requestRender(); // a late-arriving model changes the picture outside any frame hook
     }, (err: unknown) => {
       const it = this.items.get(key);
       if (it && it.spin === spin) this.addCoin(spin, d);
+      this.scene.requestRender();
       this.options.onModelError(key, uri, err);
     });
   }

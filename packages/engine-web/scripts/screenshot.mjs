@@ -68,7 +68,8 @@ const htmlSetup = (init) => `(() => {
   window.ReactNativeWebView = { postMessage(d) { const m = JSON.parse(d).msg; if (m.type === 'error') console.error('engine error [' + m.code + '] ' + m.message); } };
   window.postMessage(JSON.stringify({ v: 1, seq: 0, kind: 'cmd', msg: ${JSON.stringify(init)} }), '*');
   const e = window.__maprama;
-  const wait = () => { const s = e.scene; if (s && s.world()) { const need = s.frames() + 24; const off = s.onFrame(() => { if (s.frames() >= need) { off(); window.__MAPRAMA_READY__ = true; } }); } else setTimeout(wait, 100); };
+  // Rendering is on demand: hold an active source while waiting for the 24 settle frames.
+  const wait = () => { const s = e.scene; if (s && s.world()) { const release = s.addActiveSource('screenshot'); const need = s.frames() + 24; const off = s.onFrame(() => { if (s.frames() >= need) { off(); release(); window.__MAPRAMA_READY__ = true; } }); } else setTimeout(wait, 100); };
   wait();
 })()`;
 const REFERENCES = [

@@ -31,10 +31,22 @@ interface Holo {
   key: string;
 }
 
+/** Milliseconds a hidden card stays in the layout so its fade-out transition can play. */
+const HIDE_MS = 320;
+
 export class HoloLabels {
   private holos: Holo[] = [];
 
   constructor(private readonly layer: HTMLElement) {}
+
+  /**
+   * True while a card is fading out: it needs one more update, at least
+   * {@link HIDE_MS} after it was hidden, to set `display: none`. Without this
+   * the on-demand loop would go idle first and leave the card in the layout.
+   */
+  get animating(): boolean {
+    return this.holos.some((h) => !h.on && h.root.style.display !== 'none');
+  }
 
   build(entries: readonly LabelEntry[]): void {
     this.clear();
@@ -119,7 +131,7 @@ export class HoloLabels {
         h.root.classList.remove('on');
         h.on = false;
         h.hideT = now;
-      } else if (h.root.style.display !== 'none' && now - h.hideT > 320) h.root.style.display = 'none';
+      } else if (h.root.style.display !== 'none' && now - h.hideT > HIDE_MS) h.root.style.display = 'none';
     }
   }
 
