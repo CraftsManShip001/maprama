@@ -25,6 +25,18 @@ export interface WorldPoint {
   z: number;
 }
 
+/**
+ * An axis-aligned geographic box, given by its north-east and south-west
+ * corners. Used by `fitBounds`. A box that crosses the antimeridian (`ne.lng <
+ * sw.lng`) is not supported; split it into two boxes.
+ */
+export interface LngLatBounds {
+  /** North-east corner (the larger `lat`, and the larger `lng`). */
+  ne: LngLat;
+  /** South-west corner (the smaller `lat`, and the smaller `lng`). */
+  sw: LngLat;
+}
+
 /** Default size of one world unit in meters. */
 export const DEFAULT_UNIT_METERS = 8;
 
@@ -122,3 +134,13 @@ export const checkLngLat: Check = object({ lng: range(-180, 180), lat: range(-90
 
 /** @internal Runtime check for {@link WorldPoint}. */
 export const checkWorldPoint: Check = object({ x: number, z: number });
+
+/** @internal Runtime check for {@link LngLatBounds} (corners valid; `ne` north-east of `sw`). */
+export const checkLngLatBounds: Check = (v, p) => {
+  const err = object({ ne: checkLngLat, sw: checkLngLat })(v, p);
+  if (err) return err;
+  const b = v as LngLatBounds;
+  if (b.ne.lat < b.sw.lat) return `${p}: ne.lat must be >= sw.lat`;
+  if (b.ne.lng < b.sw.lng) return `${p}: ne.lng must be >= sw.lng (a box across the antimeridian is not supported)`;
+  return null;
+};

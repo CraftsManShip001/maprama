@@ -8,8 +8,9 @@
  * @module
  */
 
-import { checkLngLat, type LngLat } from './geo.js';
+import { checkLngLat, checkLngLatBounds, type LngLat, type LngLatBounds } from './geo.js';
 import {
+  anyOf,
   array,
   boolean,
   discriminated,
@@ -281,6 +282,46 @@ export interface RequestParamsMap {
   snapToRoad: { coordinate: LngLat; maxDistanceMeters?: number };
   /** Plans a route without moving anything. */
   route: { from: LngLat; to: LngLat; modes: TravelMode[] };
+  /** Frames a geographic box and moves the camera there. */
+  fitBounds: FitBoundsParams;
+}
+
+/** Padding kept free around a fitted box, in density-independent pixels. */
+export type FitBoundsPadding = number | { top?: number; right?: number; bottom?: number; left?: number };
+
+/** How `fitBounds` treats the current pitch and bearing. */
+export const FIT_BOUNDS_ORIENTATIONS = ['auto', 'keep', 'reset'] as const;
+/**
+ * `keep`: frame the box at the current pitch / bearing. `reset`: look straight
+ * down to north first (the tightest framing of a north-aligned box). `auto`
+ * (the default): `keep`, but fall back to `reset` when the box does not fit at
+ * the current orientation and resetting makes it fit.
+ */
+export type FitBoundsOrientation = (typeof FIT_BOUNDS_ORIENTATIONS)[number];
+
+/** Parameters of the `fitBounds` request. */
+export interface FitBoundsParams {
+  bounds: LngLatBounds;
+  /** Space kept free around the box, in dp. A single number applies to all four sides. Default 0. */
+  padding?: FitBoundsPadding;
+  /** Pitch to frame at, in degrees. Overrides `orientation` for the pitch. */
+  pitch?: number;
+  /** Bearing to frame at, in degrees. Overrides `orientation` for the bearing. */
+  bearing?: number;
+  /** Default `'auto'`. */
+  orientation?: FitBoundsOrientation;
+  /** Animate the move (`true` = engine default duration). Default: no animation. */
+  animate?: boolean | { durationMs: number };
+}
+
+/** Result of `fitBounds`: the camera the engine moved to, and whether the box really fits. */
+export interface FitBoundsResult {
+  /** The camera the engine moved to (the end of the animation when one was requested). */
+  camera: CameraState;
+  /** True when the whole box, plus its padding, is inside the view at `camera`. */
+  fitted: boolean;
+  /** True when the distance limits (`minDistanceMeters` / `maxDistanceMeters`) decided the distance. */
+  distanceLimited: boolean;
 }
 
 /** Result of `snapToRoad`. */
@@ -316,10 +357,14 @@ export interface RequestResultMap {
   /** `null` when no road is within range. */
   snapToRoad: SnapToRoadResult | null;
   route: RouteResult;
+  fitBounds: FitBoundsResult;
 }
 
-/** Request methods. */
-export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route'] as const;
+/**
+ * Request methods. Methods added after the first release are appended, so the
+ * index an engine derives from this list stays stable.
+ */
+export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route', 'fitBounds'] as const;
 /** A request method name. */
 export type RequestMethod = keyof RequestParamsMap;
 
@@ -632,6 +677,19 @@ const requestChecks: { [M in RequestMethod]: Check } = {
   unproject: object({ x: number, y: number }),
   snapToRoad: object({ coordinate: checkLngLat }, { maxDistanceMeters: nonNegativeNumber }),
   route: object({ from: checkLngLat, to: checkLngLat, modes: array(oneOf(TRAVEL_MODES), { min: 1 }) }),
+  fitBounds: object(
+    { bounds: checkLngLatBounds },
+    {
+      padding: anyOf(
+        nonNegativeNumber,
+        object({}, { top: nonNegativeNumber, right: nonNegativeNumber, bottom: nonNegativeNumber, left: nonNegativeNumber }),
+      ),
+      pitch: range(0, 90),
+      bearing: number,
+      orientation: oneOf(FIT_BOUNDS_ORIENTATIONS),
+      animate: anyOf(boolean, object({ durationMs: nonNegativeNumber })),
+    },
+  ),
 };
 
 const subscriptionTopic = oneOf(SUBSCRIPTION_TOPICS);

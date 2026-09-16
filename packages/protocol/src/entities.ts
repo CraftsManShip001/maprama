@@ -214,6 +214,29 @@ export const LOCATION_SOURCE_KINDS = ['device', 'external', 'simulated'] as cons
  */
 export type LocationSourceKind = (typeof LOCATION_SOURCE_KINDS)[number];
 
+/**
+ * Vertical field of view of the map camera, in degrees. Every engine frames a
+ * `CameraSpec.distance` with this frustum, so the ground span a distance shows
+ * is the same in the web and the native engine.
+ *
+ * Use {@link visibleSpanMeters} instead of hard-coding it.
+ */
+export const CAMERA_FOV_DEG = 40;
+
+/**
+ * The ground span (meters, measured at the camera target, across the **height**
+ * of the view) that a camera `distance` frames:
+ * `2 · distance · tan(CAMERA_FOV_DEG / 2)` — about `0.728 · distance`.
+ *
+ * At a pitch above 0 the view is a trapezoid and reaches further towards the
+ * horizon than half this span; this is the value the `distance` ⇄ `zoom`
+ * conversion is defined on, and the right quantity for "how much of my city
+ * fits on screen".
+ */
+export function visibleSpanMeters(distanceMeters: number): number {
+  return 2 * distanceMeters * Math.tan((CAMERA_FOV_DEG * Math.PI) / 360);
+}
+
 /** Camera state or target. All fields optional; unset fields keep their current value. */
 export interface CameraSpec {
   /** Look-at target on the ground. */
@@ -230,6 +253,29 @@ export interface CameraSpec {
   follow?: string | null;
   /** Animate the transition (`true` = engine default duration). */
   animate?: boolean | { durationMs: number };
+  /**
+   * Closest the camera may come to its target, in **meters**. Independent of
+   * the world's `unitMeters`, and applied to every path that changes the
+   * distance: `setCamera`, `zoom`, pinch, wheel, the zoom buttons, `follow`
+   * and the zoom-out behaviour.
+   *
+   * Sticky: it stays in force until another camera spec changes it. Absent
+   * keeps the current limit; the engine default is 14 world units
+   * (112 m at the default 8 m per unit).
+   *
+   * An engine clamps the pair into the range it can render and reports a
+   * non-fatal `error` with code `camera_limits_clamped` when it has to.
+   */
+  minDistanceMeters?: number;
+  /**
+   * Furthest the camera may go from its target, in **meters**. See
+   * {@link CameraSpec.minDistanceMeters}; the engine default is 150 world
+   * units (1,200 m at the default 8 m per unit).
+   *
+   * Widening this widens the fog, shadow and level-of-detail ranges with it,
+   * so a wide view keeps the look it has at the default limit.
+   */
+  maxDistanceMeters?: number;
 }
 
 /** Map UI elements drawn by the engine. */
@@ -339,6 +385,8 @@ export const checkCameraSpec: Check = object(
     bearing: number,
     follow: nullable(nonEmptyString),
     animate: anyOf(boolean, object({ durationMs: nonNegativeNumber })),
+    minDistanceMeters: positiveNumber,
+    maxDistanceMeters: positiveNumber,
   },
 );
 
