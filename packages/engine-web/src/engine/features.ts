@@ -328,7 +328,7 @@ export class Features {
     if (!world) return;
     const proj = this.scene.projection();
     this.location.step(dt);
-    this.chars.step(dt, t);
+    this.chars.step(dt, t, world.unitMeters);
     const list = [...this.chars.chars.values()];
     const positions = list.map((c) => ({ id: c.id, x: c.x, z: c.z, isPlayer: !!c.spec.isPlayer }));
     for (const { event, drop } of this.collector.check(positions, (p) => proj.toLngLat(p))) {

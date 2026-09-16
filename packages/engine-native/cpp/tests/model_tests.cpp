@@ -190,14 +190,15 @@ MAPRAMA_TEST(m3b_character_animation_rules_match_engine_web) {
   for (const Value& c : fx.find("chooseAnimation")->items()) {
     AnimationClips available;
     for (const Value& n : c.find("available")->items()) available[static_cast<std::size_t>(*maprama::parseEnum<AnimationName>(n.asString()))] = n.asString();
-    const std::optional<AnimationName> got = maprama::chooseAnimation(*maprama::parseEnum<TravelMode>(c.find("mode")->asString()),
-                                                                      num(*c.find("speed")), available, num(*c.find("scale")));
+    const std::optional<AnimationName> got =
+        maprama::chooseAnimation(*maprama::parseEnum<TravelMode>(c.find("mode")->asString()), num(*c.find("speed")),
+                                 num(*c.find("unitMeters")), available, num(*c.find("scale")));
     const Value* want = c.find("result");
     ctx.check(want->isNull() ? !got.has_value() : (got && maprama::enumName(*got) == want->asString()), "chooseAnimation " + maprama::json::stringify(c));
     ++checked;
   }
   for (const Value& c : fx.find("cadence")->items()) {
-    const double cadence = maprama::walkCadence(num(*c.find("speed")), num(*c.find("scale")));
+    const double cadence = maprama::walkCadence(num(*c.find("speed")), num(*c.find("unitMeters")), num(*c.find("scale")));
     ctx.check(cadence == num(*c.find("cadence")), "walkCadence " + maprama::json::stringify(c));
     ctx.check(maprama::clipTimeScale(AnimationName::Walk, cadence) == num(*c.find("walk")) &&
                   maprama::clipTimeScale(AnimationName::Run, cadence) == num(*c.find("run")),
@@ -209,7 +210,8 @@ MAPRAMA_TEST(m3b_character_animation_rules_match_engine_web) {
     ++checked;
   }
   ctx.check(num(*fx.find("constants")->find("CHARACTER_HEIGHT")) == maprama::kCharacterHeight &&
-                num(*fx.find("constants")->find("WALK_CADENCE_SPEED")) == maprama::kWalkCadenceSpeed &&
+                num(*fx.find("constants")->find("WALK_CADENCE_MPS")) == maprama::kWalkCadenceMps &&
+                num(*fx.find("constants")->find("STEP_PHASE_RATE")) == maprama::kStepPhaseRate &&
                 num(*fx.find("constants")->find("MIN_CADENCE")) == maprama::kMinCadence,
             "engine-web constants");
   std::cout << "    " << checked << " clip-rule / cadence cases\n";
@@ -282,7 +284,7 @@ MAPRAMA_TEST(m3b_model_animator_crossfade_matches_three) {
   double worst = 0;
   std::size_t frame = 0;
   for (const Value& step : robot.find("crossfade")->find("steps")->items()) {
-    animator.update(num(*step.find("dt")), TravelMode::Walk, num(*step.find("speed")), 1.0, crossFade);
+    animator.update(num(*step.find("dt")), TravelMode::Walk, num(*step.find("speed")), num(*step.find("unitMeters")), 1.0, crossFade);
     const Value* current = step.find("current");
     const std::optional<AnimationName> got = animator.current();
     ctx.check(current->isNull() ? !got : (got && maprama::enumName(*got) == current->asString()), "frame " + std::to_string(frame) + ": current clip");
@@ -301,7 +303,8 @@ MAPRAMA_TEST(m3b_model_animator_crossfade_matches_three) {
     }
     ++frame;
   }
-  std::cout << "    " << frame << " mixer frames (idle -> walk x1.3 -> idle -> walk, 150 ms cross-fades), max |diff| " << worst << "\n";
+  std::cout << "    " << frame << " mixer frames (idle -> walk x1 -> idle -> x2 the walking pace, 150 ms cross-fades), max |diff| "
+            << worst << "\n";
   // The palette follows the pose: leg_l's palette entry is its node global, entry 0 the identity.
   const int leg = nodeIndex(*asset, "leg_l");
   const std::vector<Mat4> palette = animator.palette();
@@ -507,13 +510,14 @@ MAPRAMA_TEST(m3b_procedural_meshes_rig_and_vehicles) {
   for (const auto& v : npc->vertices) eyes += v.normal[3] == 127 ? 1 : 0;
   ctx.check(eyes > 0, "eyes are unlit (MeshBasicMaterial)");
 
-  // Walking: the phase advances by dt · k · WALK_CADENCE_SPEED · (2.3 − run · 0.5) (engine-web animate).
-  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Walk, 3.2, 1.0, false);
-  ctx.near(rig.phase, 0.1 * 1.0 * 3.2 * 2.3, 1e-12, "walk phase");
+  // Walking: the phase advances by dt · k · STEP_PHASE_RATE · (2.3 − run · 0.5) (engine-web animate). At the
+  // natural walking pace (4.8 km/h on a world of 8 m per unit) the cadence k is 1, whatever the world scale.
+  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Walk, maprama::kWalkCadenceMps / 8.0, 8.0, 1.0, false);
+  ctx.near(rig.phase, 0.1 * 1.0 * maprama::kStepPhaseRate * 2.3, 1e-12, "walk phase at cadence 1");
   ctx.near(rig.hip[0], std::sin(rig.phase) * 0.5, 1e-12, "hip swing sin(phase) · 0.5");
-  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Walk, 0.0, 1.0, false);
+  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Walk, 0.0, 8.0, 1.0, false);
   ctx.near(rig.rigScaleY, 1 + std::sin(1.0 * 2.4 + rig.phase) * 0.01, 1e-12, "idle breathing");
-  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Bike, 2.0, 1.0, true);
+  maprama::animateProceduralRig(rig, 0.1, 1.0, TravelMode::Bike, 2.0, 8.0, 1.0, true);
   ctx.near(rig.rigRotX, 0.32, 1e-12, "on the bike: leaning rig");
   ctx.near(rig.crank, rig.phase, 1e-12, "crank follows the pedalling phase");
 
@@ -531,14 +535,14 @@ MAPRAMA_TEST(m3b_procedural_meshes_rig_and_vehicles) {
   maprama::FollowerBody b;
   b.mode = TravelMode::Car;
   b.speed = 2;
-  model.step(0.1, 0, b, 1);
+  model.step(0.1, 0, b, 8, 1);
   ctx.check(model.vehicles().built && model.vehicles().vehicles[1].visible && !model.bodyHidden(), "car switched in, body still visible");
-  for (int i = 0; i < 3; ++i) model.step(0.1, 0.1 * i, b, 1);
+  for (int i = 0; i < 3; ++i) model.step(0.1, 0.1 * i, b, 8, 1);
   ctx.check(model.bodyHidden() && model.vehicles().vehicles[1].p == 1.0, "car fully in: body hidden");
   ctx.near(maprama::vehicleScale(model.vehicles(), TravelMode::Car), 1.25, 1e-12, "car base scale 1.25");
   b.mode = TravelMode::Walk;
   b.speed = 0;
-  for (int i = 0; i < 4; ++i) model.step(0.1, 0.1 * i, b, 1);
+  for (int i = 0; i < 4; ++i) model.step(0.1, 0.1 * i, b, 8, 1);
   ctx.check(!model.vehicles().vehicles[1].visible && !model.bodyHidden(), "back to walking: the car pops out");
 
   const auto coin = maprama::dropMesh(maprama::DropType::Coin, maprama::Rarity::Common, false);

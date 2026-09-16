@@ -809,23 +809,39 @@ const MAPPINGS = [undefined, { walk: 'Take 001' }, { idle: 'mixamo.com', run: 'm
 const resolveCases = [];
 for (const names of CLIP_SETS) for (const mapping of MAPPINGS) resolveCases.push({ names, mapping: mapping ?? null, clips: clipsJson(C.resolveClips(names, mapping)) });
 
+/**
+ * `[speed in world units / s, unitMeters]` pairs: cadence is the ground covered per second
+ * (`speed · unitMeters`) over the natural walking pace (`KMH.walk`, 4.8 km/h), so the same real-world
+ * pace must come out at the same cadence at every world scale. Includes the idle threshold, real-time
+ * travel (`timeScale` 1, cadence 1), the `run` threshold (1.6), running and the ×20 demo playback.
+ */
+const SPEED_CASES = [
+  [0, 8],
+  [0.0005, 8],
+  [0.001, 8],
+  ...[8, 16, 24].flatMap((u) => [1, 1.6, 2].map((timeScale) => [F.playbackSpeeds(u, timeScale).walk, u])),
+  [F.playbackSpeeds(8, 20).walk, 8],
+  [3.2, 8],
+  [6, 24],
+];
+
 const chooseCases = [];
 const AVAILABLE = [['idle', 'walk', 'run', 'ride', 'wave'], ['idle', 'walk'], ['walk'], ['run'], ['idle'], ['ride'], [], ['wave', 'run']];
 for (const mode of P.TRAVEL_MODES) {
-  for (const speed of [0, 0.0005, 0.001, 1, 3.2, 5.1, 5.13, 6, 12]) {
+  for (const [speed, unitMeters] of SPEED_CASES) {
     for (const scale of [1, 0.5, 2, 0]) {
       for (const avail of AVAILABLE) {
         const available = Object.fromEntries(avail.map((n) => [n, n]));
-        chooseCases.push({ mode, speed, scale, available: avail, result: C.chooseAnimation(mode, speed, available, scale) });
+        chooseCases.push({ mode, speed, unitMeters, scale, available: avail, result: C.chooseAnimation(mode, speed, unitMeters, available, scale) });
       }
     }
   }
 }
 const cadenceCases = [];
-for (const speed of [0, 0.1, 1, 1.6, 3.2, 4, 5.12, 6.4, 7.04, 10, 40]) {
+for (const [speed, unitMeters] of [...SPEED_CASES, [0.1, 8], [1, 16], [5.12, 8], [40, 8], [F.playbackSpeeds(50, 1).walk, 50]]) {
   for (const scale of [1, 0.5, 1.5, 3, 0, -1]) {
-    const cadence = C.walkCadence(speed, scale);
-    cadenceCases.push({ speed, scale, cadence, walk: C.clipTimeScale('walk', cadence), run: C.clipTimeScale('run', cadence) });
+    const cadence = C.walkCadence(speed, unitMeters, scale);
+    cadenceCases.push({ speed, unitMeters, scale, cadence, walk: C.clipTimeScale('walk', cadence), run: C.clipTimeScale('run', cadence) });
   }
 }
 const headingCases = [-7, -Math.PI, -1, 0, 0.5, Math.PI / 2, 2, Math.PI, 4, 10].map((yaw) => ({ yaw, heading: C.headingFromYaw(yaw) }));
@@ -875,7 +891,8 @@ const robotRef = await (async () => {
       samples.push({ clip: clip.name, time, nodes: Object.fromEntries(ROBOT_NODES.map((n) => [n, matrixOf(scene.getObjectByName(n))])) });
     }
   }
-  // engine-web `Character.animate` (model branch) with the native cross-fade (0.15 s): idle, walk at cadence 1.3, idle.
+  // engine-web `Character.animate` (model branch) with the native cross-fade (0.15 s): idle, a real-time walk
+  // (cadence 1), idle, then twice the walking pace (cadence 2, the `run` chain), idle.
   const scene = gltf.scene.clone(true);
   const mixer = new THREE.AnimationMixer(scene);
   const clips = C.resolveClips(gltf.animations.map((c) => c.name), undefined);
@@ -887,10 +904,12 @@ const robotRef = await (async () => {
   const CROSSFADE = 0.15;
   let current = null;
   const steps = [];
+  const unitMeters = 8;
+  const walkSpeed = F.playbackSpeeds(unitMeters, 1).walk;
   for (let frame = 0; frame < 75; frame++) {
     const dt = frame % 7 === 3 ? 0.05 : 1 / 30;
-    const speed = frame < 10 ? 0 : frame < 40 ? 4.16 : frame < 42 ? 0 : frame < 44 ? 5 : 0;
-    const want = C.chooseAnimation('walk', speed, clips, 1);
+    const speed = frame < 10 ? 0 : frame < 40 ? walkSpeed : frame < 42 ? 0 : frame < 44 ? walkSpeed * 2 : 0;
+    const want = C.chooseAnimation('walk', speed, unitMeters, clips, 1);
     if (want !== current) {
       const next = want ? actions[want] : undefined;
       const prev = current ? actions[current] : undefined;
@@ -904,12 +923,13 @@ const robotRef = await (async () => {
       current = want;
     }
     const cur = current ? actions[current] : undefined;
-    if (cur && (current === 'walk' || current === 'run')) cur.timeScale = C.clipTimeScale(current, C.walkCadence(speed, 1));
+    if (cur && (current === 'walk' || current === 'run')) cur.timeScale = C.clipTimeScale(current, C.walkCadence(speed, unitMeters, 1));
     mixer.update(dt);
     const node = (n) => scene.getObjectByName(n);
     steps.push({
       dt,
       speed,
+      unitMeters,
       current,
       nodes: Object.fromEntries(['torso', 'head', 'leg_l', 'leg_r'].map((n) => [n, { t: node(n).position.toArray(), q: node(n).quaternion.toArray() }])),
     });
@@ -1038,7 +1058,7 @@ const dracoJson = JSON.stringify({
 });
 
 const characters = {
-  constants: { CHARACTER_HEIGHT: C.CHARACTER_HEIGHT, WALK_CADENCE_SPEED: C.WALK_CADENCE_SPEED, MIN_CADENCE: C.MIN_CADENCE },
+  constants: { CHARACTER_HEIGHT: C.CHARACTER_HEIGHT, WALK_CADENCE_MPS: C.WALK_CADENCE_MPS, STEP_PHASE_RATE: C.STEP_PHASE_RATE, MIN_CADENCE: C.MIN_CADENCE },
   resolveClips: resolveCases,
   chooseAnimation: chooseCases,
   cadence: cadenceCases,

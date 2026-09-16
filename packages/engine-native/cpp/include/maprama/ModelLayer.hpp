@@ -146,7 +146,7 @@ class CharacterModel {
   const std::shared_ptr<const ModelAsset>& asset() const { return animator_.asset(); }
 
   /// engine-web `Character.setMode` + `Character.animate` for one frame (`t` = seconds, the shared clock).
-  void step(double dt, double t, const FollowerBody& body, double scale);
+  void step(double dt, double t, const FollowerBody& body, double unitMeters, double scale);
   /// Appends the body (glTF or procedural) and the visible vehicles.
   void draw(ModelFrameBuilder& builder, const FollowerBody& body, double yaw, double scale, std::uint32_t color, bool isPlayer) const;
 

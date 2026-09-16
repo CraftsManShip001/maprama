@@ -91,10 +91,10 @@ Each of these is a real gap found while answering an integrator's questions agai
 - **Location puck without a character.** The puck is only drawn when a player `Character` exists
   (`engine-web/src/engine/features.ts`), so a map that only needs "my position" has to add a character, which
   draws a body. Wanted: `ui.locationPuck` fed by `pushLocation` alone. Workaround: draw it with `<MapOverlay>`.
-  **Together with the walk-cadence defect below this is a dead end, not two independent gaps**: an app that
-  drops the walking character to avoid foot sliding also loses "my position", and an app that keeps the
-  character gets sliding feet at real walking speed. Fixing either one alone unblocks the pair, so they should
-  be prioritised together.
+  This used to be a dead end together with the walk-cadence defect (an app that dropped the walking character
+  to avoid foot sliding also lost "my position"); the cadence half is fixed — cadence now follows the ground
+  covered in metres per second, so a character walking at real-world speed plays its walk clip at 1× — and the
+  puck is the remaining half.
 - **Hiding POI / station markers.** `labels: { enabled: false }` hides label text, but POIs and stations are
   also drawn as coloured dots by the world style, with no toggle in `ThemeSpec` or `MapUiSpec`. Workaround:
   build the world without `pois` / `stations`.
@@ -115,10 +115,6 @@ Each of these is a real gap found while answering an integrator's questions agai
   `WorldData.unitMeters`. Raising `unitMeters` to widen the camera range therefore also widens roads
   (3 units = 72 m at 24 m/unit), enlarges characters and raises the minimum camera distance. Road widths in
   metres or exposed through the theme, and camera limits in metres, would decouple these.
-- **Walk cadence is clamped at real-world speed.** `walkCadence` compares ground speed against
-  `WALK_CADENCE_SPEED` (3.2 units/s ≈ 25.6 m/s at 8 m/unit), so a character walking at a real 4.8 km/h gets a
-  cadence of ~0.05 and is clamped to `MIN_CADENCE` 0.5 — the walk clip plays faster than the feet travel
-  (sliding). It affects every `unitMeters` value and is most visible at `travelTimeScale: 1`.
 - **The web engine renders continuously.** `core/renderer.ts` drives an unconditional
   `requestAnimationFrame` loop with no dirty-flag gating, so a static map still renders every frame (battery
   cost inside the WebView). The native engine gained off-screen/idle frame gating in M4; the web engine has

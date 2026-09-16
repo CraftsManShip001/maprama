@@ -47,6 +47,17 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Fixed
 
+- Walk / run animation cadence now follows the ground a character actually
+  covers (metres per second) instead of its speed in world units, so the walk
+  clip plays at 1× at the natural walking speed (4.8 km/h) at every world scale
+  (`unitMeters`) and the feet stay planted. Before, a character travelling at
+  real-world speed (`travelTimeScale: 1`) played its walk clip about ten times
+  too fast. Travel played back faster than real time is now animated as
+  running: at `travelTimeScale: 20` the character covers twenty times the
+  ground of a natural walk, so the `run` clip is chosen and plays at the
+  maximum rate (2.2×) instead of reading as a very fast walk. No
+  public API changed — the cadence helpers are internal to the engine and are
+  not exported from `@maprama/engine-web`.
 - Optional character fields can be reset to their defaults by sending `null`.
 - Characters created without a model get the default body again.
 - engine-web: the location puck no longer overlaps the HUD, labels are no

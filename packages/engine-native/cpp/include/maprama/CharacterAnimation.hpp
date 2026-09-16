@@ -20,12 +20,15 @@ namespace maprama {
 
 /// engine-web `CHARACTER_HEIGHT`: glTF characters are scaled to it (world units) times `CharacterSpec.scale`.
 inline constexpr double kCharacterHeight = 1.9;
-/// engine-web `WALK_CADENCE_SPEED`, `MIN_CADENCE`, `MAX_CADENCE`, `RUN_CADENCE`, `IDLE_SPEED`.
-inline constexpr double kWalkCadenceSpeed = 3.2;
+/// engine-web `WALK_CADENCE_MPS` (`KMH.walk` 4.8 km/h in m/s: the ground speed that plays the walk clip at 1×),
+/// `MIN_CADENCE`, `MAX_CADENCE`, `RUN_CADENCE`, `IDLE_SPEED`.
+inline constexpr double kWalkCadenceMps = 4.8 / 3.6;
 inline constexpr double kMinCadence = 0.5;
 inline constexpr double kMaxCadence = 2.2;
 inline constexpr double kRunCadence = 1.6;
 inline constexpr double kIdleSpeed = 1e-3;
+/// engine-web `STEP_PHASE_RATE`: step phase of the procedural body in radians per second at cadence 1.
+inline constexpr double kStepPhaseRate = 3.2;
 /// Clip cross-fade (DESIGN.md §6.4: 150 ms; engine-web's `CROSSFADE` is 0.25 s).
 inline constexpr double kCrossFadeSeconds = 0.15;
 
@@ -36,12 +39,14 @@ using AnimationClips = std::array<std::optional<std::string>, 5>;
 /// the convention, then case-insensitively, then a case-insensitive name segment (`"Armature|Walk"`, `"run_fast"`).
 AnimationClips resolveClips(const std::vector<std::string>& clipNames, const AnimationClips& mapping);
 
-/// engine-web `chooseAnimation`: the animation for a mode and speed (world units / s), with fallbacks to the
-/// available clips; nullopt when none fits.
-std::optional<AnimationName> chooseAnimation(TravelMode mode, double speed, const AnimationClips& available, double scale = 1);
+/// engine-web `chooseAnimation`: the animation for a mode and speed (world units / s, with the world's
+/// `unitMeters`), with fallbacks to the available clips; nullopt when none fits.
+std::optional<AnimationName> chooseAnimation(TravelMode mode, double speed, double unitMeters, const AnimationClips& available,
+                                             double scale = 1);
 
-/// engine-web `walkCadence`: speed relative to the natural walking pace of a character of `scale`.
-double walkCadence(double speedUnits, double scale = 1);
+/// engine-web `walkCadence`: the ground covered in metres per second (`speedUnits × unitMeters`) relative to the
+/// natural walking pace of a character of `scale`. 1 = natural, so the feet match the ground at any world scale.
+double walkCadence(double speedUnits, double unitMeters, double scale = 1);
 
 /// engine-web `clipTimeScale`: playback rate of the `walk` / `run` clip for a cadence, clamped to [0.5, 2.2].
 double clipTimeScale(AnimationName clip, double cadence);
@@ -78,9 +83,9 @@ class ModelAnimator {
   /// no-op when they resolve the same; otherwise every action stops and the next update starts fresh).
   void setMapping(const AnimationClips& mapping);
 
-  /// engine-web `Character.animate` (model branch): `chooseAnimation(mode, speed)`, a cross-fade when the choice
-  /// changes, the walk / run cadence as time scale, then `mixer.update(dt)`.
-  void update(double dt, TravelMode mode, double speed, double scale, double crossFade = kCrossFadeSeconds);
+  /// engine-web `Character.animate` (model branch): `chooseAnimation(mode, speed, unitMeters)`, a cross-fade when
+  /// the choice changes, the walk / run cadence as time scale, then `mixer.update(dt)`.
+  void update(double dt, TravelMode mode, double speed, double unitMeters, double scale, double crossFade = kCrossFadeSeconds);
 
   /// Mixer primitives (three.js semantics), used by `update` and the tests.
   /// `reset()` + `play()` of the clip's action, then `prev.crossFadeTo(next, duration)` / `next.fadeIn(duration)`.

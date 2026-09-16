@@ -538,11 +538,16 @@ the vertex shader (the plan above) remains an option if drop counts grow.
   and other material maps are ignored. `ModelLibrary` shares loaded models by URI and, like engine-web's
   `gltfCache`, retries a failed URI on the next request.
 - **Animation (M3b).** `CharacterAnimation.cpp` ports `resolveClips`, `chooseAnimation`, `walkCadence`,
-  `clipTimeScale` and `headingFromYaw` [V: `characters.json`, 1,566 cases] and samples TRS channels like three.js'
-  interpolants (linear with slerp, step, cubic spline). `ModelAnimator` ports the part of `AnimationMixer`
-  engine-web uses (looping actions, `crossFadeTo` / `fadeIn` / `fadeOut`, per-action time scale, weighted
-  accumulation with the rest pose filling the missing weight) and is checked frame by frame against three.js
-  driving the example robot through idle → walk ×1.3 → idle → walk with **150 ms** cross-fades (engine-web uses
+  `clipTimeScale` and `headingFromYaw` [V: `characters.json`, 2,580 cases] and samples TRS channels like three.js'
+  interpolants (linear with slerp, step, cubic spline). **Cadence is measured on the map, not on screen**: it is the
+  ground the character covers in metres per wall-clock second (`speed × unitMeters`, engine-web `realSpeedMps`) over
+  the natural walking pace (`KMH.walk`, 4.8 km/h) times the character `scale`, clamped to [0.5, 2.2], with `run`
+  above 1.6. So a character travelling at real-world speed plays its walk clip at 1× at every `unitMeters` and its
+  feet stay planted, and a travel `timeScale` of 20 covers twenty times the ground and reads as a run at the cap.
+  `ModelAnimator` ports the part of `AnimationMixer` engine-web uses (looping actions, `crossFadeTo` / `fadeIn` /
+  `fadeOut`, per-action time scale, weighted accumulation with the rest pose filling the missing weight) and is
+  checked frame by frame against three.js driving the example robot through idle → a real-time walk (cadence 1) →
+  idle → twice that pace (the `run` chain) with **150 ms** cross-fades (engine-web uses
   0.25 s) [V: `m3b_model_animator_crossfade_matches_three`, max 2.7e-8]; node matrices and a generated skinned
   model's `skeleton.boneMatrices` match three.js within 1.7e-8 / 5.6e-8 [V: `m3b_gltf_loader_sample_robot_matches_three`,
   `m3b_skinning_palette_matches_three`]. glTF characters are normalized like engine-web (`CHARACTER_HEIGHT` 1.9 ×

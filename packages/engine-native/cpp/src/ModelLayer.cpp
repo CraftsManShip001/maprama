@@ -193,7 +193,7 @@ bool CharacterModel::bodyHidden() const {
 
 bool CharacterModel::onBike() const { return mode_ == TravelMode::Bike && vehicles_.built && vehicles_.vehicles[0].p > 0.4; }
 
-void CharacterModel::step(double dt, double t, const FollowerBody& body, double scale) {
+void CharacterModel::step(double dt, double t, const FollowerBody& body, double unitMeters, double scale) {
   // engine-web `Character.setMode`: vehicles are built on the first non-walking mode.
   if (body.mode != mode_) {
     mode_ = body.mode;
@@ -203,9 +203,9 @@ void CharacterModel::step(double dt, double t, const FollowerBody& body, double 
   if (vehicles_.built) stepVehicles(vehicles_, mode_, body.speed, dt, t, body.planePitch);
   const bool bike = onBike();
   if (hasModel()) {
-    animator_.update(dt, bike || mode_ == TravelMode::Car ? mode_ : TravelMode::Walk, body.speed, scale);
+    animator_.update(dt, bike || mode_ == TravelMode::Car ? mode_ : TravelMode::Walk, body.speed, unitMeters, scale);
   } else {
-    animateProceduralRig(rig_, dt, t, mode_, body.speed, scale, bike);
+    animateProceduralRig(rig_, dt, t, mode_, body.speed, unitMeters, scale, bike);
   }
 }
 

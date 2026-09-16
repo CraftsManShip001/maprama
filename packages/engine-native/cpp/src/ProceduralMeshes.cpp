@@ -702,7 +702,8 @@ std::shared_ptr<const ModelMesh> proceduralCharacterMesh(std::uint32_t color, bo
   });
 }
 
-void animateProceduralRig(ProceduralRigState& r, double dt, double t, TravelMode mode, double speed, double scale, bool onBike) {
+void animateProceduralRig(ProceduralRigState& r, double dt, double t, TravelMode mode, double speed, double unitMeters, double scale,
+                          bool onBike) {
   r.rigX = r.rigY = r.rigZ = 0;
   r.rigRotX = r.rigRotY = 0;
   r.rigScaleY = 1;
@@ -720,8 +721,9 @@ void animateProceduralRig(ProceduralRigState& r, double dt, double t, TravelMode
       r.elbow[static_cast<std::size_t>(s)] = -0.25;
     }
   } else if (mode != TravelMode::Car) {
-    // cadence relative to the character size, at least MIN_CADENCE while moving
-    const double k = std::max(walkCadence(speed, scale), kMinCadence), amp = std::min(k, 1.0), run = std::clamp((k - 1.2) / 0.8, 0.0, 1.0);
+    // cadence relative to the natural walking pace, at least MIN_CADENCE while moving
+    const double k = std::max(walkCadence(speed, unitMeters, scale), kMinCadence), amp = std::min(k, 1.0),
+                 run = std::clamp((k - 1.2) / 0.8, 0.0, 1.0);
     if (speed < kIdleSpeed) {
       for (int s = 0; s < 2; ++s) {
         r.hip[static_cast<std::size_t>(s)] = 0;
@@ -731,7 +733,7 @@ void animateProceduralRig(ProceduralRigState& r, double dt, double t, TravelMode
       }
       r.rigScaleY = 1 + std::sin(t * 2.4 + r.phase) * 0.01;
     } else {
-      r.phase += dt * k * kWalkCadenceSpeed * (2.3 - run * 0.5);
+      r.phase += dt * k * kStepPhaseRate * (2.3 - run * 0.5);
       for (int s = 0; s < 2; ++s) {
         const double a = r.phase + s * kPi, sn = std::sin(a), cs = std::cos(a);
         r.hip[static_cast<std::size_t>(s)] = sn * (0.5 + run * 0.35) * amp;

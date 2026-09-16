@@ -700,7 +700,7 @@ void GameSession::tick(double nowMs) {
     const double yawBefore = ch->yaw;
     if (f.stepCharacter(dt)) trips_.arrived(ch->id(), events);
     ch->yaw += wrapAngle(f.body.targetYaw - ch->yaw) * std::min(1.0, dt * 10.0);
-    ch->visual.step(dt, nowMs / 1000.0, f.body, ch->scale());
+    ch->visual.step(dt, nowMs / 1000.0, f.body, proj_->unitMeters(), ch->scale());
     if (before.x != f.body.x || before.z != f.body.z || before.mode != f.body.mode || std::fabs(yawBefore - ch->yaw) > 1e-6) {
       dirty_ |= kModels | kPuck;
     }

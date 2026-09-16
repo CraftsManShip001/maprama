@@ -21,7 +21,7 @@ import {
   normalizeModel,
   realSpeedMps,
   resolveClips,
-  WALK_CADENCE_SPEED,
+  WALK_CADENCE_MPS,
   walkCadence,
 } from './characters.js';
 import { playbackSpeeds } from './follower.js';
@@ -155,15 +155,16 @@ describe('clip-name mapping', () => {
 
   it('chooses animations by mode and speed with fallbacks', () => {
     const all = { idle: 'i', walk: 'w', run: 'r', ride: 'b', wave: 'v' };
-    expect(chooseAnimation('walk', 0, all)).toBe('idle');
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED, all)).toBe('walk');
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED * 2, all)).toBe('run');
-    expect(chooseAnimation('bike', 5, all)).toBe('ride');
-    expect(chooseAnimation('car', 5, all)).toBe('ride');
-    expect(chooseAnimation('plane', 20, all)).toBe('idle');
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED * 2, { idle: 'i', walk: 'w' })).toBe('walk');
-    expect(chooseAnimation('bike', 5, { walk: 'w' })).toBeNull();
-    expect(chooseAnimation('walk', 3, { run: 'r' })).toBe('run');
+    const walking = playbackSpeeds(8, 1).walk; // the natural walking pace: cadence 1
+    expect(chooseAnimation('walk', 0, 8, all)).toBe('idle');
+    expect(chooseAnimation('walk', walking, 8, all)).toBe('walk');
+    expect(chooseAnimation('walk', walking * 2, 8, all)).toBe('run');
+    expect(chooseAnimation('bike', 5, 8, all)).toBe('ride');
+    expect(chooseAnimation('car', 5, 8, all)).toBe('ride');
+    expect(chooseAnimation('plane', 20, 8, all)).toBe('idle');
+    expect(chooseAnimation('walk', walking * 2, 8, { idle: 'i', walk: 'w' })).toBe('walk');
+    expect(chooseAnimation('bike', 5, 8, { walk: 'w' })).toBeNull();
+    expect(chooseAnimation('walk', 3, 8, { run: 'r' })).toBe('run');
   });
 
   it('reports heading clockwise from north and realistic speeds', () => {
@@ -181,30 +182,42 @@ describe('clip-name mapping', () => {
 });
 
 describe('animation cadence', () => {
-  it('follows the on-screen speed relative to the character size', () => {
-    expect(walkCadence(WALK_CADENCE_SPEED)).toBeCloseTo(1, 12);
-    expect(walkCadence(WALK_CADENCE_SPEED, 2)).toBeCloseTo(0.5, 12);
-    // ×20 real walking is about the natural cadence
-    const fastWalk = playbackSpeeds(8, 20).walk;
-    expect(clipTimeScale('walk', walkCadence(fastWalk))).toBeCloseTo(fastWalk / WALK_CADENCE_SPEED, 12);
-    expect(clipTimeScale('run', walkCadence(WALK_CADENCE_SPEED * 3))).toBeCloseTo(1.5, 12);
+  it('measures the ground covered per second, not the on-screen world units', () => {
+    // cadence 1 = walking at KMH.walk, whatever the world scale
+    expect(WALK_CADENCE_MPS).toBeCloseTo(4.8 / 3.6, 12);
+    for (const unitMeters of [8, 16, 24]) {
+      expect(walkCadence(playbackSpeeds(unitMeters, 1).walk, unitMeters)).toBeCloseTo(1, 12);
+    }
+    // a character twice the size strides half as often for the same ground
+    expect(walkCadence(WALK_CADENCE_MPS / 8, 8, 2)).toBeCloseTo(0.5, 12);
+    expect(walkCadence(0, 8)).toBe(0);
+    // a run cycle covers about twice the ground; the rate is clamped to [0.5, 2.2]
+    expect(clipTimeScale('run', walkCadence(playbackSpeeds(8, 3).walk, 8))).toBeCloseTo(1.5, 12);
     expect(clipTimeScale('walk', 10)).toBe(2.2);
+    expect(clipTimeScale('walk', 0.1)).toBe(MIN_CADENCE);
   });
 
-  it('keeps a minimum cadence at real-world speed and still walks (not idle)', () => {
-    const real = playbackSpeeds(8, 1).walk;
-    expect(clipTimeScale('walk', walkCadence(real))).toBe(MIN_CADENCE);
+  it('plays the walk clip at 1× at real-world speed (timeScale 1) so the feet do not slide', () => {
     const all = { idle: 'i', walk: 'w', run: 'r' };
-    expect(chooseAnimation('walk', real, all)).toBe('walk');
+    for (const unitMeters of [8, 16, 24]) {
+      const real = playbackSpeeds(unitMeters, 1).walk;
+      expect(clipTimeScale('walk', walkCadence(real, unitMeters))).toBeCloseTo(1, 12);
+      expect(chooseAnimation('walk', real, unitMeters, all)).toBe('walk');
+    }
     // a real-time walk on a coarse world (50 m per unit) is not mistaken for standing
-    expect(chooseAnimation('walk', playbackSpeeds(50, 1).walk, all)).toBe('walk');
-    expect(chooseAnimation('walk', playbackSpeeds(8, 20).walk, all)).toBe('walk');
+    expect(chooseAnimation('walk', playbackSpeeds(50, 1).walk, 50, all)).toBe('walk');
+    // ×20 travel playback covers 20× the ground: it reads as a run, capped at the maximum rate
+    const fast = playbackSpeeds(8, 20).walk;
+    expect(walkCadence(fast, 8)).toBeCloseTo(20, 9);
+    expect(chooseAnimation('walk', fast, 8, all)).toBe('run');
+    expect(clipTimeScale('run', walkCadence(fast, 8))).toBe(2.2);
   });
 
-  it('chooses run relative to the character size', () => {
+  it('chooses run above 1.6× the natural pace, relative to the character size', () => {
     const all = { idle: 'i', walk: 'w', run: 'r' };
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED * 2, all)).toBe('run');
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED * 2, all, 2)).toBe('walk');
+    const twice = playbackSpeeds(8, 2).walk;
+    expect(chooseAnimation('walk', twice, 8, all)).toBe('run');
+    expect(chooseAnimation('walk', twice, 8, all, 2)).toBe('walk');
   });
 });
 
@@ -270,8 +283,8 @@ describe('GLB fixture (dev/fixtures/box-character.glb)', () => {
     expect([...names].sort()).toEqual(['idle', 'walk']);
     const clips = resolveClips(names);
     expect(clips).toEqual({ idle: 'idle', walk: 'walk' });
-    expect(chooseAnimation('walk', 0, clips)).toBe('idle');
-    expect(chooseAnimation('walk', WALK_CADENCE_SPEED, clips)).toBe('walk');
+    expect(chooseAnimation('walk', 0, 8, clips)).toBe('idle');
+    expect(chooseAnimation('walk', playbackSpeeds(8, 1).walk, 8, clips)).toBe('walk');
 
     const wrap = normalizeModel(instantiateModel(gltf), CHARACTER_HEIGHT);
     wrap.updateMatrixWorld(true);

@@ -66,13 +66,16 @@ AnimationClips resolveClips(const std::vector<std::string>& clipNames, const Ani
   return out;
 }
 
-double walkCadence(double speedUnits, double scale) { return speedUnits / (kWalkCadenceSpeed * (scale > 0 ? scale : 1)); }
+double walkCadence(double speedUnits, double unitMeters, double scale) {
+  return speedUnits * unitMeters / (kWalkCadenceMps * (scale > 0 ? scale : 1));
+}
 
 double clipTimeScale(AnimationName clip, double cadence) {
   return std::clamp(clip == AnimationName::Run ? cadence / 2 : cadence, kMinCadence, kMaxCadence);
 }
 
-std::optional<AnimationName> chooseAnimation(TravelMode mode, double speed, const AnimationClips& available, double scale) {
+std::optional<AnimationName> chooseAnimation(TravelMode mode, double speed, double unitMeters, const AnimationClips& available,
+                                             double scale) {
   AnimationName want;
   if (mode == TravelMode::Bike || mode == TravelMode::Car) {
     want = AnimationName::Ride;
@@ -81,7 +84,7 @@ std::optional<AnimationName> chooseAnimation(TravelMode mode, double speed, cons
   } else if (speed < kIdleSpeed) {
     want = AnimationName::Idle;
   } else {
-    want = walkCadence(speed, scale) > kRunCadence ? AnimationName::Run : AnimationName::Walk;
+    want = walkCadence(speed, unitMeters, scale) > kRunCadence ? AnimationName::Run : AnimationName::Walk;
   }
   std::vector<AnimationName> chain;
   switch (want) {
@@ -337,9 +340,9 @@ void ModelAnimator::advance(double dt) {
   }
 }
 
-void ModelAnimator::update(double dt, TravelMode mode, double speed, double scale, double crossFade) {
+void ModelAnimator::update(double dt, TravelMode mode, double speed, double unitMeters, double scale, double crossFade) {
   if (!asset_) return;
-  const std::optional<AnimationName> want = chooseAnimation(mode, speed, clips_, scale);
+  const std::optional<AnimationName> want = chooseAnimation(mode, speed, unitMeters, clips_, scale);
   if (want != current_) {
     const int next = want ? clipIndex(clips_[idx(*want)]) : -1;
     play(next, crossFade);
@@ -347,7 +350,7 @@ void ModelAnimator::update(double dt, TravelMode mode, double speed, double scal
   }
   if (current_ == AnimationName::Walk || current_ == AnimationName::Run) {
     const int c = clipIndex(clips_[idx(*current_)]);
-    if (c >= 0) setTimeScale(c, clipTimeScale(*current_, walkCadence(speed, scale)));
+    if (c >= 0) setTimeScale(c, clipTimeScale(*current_, walkCadence(speed, unitMeters, scale)));
   }
   advance(dt);
 }

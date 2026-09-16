@@ -51,7 +51,8 @@ struct ProceduralRigState {
 
 /// engine-web `Character.animate`, procedural branch. `mode` is the visible vehicle mode, `onBike` true while the
 /// bike has popped in (> 0.4).
-void animateProceduralRig(ProceduralRigState& state, double dt, double t, TravelMode mode, double speed, double scale, bool onBike);
+void animateProceduralRig(ProceduralRigState& state, double dt, double t, TravelMode mode, double speed, double unitMeters, double scale,
+                          bool onBike);
 
 /// Palette (`procedural_rig::kJoints` matrices, character-root space) of a rig state.
 std::vector<Mat4> proceduralRigPalette(const ProceduralRigState& state);
