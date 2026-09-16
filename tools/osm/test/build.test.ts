@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { OSM_ATTRIBUTION, KR_ATTRIBUTION, buildWorld, buildWorldWithStats, stringifyWorld } from '../src/build.js';
-import { signedArea } from '../src/geometry.js';
+import { pointInRing, signedArea } from '../src/geometry.js';
 import type { OverpassNode, OverpassResponse } from '../src/types.js';
 
 const fixture = (name: string): unknown =>
@@ -260,5 +260,122 @@ describe('checked-in Seongsu sample', () => {
     for (const b of world.buildings) expect(signedArea(b.footprint)).toBeGreaterThan(0);
     expect(new Set(world.buildings.map((b) => b.id)).size).toBe(world.buildings.length);
     expect(new Set(world.roads.map((r) => r.id)).size).toBe(world.roads.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POI ↔ building join (brief T). A purpose-built payload: one 24 m building at
+// the origin, and POIs placed at known distances from it.
+// ---------------------------------------------------------------------------
+
+const ORIGIN = { lat: 37.5, lng: 127.0 };
+/** `metres` east / north of the origin, as an Overpass lat/lon. */
+const atMeters = (east: number, north: number): { lat: number; lon: number } => ({
+  lat: ORIGIN.lat + north / 111_320,
+  lon: ORIGIN.lng + east / (111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180)),
+});
+
+/** A closed `building=yes` way covering `[x0, x1] × [z0, z1]` metres. */
+const buildingWay = (id: number, x0: number, x1: number, z0: number, z1: number): OverpassResponse['elements'][number] => ({
+  type: 'way',
+  id,
+  tags: { building: 'yes', 'building:levels': '8' },
+  geometry: [atMeters(x0, z0), atMeters(x1, z0), atMeters(x1, z1), atMeters(x0, z1), atMeters(x0, z0)],
+});
+
+const poiNode = (id: number, east: number, north: number, tags: Record<string, string>): OverpassResponse['elements'][number] => ({
+  type: 'node',
+  id,
+  ...atMeters(east, north),
+  tags,
+} as OverpassNode);
+
+const joinRaw: OverpassResponse = {
+  elements: [
+    buildingWay(1, -12, 12, -12, 12),
+    poiNode(100, 0, 0, { amenity: 'cafe', name: 'Inside' }),           // dead centre
+    poiNode(101, 20, 0, { amenity: 'cafe', name: 'Near' }),            // 8 m east of the wall
+    poiNode(102, 90, 0, { amenity: 'cafe', name: 'Far' }),             // 78 m out: no building
+    poiNode(103, 20, 20, { place: 'square', name: 'Plaza' }),          // open space: never moved
+    poiNode(104, 22, -22, { leisure: 'park', name: 'Park' }),          // open space
+  ],
+  maprama: { bbox: { south: ORIGIN.lat - 0.003, west: ORIGIN.lng - 0.003, north: ORIGIN.lat + 0.003, east: ORIGIN.lng + 0.003 } },
+} as OverpassResponse;
+
+describe('POI ↔ building join', () => {
+  const opts = { name: 'Join', bbox: joinRaw.maprama!.bbox };
+
+  it('records the building a POI already sits in, without moving it', () => {
+    const { world, stats } = buildWorldWithStats(joinRaw, opts);
+    const inside = byId(world.pois, 'n100');
+    expect(inside.buildingId).toBe('w1');
+    expect(inside.snapped).toBeUndefined();
+    expect(inside.snapDistanceMeters).toBeUndefined();
+    expect(inside.x).toBeCloseTo(0, 2);
+    expect(stats.poisInBuilding).toBe(1);
+  });
+
+  it('snaps a POI just outside onto the footprint and records the distance', () => {
+    const { world, stats } = buildWorldWithStats(joinRaw, opts);
+    const near = byId(world.pois, 'n101');
+    expect(near.buildingId).toBe('w1');
+    expect(near.snapped).toBe(true);
+    expect(near.snapDistanceMeters).toBeCloseTo(8, 0);
+    expect(stats.poisSnapped).toBe(1);
+    // The snapped position really is inside the footprint it names.
+    expect(pointInRing([near.x, near.z], byId(world.buildings, 'w1').footprint)).toBe(true);
+  });
+
+  it('leaves a POI with no building in range alone', () => {
+    const { world, stats } = buildWorldWithStats(joinRaw, opts);
+    const far = byId(world.pois, 'n102');
+    expect(far.buildingId).toBeUndefined();
+    expect(far.snapped).toBeUndefined();
+    // 3 unattached: the far cafe plus the plaza and the park, which are skipped.
+    expect(stats.poisUnattached).toBe(3);
+  });
+
+  it('never moves a plaza or a park — they are open space by definition', () => {
+    const { world } = buildWorldWithStats(joinRaw, opts);
+    for (const id of ['n103', 'w21_none', 'n104']) {
+      const p = world.pois.find((q) => q.id === id);
+      if (!p) continue;
+      expect(p.buildingId).toBeUndefined();
+      expect(p.snapped).toBeUndefined();
+    }
+    // The plaza anchor still points at the plaza POI's own position.
+    const plaza = byId(world.pois, 'n103');
+    expect(world.plaza?.x).toBeCloseTo(plaza.x, 5);
+    expect(world.plaza?.z).toBeCloseTo(plaza.z, 5);
+  });
+
+  it('poiSnapMeters: 0 records containment but never moves anything', () => {
+    const { world, stats } = buildWorldWithStats(joinRaw, { ...opts, poiSnapMeters: 0 });
+    expect(byId(world.pois, 'n100').buildingId).toBe('w1');
+    expect(byId(world.pois, 'n101').buildingId).toBeUndefined();
+    expect(stats.poisSnapped).toBe(0);
+  });
+
+  it('a tighter radius stops reaching the near POI', () => {
+    const { stats } = buildWorldWithStats(joinRaw, { ...opts, poiSnapMeters: 5 });
+    expect(stats.poisSnapped).toBe(0);
+    expect(stats.poisInBuilding).toBe(1);
+  });
+
+  it('the world still validates and the fields survive a round-trip through JSON', () => {
+    const { world } = buildWorldWithStats(joinRaw, opts);
+    expect(validateWorldData(world)).toEqual({ ok: true });
+    const back = JSON.parse(stringifyWorld(world)) as WorldData;
+    expect(validateWorldData(back)).toEqual({ ok: true });
+    expect(back.pois.find((p) => p.id === 'n101')).toMatchObject({ buildingId: 'w1', snapped: true });
+  });
+
+  it('a world written before this feature still loads (the three fields are optional)', () => {
+    const { world } = buildWorldWithStats(joinRaw, opts);
+    const legacy: WorldData = {
+      ...world,
+      pois: world.pois.map((p) => ({ id: p.id, name: p.name, cat: p.cat, x: p.x, z: p.z })),
+    };
+    expect(validateWorldData(legacy)).toEqual({ ok: true });
   });
 });

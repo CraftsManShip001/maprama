@@ -70,6 +70,7 @@ payload to `tools/osm/.cache/samples/seongsu.raw.json`.
 | `--simplify-meters <m>` | `0.5` | Douglas–Peucker tolerance |
 | `--kr-buildings <file>` | | Korean building GeoJSON (see below) |
 | `--kr-fill-missing` | off | Also emit buildings for `--kr-buildings` polygons that OSM does not have ([filling gaps](#filling-gaps-in-osm-building-coverage)). Requires `--kr-buildings` |
+| `--poi-snap-meters <m>` | `20` | Radius for [attaching a POI to a building](#attaching-pois-to-buildings); `0` records containment but never moves a POI |
 | `--precision <n>` | `2` | Decimal places of output coordinates (world units) |
 | `--include-sidewalks` | off | Keep `footway=sidewalk\|crossing` ways |
 
@@ -80,7 +81,8 @@ warns if it grows past 3 MB.
 `build` and `sample` print a JSON stats block on stdout. Besides the per-layer
 counts it reports `buildingsFromOsm`, `buildingsFilled` (generated from the
 national dataset) and `krFillSkipped` (national polygons inside the bbox that
-OSM already had), plus `krIndexed` and `krMatches`.
+OSM already had), plus `krIndexed` and `krMatches`, and the POI join's
+`poisInBuilding` / `poisSnapped` / `poisUnattached`.
 
 ### Overpass endpoints
 
@@ -158,6 +160,49 @@ interior point of their area.
 Station nodes with the same name within 500 m are merged into one station at
 their mean position. `plaza` is the named square closest to the origin, if
 there is one.
+
+### Attaching POIs to buildings
+
+A POI node in OSM is usually **not** inside the building it describes: mappers
+put it at the parcel centre, at the entrance, or by the road, and the building
+is a separate `building=*` way. Drawn as a pin on a 2.5D map, such a POI stands
+in the street next to its building.
+
+After the buildings are final (including the `--kr-fill-missing` pass), each POI
+is therefore joined to one:
+
+| Case | Result |
+| --- | --- |
+| a footprint contains the POI | `buildingId` is set; the position does not move |
+| the nearest footprint is within `--poi-snap-meters` (default 20) | the POI is moved just inside that footprint and gets `buildingId`, `snapped: true` and `snapDistanceMeters` |
+| nothing is in range | nothing is added — the POI stays exactly where OSM put it |
+
+`plaza`, `park` and `subway` POIs are **never** joined: a square and a park are
+open space, and a merged station sits at the mean of its entrances, usually in
+the middle of a road. Moving them into the nearest shop would be wrong, and
+`world.plaza` is derived from the plaza POI's own position.
+
+All three fields are optional additions to `WorldData` v1, so a world built
+before this existed still loads, and a world built with it still loads in an
+engine that ignores them.
+
+**Why 20 m.** Measured over five Korean areas (Gangnam, Seongsu, Jeonju,
+Bundang, Gurye — 171 POIs, 2 460 buildings), 25 % of the POIs fall outside every
+footprint. Of the 30 joinable ones, snapping recovers 12 at 5 m, 20 at 15 m,
+**20 at 20 m** and more only past 25 m. 20 m is where the second-best candidate
+is still almost never a tie and the radius stays inside one city block: Korean
+back streets are 6–8 m wide, while 40 m crosses an arterial (Gangnam-daero is
+~50 m) and would attach a shop to the building on the far side of the road — a
+worse error than leaving the POI in open space.
+
+Across those five areas the join takes joinable POIs attached to a building from
+**80.8 % to 93.6 %**. The remaining 6.4 % have no building mapped in OSM at all;
+no radius fixes that. `--poi-snap-meters 0` keeps the containment check and
+turns the moving off.
+
+Two POIs outside the same corner of a building can clamp to the same point
+inside it (two shops in one building is the common case); the collision pass
+then shows one of them.
 
 A square is often a genuinely open space, so `build` writes a warning to stderr
 when the emitted `plaza` is more than 15 m from every building footprint (and is

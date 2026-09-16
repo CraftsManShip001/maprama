@@ -93,6 +93,12 @@ export interface BuildWorldOptions {
   minBuildingAreaM2?: number;
   /** Minimum water/park polygon area in m². Default 25. */
   minAreaM2?: number;
+  /**
+   * Search radius for attaching a POI to a building, in meters. Default
+   * {@link DEFAULT_POI_SNAP_METERS}; `0` only records the building a POI is
+   * already inside and never moves a POI.
+   */
+  poiSnapMeters?: number;
   /** Extra attribution lines appended after the OSM (and KR) lines. */
   attribution?: string[];
   /**
@@ -117,6 +123,12 @@ export interface BuildStats {
   water: number;
   parks: number;
   pois: number;
+  /** POIs already inside a building footprint (nothing moved). */
+  poisInBuilding: number;
+  /** POIs moved onto the nearest footprint within `poiSnapMeters`. */
+  poisSnapped: number;
+  /** POIs left with no building: none contains them and none is within range. */
+  poisUnattached: number;
   stations: number;
   districts: number;
   duplicateBuildings: number;
@@ -134,24 +146,159 @@ export interface BuildWorldResult {
 const STATION_MERGE_METERS = 500;
 
 /**
+ * Default search radius for attaching a POI to a building, in meters.
+ *
+ * A large share of OSM POI nodes are not inside the building they describe:
+ * mappers put them at the parcel centre, at the entrance, or by the road, and
+ * the building is a separate `building=*` way. Measured over five Korean areas
+ * (Gangnam, Seongsu, Jeonju, Bundang, Gurye — 171 POIs, 2 460 buildings),
+ * 25.1 % of the POIs fall outside every footprint we draw.
+ *
+ * Of those 43, snapping recovers 12 at 5 m, 20 at 15 m, **28 at 20 m** and 37 at
+ * 40 m. 20 m is the default because it is the last step where the second-best
+ * candidate is almost never a tie (3 of 28 have another footprint within 2 m of
+ * the winner) and where the radius still stays inside one city block: Korean
+ * back streets are 6–8 m wide, so 20 m can cross one, while 40 m crosses an
+ * arterial (Gangnam-daero is ~50 m) and would attach a shop to the building on
+ * the far side of the road — a worse error than leaving it in open space.
+ *
+ * The remaining 15 of 43 (35 %) stay unattached at 20 m: those are POIs whose
+ * building is simply not mapped in OSM, and no threshold fixes them.
+ */
+export const DEFAULT_POI_SNAP_METERS = 20;
+
+/** How far past a footprint's outline a snapped POI is pulled, in meters. */
+export const POI_SNAP_INSET_METERS = 1.5;
+
+/**
  * A plaza further than this from every building footprint is reported as
  * standing in open space (see {@link BuildWorldOptions.warn}).
  */
 export const PLAZA_CLEAR_METERS = 15;
 
+/** Nearest point on a ring's outline, and the squared distance to it. */
+function nearestOnRing(p: Vec2, ring: readonly Vec2[]): { p: Vec2; d2: number } {
+  let bx = ring[0]![0], bz = ring[0]![1], best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, az] = ring[i]!;
+    const [cx, cz] = ring[(i + 1) % ring.length]!;
+    const dx = cx - ax, dz = cz - az;
+    const len2 = dx * dx + dz * dz;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / len2)) : 0;
+    const qx = ax + t * dx, qz = az + t * dz;
+    const d2 = (p[0] - qx) * (p[0] - qx) + (p[1] - qz) * (p[1] - qz);
+    if (d2 < best) { best = d2; bx = qx; bz = qz; }
+  }
+  return { p: [bx, bz], d2: best };
+}
+
 /** Distance from `p` to a ring, in the ring's units; 0 when `p` is inside it. */
 function distanceToRing(p: Vec2, ring: readonly Vec2[]): number {
   if (pointInRing(p, ring)) return 0;
-  let best = Infinity;
-  for (let i = 0; i < ring.length; i++) {
-    const [ax, az] = ring[i]!;
-    const [bx, bz] = ring[(i + 1) % ring.length]!;
-    const dx = bx - ax, dz = bz - az;
-    const len2 = dx * dx + dz * dz;
-    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / len2)) : 0;
-    best = Math.min(best, Math.hypot(p[0] - (ax + t * dx), p[1] - (az + t * dz)));
+  return Math.sqrt(nearestOnRing(p, ring).d2);
+}
+
+/** Axis-aligned extent of a ring. */
+function ringRect(ring: readonly Vec2[]): Rect {
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const [x, z] of ring) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
-  return best;
+  return { minX, minZ, maxX, maxZ };
+}
+
+/**
+ * Walks a point on a footprint's outline `inset` units inward, toward the
+ * ring's interior point, and keeps walking (in a few widening steps) until it
+ * is genuinely inside — a concave footprint can put the first step back
+ * outside. Falls back to the interior point itself.
+ *
+ * Mirrored by `insetIntoRing` in `packages/engine-web/src/labels/anchor.ts`:
+ * a POI snapped at build time and a marker snapped at runtime must land in the
+ * same place.
+ */
+export function insetIntoRing(p: Vec2, ring: readonly Vec2[], inset: number): Vec2 {
+  const m = interiorPoint(ring);
+  const dx = m[0] - p[0], dz = m[1] - p[1];
+  const len = Math.hypot(dx, dz);
+  if (!(inset > 0) || len <= 1e-9) return pointInRing(p, ring) ? p : m;
+  for (const t of [Math.min(inset, len) / len, 0.05, 0.15, 0.35, 0.6]) {
+    const q: Vec2 = [p[0] + dx * t, p[1] + dz * t];
+    if (pointInRing(q, ring)) return q;
+  }
+  return m;
+}
+
+/**
+ * POI categories that describe **open space or an underground facility**, never
+ * the inside of a building: a plaza and a park are areas, and a merged subway
+ * station sits at the mean of its entrances, usually in the middle of a road.
+ * Attaching any of them to the nearest building would move a landmark into a
+ * shop and put its label on that shop's roof, so the join skips them entirely —
+ * they stay on the ground where the data puts them.
+ */
+export const OPEN_SPACE_POI_CATEGORIES: ReadonlySet<Poi['cat']> = new Set(['plaza', 'park', 'subway'] as const);
+
+/**
+ * Attaches each POI to a building: the one whose footprint contains it, or —
+ * within `maxDistance` world units — the nearest one, in which case the POI's
+ * position is moved just inside that footprint and the move is recorded
+ * (`snapped`, `snapDistanceMeters`).
+ *
+ * {@link OPEN_SPACE_POI_CATEGORIES} are skipped and counted as unattached.
+ *
+ * Runs after the buildings are final (including the `--kr-fill-missing` pass),
+ * so a POI attaches to a national-dataset building the OSM extract does not
+ * have. Mutates `pois` in place and returns the counts.
+ */
+export function attachPoisToBuildings(
+  pois: Poi[],
+  buildings: readonly BuildingFootprint[],
+  maxDistance: number,
+  inset: number,
+  unitMeters: number,
+  round: (v: number) => number,
+): { inBuilding: number; snapped: number; unattached: number } {
+  const rects = buildings.map((b) => ringRect(b.footprint));
+  let inBuilding = 0, snapped = 0, unattached = 0;
+  const max2 = maxDistance * maxDistance;
+  for (const poi of pois) {
+    if (OPEN_SPACE_POI_CATEGORIES.has(poi.cat)) { unattached++; continue; }
+    const p: Vec2 = [poi.x, poi.z];
+    let hit: BuildingFootprint | undefined;
+    for (let i = 0; i < buildings.length; i++) {
+      const r = rects[i]!;
+      if (p[0] < r.minX || p[0] > r.maxX || p[1] < r.minZ || p[1] > r.maxZ) continue;
+      if (pointInRing(p, buildings[i]!.footprint)) { hit = buildings[i]; break; }
+    }
+    if (hit) {
+      poi.buildingId = hit.id;
+      inBuilding++;
+      continue;
+    }
+    if (!(maxDistance > 0)) { unattached++; continue; }
+    let best: { b: BuildingFootprint; p: Vec2; d2: number } | undefined;
+    for (let i = 0; i < buildings.length; i++) {
+      const r = rects[i]!;
+      if (p[0] < r.minX - maxDistance || p[0] > r.maxX + maxDistance) continue;
+      if (p[1] < r.minZ - maxDistance || p[1] > r.maxZ + maxDistance) continue;
+      const near = nearestOnRing(p, buildings[i]!.footprint);
+      if (near.d2 > max2) continue;
+      if (!best || near.d2 < best.d2) best = { b: buildings[i]!, p: near.p, d2: near.d2 };
+    }
+    if (!best) { unattached++; continue; }
+    const [qx, qz] = insetIntoRing(best.p, best.b.footprint, inset);
+    poi.x = round(qx);
+    poi.z = round(qz);
+    poi.buildingId = best.b.id;
+    poi.snapped = true;
+    poi.snapDistanceMeters = roundTo(Math.sqrt(best.d2) * unitMeters, 2);
+    snapped++;
+  }
+  return { inBuilding, snapped, unattached };
 }
 
 /** Extent of every coordinate in the payload. Throws when there is none. */
@@ -283,6 +430,9 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
     water: 0,
     parks: 0,
     pois: 0,
+    poisInBuilding: 0,
+    poisSnapped: 0,
+    poisUnattached: 0,
     stations: 0,
     districts: 0,
     duplicateBuildings: 0,
@@ -487,6 +637,14 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
     ...pois.filter((p) => p.cat !== 'subway'),
     ...stations.map((s): Poi => ({ id: s.id, name: s.name, cat: 'subway', x: s.x, z: s.z })),
   ];
+
+  // POI ↔ building join. Last, so it sees every building (including the ones
+  // `krFillMissing` added) and the merged station POIs.
+  const poiSnap = (options.poiSnapMeters ?? DEFAULT_POI_SNAP_METERS) / unitMeters;
+  const attach = attachPoisToBuildings(pois, buildings, poiSnap, POI_SNAP_INSET_METERS / unitMeters, unitMeters, round);
+  stats.poisInBuilding = attach.inBuilding;
+  stats.poisSnapped = attach.snapped;
+  stats.poisUnattached = attach.unattached;
 
   // Named water bodies become water district labels.
   for (const [wname, { ring }] of namedWater) {

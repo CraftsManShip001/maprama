@@ -34,7 +34,7 @@ Usage:
   maprama-osm build --raw raw.json --out world.json --name <name>
                     [--bbox s,w,n,e] [--origin lat,lng] [--unit-meters 8]
                     [--kr-buildings kr.geojson] [--kr-fill-missing]
-                    [--simplify-meters 0.5]
+                    [--simplify-meters 0.5] [--poi-snap-meters 20]
                     [--precision 2] [--include-sidewalks]
   maprama-osm sample <${Object.keys(SAMPLES).join('|')}> [--out world.json] [--raw raw.json]
                     [--endpoint url]... [--no-cache] [--kr-buildings kr.geojson]
@@ -46,6 +46,11 @@ Options:
                          GIS건물통합정보, EPSG:4326): a height source for OSM buildings
   --kr-fill-missing      Also emit buildings for polygons in that file that OSM
                          does not have (off by default; requires --kr-buildings)
+  --poi-snap-meters <m>  Radius for attaching a POI to a building (default 20).
+                         A POI outside every footprint is moved onto the nearest
+                         one within this radius and marked "snapped"; 0 only
+                         records the building a POI already sits in. Plazas,
+                         parks and subway stations are never moved.
 
 Environment:
   MAPRAMA_OVERPASS_ENDPOINT  comma-separated Overpass endpoints (overrides defaults)
@@ -93,6 +98,7 @@ const buildOptions = {
   'simplify-meters': { type: 'string' },
   precision: { type: 'string' },
   'include-sidewalks': { type: 'boolean' },
+  'poi-snap-meters': { type: 'string' },
 } as const;
 
 interface BuildFlags {
@@ -103,6 +109,7 @@ interface BuildFlags {
   'simplify-meters'?: string;
   precision?: string;
   'include-sidewalks'?: boolean;
+  'poi-snap-meters'?: string;
 }
 
 async function toBuildOptions(flags: BuildFlags, name: string): Promise<BuildWorldOptions> {
@@ -116,6 +123,7 @@ async function toBuildOptions(flags: BuildFlags, name: string): Promise<BuildWor
     simplifyMeters: num('simplify-meters', flags['simplify-meters']),
     precision: num('precision', flags.precision),
     includeSidewalks: flags['include-sidewalks'] ?? false,
+    poiSnapMeters: num('poi-snap-meters', flags['poi-snap-meters']),
     krBuildings: flags['kr-buildings'] ? await readJson(resolve(flags['kr-buildings'])) : undefined,
     krFillMissing: flags['kr-fill-missing'] ?? false,
   };
