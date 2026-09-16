@@ -25,6 +25,11 @@
  * first card after showing it, as an app would after a press) ·
  * `inset=<px>` (bottom `ui.contentInset`, as an app sheet would set).
  *
+ * View mode: `view=2.5d|2d` (the mode the map starts in, applied with `init.view`
+ * so a flat map never draws a tilted frame first) · `viewTo=2.5d|2d` +
+ * `viewAt=<0..1>` (animate to `viewTo` over `VIEW_DEMO_MS` and signal ready at
+ * that fraction of the transition, to capture a mid-transition frame).
+ *
  * Sets `window.__MAPRAMA_READY__ = true` once the world is loaded and rendered
  * (used by `scripts/screenshot.mjs`); engine `error` events are logged with
  * `console.error`.
@@ -50,11 +55,12 @@ import type {
   ThemeSpec,
   TimeOfDay,
   TravelMode,
+  ViewMode,
   WorldData,
   WorldSource,
   ZoomOutBehavior,
 } from '@maprama/protocol';
-import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, LOCATION_SOURCE_KINDS, PRESET_NAMES, TIMES_OF_DAY, ZOOM_OUT_BEHAVIORS } from '@maprama/protocol';
+import { DEFAULT_VIEW_MODE, HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, LOCATION_SOURCE_KINDS, PRESET_NAMES, TIMES_OF_DAY, VIEW_MODES, ZOOM_OUT_BEHAVIORS } from '@maprama/protocol';
 import { createDirectTransport, createEngine } from '../src/index.js';
 import type { WorldModel } from '../src/world/model.js';
 
@@ -101,7 +107,15 @@ const state = {
   ui: flag('ui') ?? false,
   loc: pick<LocationSourceKind>('loc', LOCATION_SOURCE_KINDS) ?? 'simulated',
   travelMode: pick<TravelChoice>('travel', TRAVEL_CHOICES) ?? ('walk' as TravelChoice),
+  view: pick<ViewMode>('view', VIEW_MODES) ?? DEFAULT_VIEW_MODE,
 };
+
+/**
+ * Duration of the `viewTo` / `viewAt` demo transition — long enough that the
+ * flatness moves in small steps even on the software GL the screenshot harness
+ * runs on, where a frame can take a fifth of a second.
+ */
+const VIEW_DEMO_MS = 6000;
 
 function theme(): ThemeSpec {
   const t: ThemeSpec = { base: state.preset, timeOfDay: state.tod, zoomOut: state.zo };
@@ -362,7 +376,7 @@ async function init(world?: WorldSource): Promise<void> {
   window.__MAPRAMA_READY__ = false;
   hasPlayer = false;
   const source: WorldSource = world ?? (state.layout === 'sample' ? { kind: 'url', url: params.get('world') || './sample-world.json' } : { kind: 'procedural', layout: state.layout });
-  await engine.dispatch({ type: 'init', world: source, theme: theme(), labels: labelsSpec(), ui: uiSpec(), locationSource: state.loc });
+  await engine.dispatch({ type: 'init', world: source, theme: theme(), labels: labelsSpec(), ui: uiSpec(), locationSource: state.loc, view: state.view });
   const scene = engine.scene;
   if (!scene) return;
   const w = scene.world();
@@ -385,7 +399,9 @@ async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel
     camera: {
       center: scene.toLngLat({ x, z }),
       distance: (num('dist') ?? 48) * w.unitMeters,
-      pitch: num('pitch') ?? 40,
+      // The 2D view owns the pitch and answers a pitch it will not apply with one
+      // `view_pitch_locked` error, so the playground does not ask for one there.
+      ...(state.view === '2d' ? {} : { pitch: num('pitch') ?? 40 }),
       bearing: num('bearing') ?? 28,
     },
   });
@@ -413,6 +429,19 @@ async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel
   if (travel) await demoTravel(travel);
   const settle = num('settle') ?? 0;
   if (settle > 0) await new Promise((r) => setTimeout(r, settle));
+  // Mid-transition capture: start a long animated switch and report ready part way through it.
+  // The wait is on the engine's own flatness, not on the clock: the transition advances per frame,
+  // and a headless software-GL frame can be an order of magnitude slower than a real one.
+  const viewTo = pick<ViewMode>('viewTo', VIEW_MODES);
+  if (viewTo) {
+    const at = Math.min(1, Math.max(0, num('viewAt') ?? 0.5));
+    const want = viewTo === '2d' ? at : 1 - at;
+    const reached = (): boolean => (viewTo === '2d' ? 1 - scene.anchorHeightScale() >= want : 1 - scene.anchorHeightScale() <= want);
+    await engine.dispatch({ type: 'setView', view: viewTo, animate: { durationMs: VIEW_DEMO_MS } });
+    await new Promise<void>((resolve) => {
+      const off = scene.onFrame(() => { if (reached()) { off(); resolve(); } });
+    });
+  }
 }
 
 function updateHash(): void {
@@ -421,6 +450,7 @@ function updateHash(): void {
   h.set('preset', state.preset);
   h.set('tod', state.tod);
   h.set('zo', state.zo);
+  h.set('view', state.view);
   for (const k of ['cine', 'details', 'lanes', 'crosswalks', 'props', 'parked'] as const) {
     const v = state[k];
     if (v === undefined) h.delete(k); else h.set(k, v ? '1' : '0');
@@ -490,6 +520,7 @@ function buildPanel(): void {
   });
   select('time', TIMES_OF_DAY, () => state.tod, (v) => { state.tod = v; retheme(); });
   select('zoom out', ZOOM_OUT_BEHAVIORS, () => state.zo, (v) => { state.zo = v; retheme(); });
+  select('view', VIEW_MODES, () => state.view, (v) => { state.view = v; updateHash(); send({ type: 'setView', view: v }); });
   const p = resolved();
   check('cinematic', () => state.cine ?? p?.resolved.cinematic ?? false, (v) => { state.cine = v; retheme(); });
   check('varied massing', () => (state.massing ?? p?.massing) === 'varied', (v) => { state.massing = v ? 'varied' : 'box'; retheme(); });

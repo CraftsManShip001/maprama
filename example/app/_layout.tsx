@@ -17,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="multiplayer" options={{ title: 'Overlays & multiplayer' }} />
         <Stack.Screen name="markers" options={{ title: 'Markers' }} />
         <Stack.Screen name="camera" options={{ title: 'Camera limits & fitBounds' }} />
+        <Stack.Screen name="view-mode" options={{ title: '2D ⇄ 2.5D view mode' }} />
         <Stack.Screen name="native" options={{ title: 'Native engine (M2c)' }} />
         <Stack.Screen name="native-game" options={{ title: 'Native engine (M3b)' }} />
       </Stack>
