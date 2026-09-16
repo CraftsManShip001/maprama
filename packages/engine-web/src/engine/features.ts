@@ -32,7 +32,8 @@ import type {
 } from '@maprama/protocol';
 import { Group } from 'three';
 import { EngineError } from '../bridge/dispatcher.js';
-import { OverlayTracker, ThrottledTopic } from '../bridge/subscriptions.js';
+import { OverlayTracker, ThrottledTopic, type TrackedPosition } from '../bridge/subscriptions.js';
+import type { CameraController } from '../core/camera.js';
 import { CharacterManager, headingFromYaw, realSpeedMps, type Character } from '../game/characters.js';
 import { DropCollector, DropVisuals } from '../game/drops.js';
 import { groundYFor } from '../game/follower.js';
@@ -74,6 +75,10 @@ export class Features {
   private readonly routes = new Group();
   private readonly overlayTracker = new OverlayTracker();
   private anchors: OverlayAnchor[] = [];
+  /** Anchor coordinates in world units; only a new anchor set or a new projection changes them. */
+  private readonly anchorPoints: { id: string; x: number; z: number }[] = [];
+  /** Reused scratch batch for the overlay projection (see {@link projectOverlays}). */
+  private readonly overlayBatch: TrackedPosition[] = [];
   private content: Record<string, LabelContent> = {};
   private dropLayers = new Map<string, SetDropLayerCommand>();
   private geofenceSpecs: GeofenceSpec[] = [];
@@ -225,6 +230,7 @@ export class Features {
 
   setOverlayAnchors(anchors: OverlayAnchor[]): void {
     this.anchors = anchors.map((a) => ({ id: a.id, coordinate: { ...a.coordinate } }));
+    this.placeAnchors();
     this.overlayTracker.invalidate();
   }
 
@@ -286,6 +292,8 @@ export class Features {
     this.applyGeofences(world);
     this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
     this.lastPosition.clear();
+    // A new world means a new projection: the cached anchor positions are in the old one.
+    this.placeAnchors();
     this.overlayTracker.invalidate();
     this.scene.emit({ type: 'labelsIndex', labels: this.labels.worldChanged(world, newProj) });
   }
@@ -422,16 +430,7 @@ export class Features {
   private project(): void {
     const cam = this.scene.camera;
     const now = performance.now();
-    if (this.anchors.length) {
-      const proj = this.scene.projection();
-      const pos = this.anchors.map((a) => {
-        const p = proj.toWorld(a.coordinate);
-        const s = cam.worldToScreen(p.x, 0, p.z);
-        return { id: a.id, x: s.x, y: s.y, visible: s.visible };
-      });
-      const send = this.overlayTracker.update(pos, now);
-      if (send) this.scene.emit({ type: 'overlay:positions', positions: send.map((p) => ({ id: p.id, x: p.x, y: p.y, visible: p.visible })) });
-    }
+    this.projectOverlays(cam, now);
     const world = this.scene.world();
     if (!world) return;
     const ui = this.scene.ui();
@@ -456,6 +455,54 @@ export class Features {
       u.zoom.update(!!ui.zoomButtons);
       u.attribution.update(!!ui.attribution, world.attribution);
     }
+  }
+
+  /** Caches the world position of every overlay anchor for the current projection. */
+  private placeAnchors(): void {
+    const proj = this.scene.projection(), out = this.anchorPoints, anchors = this.anchors;
+    out.length = anchors.length;
+    for (let i = 0; i < anchors.length; i++) {
+      const a = anchors[i]!, w = proj.toWorld(a.coordinate), e = out[i];
+      if (e) {
+        e.id = a.id;
+        e.x = w.x;
+        e.z = w.z;
+      } else out[i] = { id: a.id, x: w.x, z: w.z };
+    }
+  }
+
+  /**
+   * Screen positions of the overlay anchors, for `overlay:positions`.
+   *
+   * The event is throttled to one batch per `OVERLAY_INTERVAL_MS`, so the
+   * throttle is asked **first**: inside the window this frame does no anchor
+   * work at all. When a batch is due it is written into a reused buffer over
+   * cached world positions (an anchor's world position only changes when the
+   * anchor set or the projection does), and fresh objects are only allocated
+   * for the batches that are really sent — the payload leaves the engine, so it
+   * cannot be a buffer that the next frame overwrites.
+   *
+   * The event keeps carrying **every** anchor, not only the ones that moved:
+   * hosts are allowed to read it as the complete current state, and an
+   * off-screen anchor's `x`/`y` is used as well (`<MapOverlay
+   * hideWhenOffscreen={false}>` positions its view with it), so neither
+   * dropping unchanged entries nor faking coordinates for invisible anchors
+   * would be a compatible change.
+   */
+  private projectOverlays(cam: CameraController, now: number): void {
+    const anchors = this.anchorPoints;
+    if (!anchors.length || !this.overlayTracker.due(now)) return;
+    const batch = this.overlayBatch;
+    batch.length = anchors.length;
+    for (let i = 0; i < anchors.length; i++) {
+      const a = anchors[i]!;
+      let e = batch[i];
+      if (!e) batch[i] = e = { id: a.id, x: 0, y: 0, visible: false };
+      else e.id = a.id;
+      cam.worldToScreen(a.x, 0, a.z, e);
+    }
+    if (!this.overlayTracker.update(batch, now)) return;
+    this.scene.emit({ type: 'overlay:positions', positions: batch.map((p) => ({ id: p.id, x: p.x, y: p.y, visible: p.visible })) });
   }
 
   private ensureUi(): NonNullable<Features['ui']> {
