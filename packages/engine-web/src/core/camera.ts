@@ -152,6 +152,9 @@ export class CameraController {
   /** What moved the camera last, for `camera:idle.reason`. */
   moveReason: CameraIdleReason = 'api';
   private insets: Insets = { ...NO_INSET };
+  /** Cached {@link view}; only a new viewport or inset invalidates it. */
+  private readonly viewRect: ViewRect = { x: 0, y: 0, width: 1, height: 1 };
+  private viewDirty = true;
   private transition: CameraTransition | null = null;
   /** False while the follow easing is still catching up to its target (see {@link animating}). */
   private followSettled = true;
@@ -209,6 +212,7 @@ export class CameraController {
     this.height = Math.max(1, height);
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
+    this.viewDirty = true;
     this.markChanged('api');
   }
 
@@ -233,14 +237,29 @@ export class CameraController {
     const cur = this.insets;
     if (next.top === cur.top && next.right === cur.right && next.bottom === cur.bottom && next.left === cur.left) return;
     this.insets = next;
+    this.viewDirty = true;
     this.markChanged('api');
   }
 
-  /** The visible area — the viewport minus the content inset — in CSS pixels. */
-  get view(): ViewRect {
-    const h = visibleAxis(this.width, this.insets.left, this.insets.right);
-    const v = visibleAxis(this.height, this.insets.top, this.insets.bottom);
-    return { x: h.start, y: v.start, width: h.length, height: v.length };
+  /**
+   * The visible area — the viewport minus the content inset — in CSS pixels.
+   *
+   * Recomputed only when the viewport or the inset changes and returned as the
+   * same object every time: {@link worldToScreen} reads it once per projected
+   * point, and the per-frame batches (overlay anchors, name tags, markers,
+   * labels) project hundreds of them.
+   */
+  get view(): Readonly<ViewRect> {
+    if (this.viewDirty) {
+      this.viewDirty = false;
+      const h = visibleAxis(this.width, this.insets.left, this.insets.right);
+      const v = visibleAxis(this.height, this.insets.top, this.insets.bottom);
+      this.viewRect.x = h.start;
+      this.viewRect.y = v.start;
+      this.viewRect.width = h.length;
+      this.viewRect.height = v.length;
+    }
+    return this.viewRect;
   }
 
   /** Moves the camera. Unset fields keep their value. `durationMs > 0` animates (skipped with reduced motion). */
