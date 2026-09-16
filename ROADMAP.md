@@ -101,6 +101,23 @@ Each of these is a real gap found while answering an integrator's questions agai
   there are no prebuilt XCFramework / AAR artifacts, so adoption needs a development build (no Expo Go). A
   published support matrix (RN / Expo versions; the example is verified on RN 0.86 / Expo 57, peer is RN ≥
   0.76) and prebuilt binaries are open decisions.
+- **World-unit constants are not tunable.** Camera limits (`DIST_MIN` 14 / `DIST_MAX` 150), road widths
+  (`ROAD_W` 3.0 / 2.0 / 1.3), `CHARACTER_HEIGHT` 1.9 and the per-time-of-day fog ranges (`fogNear` /
+  `fogFar`, e.g. 45 / 150 for day) are all module constants in world units, so they scale with
+  `WorldData.unitMeters`. Raising `unitMeters` to widen the camera range therefore also widens roads
+  (3 units = 72 m at 24 m/unit), enlarges characters and raises the minimum camera distance. Road widths in
+  metres or exposed through the theme, and camera limits in metres, would decouple these.
+- **Walk cadence is clamped at real-world speed.** `walkCadence` compares ground speed against
+  `WALK_CADENCE_SPEED` (3.2 units/s ≈ 25.6 m/s at 8 m/unit), so a character walking at a real 4.8 km/h gets a
+  cadence of ~0.05 and is clamped to `MIN_CADENCE` 0.5 — the walk clip plays faster than the feet travel
+  (sliding). It affects every `unitMeters` value and is most visible at `travelTimeScale: 1`.
+- **The web engine renders continuously.** `core/renderer.ts` drives an unconditional
+  `requestAnimationFrame` loop with no dirty-flag gating, so a static map still renders every frame (battery
+  cost inside the WebView). The native engine gained off-screen/idle frame gating in M4; the web engine has
+  no equivalent.
+- **No non-ASCII path coverage in CI.** An integrator builds from a path containing Korean characters;
+  `expo prebuild` works, but Android CMake/NDK and iOS Pods builds from such a path are not covered by CI.
+- **No real-device performance numbers.** All figures are from simulators and emulators.
 - **Docs to add.** Serving world files from your own static hosting (R2 / S3 / CDN — plain unauthenticated
   GET, no user identifiers, CORS needed for the WebView engine), and an explicit statement that a plain
   `<MapramaView world theme />` never starts demo behaviour (the default location source is `external`;
