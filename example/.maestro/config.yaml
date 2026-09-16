@@ -17,3 +17,5 @@ executionOrder:
     - 11-markers
     - 12-camera-limits
     - 13-sheet-idle-inset
+    - 14-info-card
+    - 15-view-mode
