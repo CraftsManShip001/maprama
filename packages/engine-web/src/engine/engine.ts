@@ -228,6 +228,8 @@ export class Engine implements EngineHandle {
     d.register('cancelTravel', (cmd) => f().cancelTravel(cmd.characterId));
     d.register('setDropLayer', (cmd) => f().setDropLayer(cmd));
     d.register('removeDropLayer', (cmd) => f().removeDropLayer(cmd.layerId));
+    d.register('setMarkerLayer', (cmd) => f().setMarkerLayer(cmd));
+    d.register('removeMarkerLayer', (cmd) => f().removeMarkerLayer(cmd.layerId));
     d.register('setGeofences', (cmd) => f().setGeofences(cmd.geofences));
     d.register('setOverlayAnchors', (cmd) => f().setOverlayAnchors(cmd.anchors));
     for (const topic of ['character:position', 'travel:progress'] as const) {
@@ -399,6 +401,8 @@ export class Engine implements EngineHandle {
 
   private tap(x: number, y: number): void {
     if (!this.worldModel) return;
+    // Markers come first: a press that hits one emits `marker:press` only.
+    if (this.features?.pressMarker(x, y)) return;
     const hit = this.buildingsR.pick(this.cam.rayAt(x, y));
     if (hit) {
       this.buildingsR.bounce(hit.id);

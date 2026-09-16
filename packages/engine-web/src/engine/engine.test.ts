@@ -48,6 +48,21 @@ const samples: Record<Exclude<EngineCommandType, 'request'>, EngineCommand[]> = 
   cancelTravel: [{ type: 'cancelTravel', characterId: 'me' }],
   setDropLayer: [{ type: 'setDropLayer', layerId: 'l', drops: [{ id: 'd', type: 'cd', coordinate: c, rarity: 'legendary' }], collectRadiusMeters: 10 }],
   removeDropLayer: [{ type: 'removeDropLayer', layerId: 'l' }],
+  setMarkerLayer: [
+    {
+      type: 'setMarkerLayer',
+      layerId: 'poi',
+      markers: [
+        { id: 'm1', coordinate: c, color: '#2F5BEA', priority: 1, accessibilityLabel: 'One, Blue' },
+        { id: 'm2', coordinate: c, icon: { uri: 'data:image/svg+xml;base64,PHN2Zy8+' }, alwaysVisible: true },
+      ],
+      selectedId: 'm1',
+      selectedScale: 1.25,
+      size: 36,
+      anchor: 'bottom',
+    },
+  ],
+  removeMarkerLayer: [{ type: 'removeMarkerLayer', layerId: 'poi' }],
   setGeofences: [{ type: 'setGeofences', geofences: [{ id: 'g', center: c, radiusMeters: 50 }] }],
   setBuildingStyle: [{ type: 'setBuildingStyle', buildingId: 'b', style: null }],
   setOverlayAnchors: [{ type: 'setOverlayAnchors', anchors: [{ id: 'a', coordinate: c }] }],
