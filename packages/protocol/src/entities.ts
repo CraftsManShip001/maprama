@@ -136,6 +136,38 @@ export const MARKER_ANCHORS = ['bottom', 'center', 'top'] as const;
 /** Marker anchor; `bottom` (the default) puts the pin tip on the coordinate. */
 export type MarkerAnchor = (typeof MARKER_ANCHORS)[number];
 
+/** Named heights a marker can sit at above its coordinate. */
+export const MARKER_ANCHOR_HEIGHTS = ['ground', 'roof'] as const;
+/**
+ * How high above its coordinate a marker sits: `ground` (the default — the
+ * terrain), `roof` (the top of the building the coordinate falls in, the ground
+ * when there is none), or a number of meters above the ground.
+ *
+ * `ground` stays the default because integrators already place pins with it;
+ * on a tilted camera a ground pin inside a tall building is drawn *behind* the
+ * building, which is what `roof` fixes.
+ */
+export type MarkerAnchorHeight = (typeof MARKER_ANCHOR_HEIGHTS)[number] | number;
+
+/** Per-marker building snapping (see {@link MarkerSpec.snapToBuilding}). */
+export interface MarkerSnapToBuilding {
+  /** Search radius in meters. Default {@link DEFAULT_SNAP_TO_BUILDING_METERS}. */
+  maxDistanceMeters?: number;
+}
+
+/**
+ * Default search radius of `snapToBuilding` (the request and the marker option),
+ * in meters.
+ *
+ * Measured on five Korean areas (Gangnam, Seongsu, Jeonju, Bundang, Gurye;
+ * 171 POIs): 20 m recovers 65 % of the POIs that fall outside every footprint,
+ * and only 3 of those 28 have a second candidate within 2 m of the winner.
+ * Raising it to 40 m recovers 86 % but starts crossing arterial roads
+ * (Gangnam-daero alone is ~50 m wide), which attaches a pin to the building on
+ * the *other side of the street* — a worse error than a pin in open space.
+ */
+export const DEFAULT_SNAP_TO_BUILDING_METERS = 20;
+
 /**
  * An app-owned map pin drawn by the engine at a fixed screen size.
  *
@@ -157,6 +189,23 @@ export interface MarkerSpec {
   alwaysVisible?: boolean;
   /** Text a screen reader announces for this marker (e.g. `"Gyeongbokgung, Blue"`). */
   accessibilityLabel?: string;
+  /**
+   * How high the marker sits. Default `'ground'` — unchanged from the first
+   * release, because apps already position pins against it.
+   */
+  anchorHeight?: MarkerAnchorHeight;
+  /**
+   * Move the marker onto the nearest building when `coordinate` falls outside
+   * every footprint. `true` uses {@link DEFAULT_SNAP_TO_BUILDING_METERS}.
+   * Default: off — the engine never moves a coordinate the app gave it unless
+   * the app asks.
+   *
+   * Independent of {@link MarkerSpec.anchorHeight}, but they are usually set
+   * together: snapping finds the building, `anchorHeight: 'roof'` then puts the
+   * pin on top of it. `marker:press` keeps reporting the **original**
+   * coordinate, so a press still maps back to the app's own record.
+   */
+  snapToBuilding?: boolean | MarkerSnapToBuilding;
 }
 
 /** A circular geofence. */
@@ -377,6 +426,8 @@ export const checkDropSpec: Check = (v, p) => {
 };
 
 const markerIcon: Check = anyOf(oneOf(MARKER_SHAPES), object({ uri: nonEmptyString }));
+const markerAnchorHeight: Check = anyOf(oneOf(MARKER_ANCHOR_HEIGHTS), number);
+const markerSnapToBuilding: Check = anyOf(boolean, object({}, { maxDistanceMeters: nonNegativeNumber }));
 
 /** @internal */
 export const checkMarkerSpec: Check = object(
@@ -387,6 +438,8 @@ export const checkMarkerSpec: Check = object(
     priority: number,
     alwaysVisible: boolean,
     accessibilityLabel: string,
+    anchorHeight: markerAnchorHeight,
+    snapToBuilding: markerSnapToBuilding,
   },
 );
 

@@ -39,6 +39,37 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   while a static 2D map still draws **0 idle frames**. Native: the C++ core
   decodes and validates the command and `init.view`, then warn-logs and ignores
   them — the native flat view is a follow-up.
+- **Pin accuracy: POIs and markers attach to buildings.** On a 2.5D map a pin
+  drawn at a POI's own coordinate often looks like it stands in an empty street.
+  Measured over five Korean areas (Gangnam, Seongsu, Jeonju, Bundang, Gurye —
+  171 POIs, 2 460 buildings), **25 % of the POIs fall outside every building
+  footprint**, and of the ones that *are* inside one, **47 % stand in a building
+  30 m or taller**, where a ground-anchored pin is drawn behind the building.
+  Three changes, none of which alters an existing default:
+  - `maprama-osm` now joins each POI to a building at build time. `WorldData`
+    v1 gains three **optional** POI fields — `buildingId`, `snapped` and
+    `snapDistanceMeters` — so worlds built before this still load. A POI outside
+    every footprint is moved onto the nearest one within `--poi-snap-meters`
+    (default 20, `0` disables the moving); `plaza`, `park` and `subway` POIs are
+    never moved. Across the five areas this raises joinable POIs attached to a
+    building from **80.8 % to 93.6 %**; the remaining 6.4 % have no building
+    mapped in OSM at all. The stats block reports `poisInBuilding` /
+    `poisSnapped` / `poisUnattached`.
+  - `<MarkerLayer>` gains `getAnchorHeight` (`'ground'` — **the default,
+    unchanged** — `'roof'`, or meters above the ground) and `getSnapToBuilding`
+    (`true` or `{ maxDistanceMeters }`, default off). A roof anchor re-reads the
+    roof height every frame, so a pin stays on the roof through the zoom-out
+    squash, and falls back to the ground when the building is not drawn.
+    `marker:press` keeps reporting the **original** coordinate.
+  - `ref.snapToBuilding(coordinate, maxDistanceMeters?)` — for an app that owns
+    its coordinates (its own POI table) and needs to line them up with our
+    buildings. Returns `{ coordinate, buildingId, heightMeters, roofCoordinate,
+    distanceMeters, inside }` or `null`. Appended to `REQUEST_METHODS`, so every
+    existing method keeps its index. **engine-web only**: the native core
+    decodes and validates it, then answers `unsupported`.
+
+  What this does **not** fix: a POI whose building is not mapped in OSM, or one
+  a mapper put in the wrong place. Those stay where the data puts them.
 - **Holographic info cards** (`<InfoCard>` / `setInfoCard` / `removeInfoCard`):
   a structured place card floating over a coordinate on a beam — title,
   subtitle, place icon, status badges, a rating, detail rows and action

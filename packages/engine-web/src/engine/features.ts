@@ -48,7 +48,7 @@ import { LabelController } from '../labels/controller.js';
 import { hudExclusions, overlaps, type Box } from '../labels/index.js';
 import { defaultCardHeightMeters, InfoCards, type InfoCardAnchorPoint } from '../labels/info-card.js';
 import { MarkerLayers, type MarkerPress } from '../labels/markers.js';
-import { pointInPolygon } from '../world/polygon.js';
+import { resolveWorldAnchor, type AnchorContext } from '../labels/anchor.js';
 import type { SceneApi, SubscriptionHandler } from '../scene-api.js';
 import { Attribution } from '../ui/attribution.js';
 import { LocationPuck } from '../ui/puck.js';
@@ -252,7 +252,7 @@ export class Features {
    * from the dispatcher's per-command render request, so an idle map repaints.
    */
   setMarkerLayer(cmd: SetMarkerLayerCommand): void {
-    this.markers.setLayer(cmd, this.scene.world() ? this.scene.projection() : null);
+    this.markers.setLayer(cmd, this.scene.world() ? this.scene.projection() : null, this.anchorContext());
   }
 
   removeMarkerLayer(layerId: string): void {
@@ -284,30 +284,33 @@ export class Features {
   }
 
   /**
-   * Resolves a card's anchor in world units. `roof` / `auto` look for a
-   * building whose footprint contains the coordinate — once per command, not
-   * per frame, because it is a linear scan over the world's footprints.
+   * The world's buildings and their current roof heights, as the shared anchor
+   * lookup wants them (`labels/anchor.ts`). `null` without a world.
    */
-  private resolveInfoCardAnchor(spec: InfoCardSpec): InfoCardAnchorPoint | null {
+  anchorContext(): AnchorContext | null {
     const world = this.scene.world();
     if (!world) return null;
+    return {
+      buildings: world.buildings,
+      roofY: (id) => this.scene.building(id)?.top.y ?? null,
+      groundY: this.groundY(),
+    };
+  }
+
+  /**
+   * Resolves a card's anchor in world units through the shared lookup, so a
+   * card, a marker and a `snapToBuilding` request all pick the same building.
+   * Cards never snap: a card is opened *for* a coordinate the app chose.
+   */
+  private resolveInfoCardAnchor(spec: InfoCardSpec): InfoCardAnchorPoint | null {
+    const ctx = this.anchorContext();
+    if (!ctx) return null;
     const proj = this.scene.projection();
     const p = proj.toWorld(spec.coordinate);
-    let baseY = this.groundY();
-    let buildingId: string | undefined;
-    if (spec.anchor !== 'ground') {
-      for (const b of world.buildings) {
-        if (!pointInPolygon(p.x, p.z, b.footprint)) continue;
-        const info = this.scene.building(b.id);
-        if (!info) break;
-        baseY = info.top.y;
-        buildingId = b.id;
-        break;
-      }
-    }
-    const meters = spec.heightMeters ?? defaultCardHeightMeters(buildingId !== undefined);
-    const anchor: InfoCardAnchorPoint = { x: p.x, z: p.z, baseY, height: proj.metersToUnits(meters) };
-    if (buildingId !== undefined) anchor.buildingId = buildingId;
+    const probe = resolveWorldAnchor(ctx, { x: p.x, z: p.z, mode: spec.anchor ?? 'auto', height: 0 });
+    const meters = spec.heightMeters ?? defaultCardHeightMeters(probe.buildingId !== undefined);
+    const anchor: InfoCardAnchorPoint = { x: probe.x, z: probe.z, baseY: probe.baseY, height: proj.metersToUnits(meters) };
+    if (probe.buildingId !== undefined) anchor.buildingId = probe.buildingId;
     return anchor;
   }
 
@@ -402,7 +405,7 @@ export class Features {
     this.location.setKind(this.scene.locationSource());
     for (const d of this.collector.layerIds()) for (const s of this.collector.removeLayer(d)) this.dropVisuals.remove(s);
     for (const cmd of this.dropLayers.values()) this.applyDropLayer(cmd, world);
-    this.markers.reproject(newProj);
+    this.markers.reproject(newProj, this.anchorContext());
     this.infoCards.reproject();
     this.applyGeofences(world);
     this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
@@ -557,7 +560,7 @@ export class Features {
     // become exclusions for the markers and then for the labels.
     this.infoCardBoxes = this.infoCards.update(cam, this.scene.projection(), now, this.scene.anchorHeightScale());
     const beforeMarkers = this.infoCardBoxes.length ? [...exclusions, ...this.infoCardBoxes] : exclusions;
-    this.markerBoxes = this.markers.update(cam, beforeMarkers, this.groundY());
+    this.markerBoxes = this.markers.update(cam, beforeMarkers, this.groundY(), (id) => this.scene.building(id)?.top.y ?? null);
     const reserved = this.infoCardBoxes.length ? [...this.infoCardBoxes, ...this.markerBoxes] : this.markerBoxes;
     this.labels.update(this.content, ui, this.groundY(), now, reserved);
     if (this.chars.chars.size) this.chars.updateTags(cam, this.scene.zoomOutFactor(), this.labels.domLayer(), exclusions);

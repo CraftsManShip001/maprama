@@ -71,6 +71,11 @@ const SCENARIOS = [
   { name: 'sample-labels-custom-ui', hash: 'layout=sample&preset=modern&tod=day&labels=holo&content=custom&ui=1&player=1&dist=62&pitch=42&bearing=20&x=0&z=4&settle=1500' },
   // real OSM sample produced by tools/osm (read-only; skipped when absent)
   { name: 'seongsu-urban-day', hash: 'layout=sample&world=/osm-samples/seongsu.world.json&preset=urban&tod=day&dist=60&pitch=45', requires: join(repo, 'tools/osm/samples/seongsu.world.json') },
+  // pin accuracy: the same eight POIs of the real Seongsu world, drawn as app
+  // markers on the ground (the engine default) and on the roof. Same camera, so
+  // the two images are a direct before/after of the anchor height.
+  { name: 'markers-ground-seongsu', hash: 'layout=sample&world=/osm-samples/seongsu.world.json&preset=urban&tod=day&markers=8&markerAnchor=ground&dist=58&pitch=48&bearing=20&x=2&z=2&settle=800', requires: join(repo, 'tools/osm/samples/seongsu.world.json') },
+  { name: 'markers-roof-seongsu', hash: 'layout=sample&world=/osm-samples/seongsu.world.json&preset=urban&tod=day&markers=8&markerAnchor=roof&markerSnap=1&dist=58&pitch=48&bearing=20&x=2&z=2&settle=800', requires: join(repo, 'tools/osm/samples/seongsu.world.json') },
 ];
 // dist/engine.html driven through the WebView transport (window 'message' events), like react-native-webview
 const HTML_SCENARIOS = [

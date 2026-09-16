@@ -346,7 +346,7 @@ describe('fixtures cover the protocol', () => {
     expect(ENGINE_COMMAND_TYPES.slice(-5)).toEqual(['setMarkerLayer', 'removeMarkerLayer', 'setInfoCard', 'removeInfoCard', 'setView']);
     expect(ENGINE_EVENT_TYPES.slice(-5)).toEqual(['marker:press', 'camera:idle', 'infoCard:press', 'infoCard:dismiss', 'view:change']);
     expect(SUBSCRIPTION_TOPICS.at(-1)).toBe('camera:idle');
-    expect(REQUEST_METHODS.at(-1)).toBe('focusOn');
+    expect(REQUEST_METHODS.slice(-2)).toEqual(['focusOn', 'snapToBuilding']);
     expect(PROTOCOL_VERSION).toBe(1);
   });
 });

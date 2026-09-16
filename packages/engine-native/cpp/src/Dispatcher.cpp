@@ -128,6 +128,8 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       return;
     }
     case 19: {  // request -> MapSession (project/unproject, M1), GameSession (snapToRoad/route, M3a)
+      //   `focusOn` and `snapToBuilding` are decoded and validated here, then answered
+      //   "unsupported": engine-web implements both, the native views do not yet.
       const std::optional<RequestMethod> method = parseEnum<RequestMethod>(msg.find("method")->asString());
       if (session != nullptr && method &&
           (*method == RequestMethod::Project || *method == RequestMethod::Unproject ||

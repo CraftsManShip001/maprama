@@ -23,7 +23,10 @@
  * `cardAnchor=ground|roof|auto` (default `auto`) · `cardsOn=poi|building` (what the
  * cards sit on; `building` demonstrates the roof anchor) · `focus=1` (`focusOn` the
  * first card after showing it, as an app would after a press) ·
- * `inset=<px>` (bottom `ui.contentInset`, as an app sheet would set).
+ * `inset=<px>` (bottom `ui.contentInset`, as an app sheet would set) ·
+ * `markers=<n>` (app-owned pins on the POIs nearest the view centre) ·
+ * `markerAnchor=ground|roof` (default `ground`, the engine default) ·
+ * `markerSnap=0|1` (opt into `snapToBuilding`; default 0).
  *
  * View mode: `view=2.5d|2d` (the mode the map starts in, applied with `init.view`
  * so a flat map never draws a tilted frame first) · `viewTo=2.5d|2d` +
@@ -41,6 +44,8 @@ import type {
   EngineCommand,
   InfoCardAnchor,
   InfoCardSpec,
+  MarkerAnchorHeight,
+  MarkerSpec,
   EngineEvent,
   HoloIconTile,
   LabelContent,
@@ -237,6 +242,27 @@ function cardAnchors(count: number, on: 'poi' | 'building', cx: number, cz: numb
     .map((p) => ({ id: p.id, name: p.name, cat: p.cat, x: p.x, z: p.z }));
 }
 
+/**
+ * Drops `count` app-owned markers on the POIs nearest the view centre. The
+ * side-by-side of `markerAnchor=ground` and `markerAnchor=roof` is what the
+ * pin-accuracy screenshots compare.
+ */
+async function showMarkers(count: number, anchorHeight: MarkerAnchorHeight, snap: boolean, cx: number, cz: number): Promise<void> {
+  const scene = engine.scene!;
+  const markers: MarkerSpec[] = cardAnchors(count, 'poi', cx, cz).map((a, i) => {
+    const m: MarkerSpec = {
+      id: `mk-${a.id}`,
+      coordinate: scene.toLngLat({ x: a.x, z: a.z }),
+      color: i === 0 ? '#E2445C' : '#2F5BEA',
+      accessibilityLabel: a.name,
+      anchorHeight,
+    };
+    if (snap) m.snapToBuilding = true;
+    return m;
+  });
+  await engine.dispatch({ type: 'setMarkerLayer', layerId: 'poi', markers });
+}
+
 /** Shows `count` info cards around the view centre; returns the card ids in placement order. */
 async function showInfoCards(count: number, anchor: InfoCardAnchor, on: 'poi' | 'building', cx: number, cz: number): Promise<string[]> {
   const scene = engine.scene!;
@@ -411,6 +437,16 @@ async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel
   if (params.get('model') && (flag('player') || travel)) await waitForModel('me');
   const drops = pick<DropType>('drops', MUSIC_DROPS);
   if (drops) await dropAround(drops, x, z);
+  const markers = num('markers');
+  if (markers && markers > 0) {
+    await showMarkers(
+      markers,
+      pick<'ground' | 'roof'>('markerAnchor', ['ground', 'roof']) ?? 'ground',
+      flag('markerSnap') === true,
+      x,
+      z,
+    );
+  }
   const cards = num('cards');
   if (cards && cards > 0) {
     const ids = await showInfoCards(

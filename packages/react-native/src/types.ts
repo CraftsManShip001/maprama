@@ -35,6 +35,8 @@ import type {
   LocationSourceKind,
   MapUiSpec,
   MarkerAnchor,
+  MarkerAnchorHeight,
+  MarkerSnapToBuilding,
   MarkerIcon,
   MarkerShape,
   MarkerSpec,
@@ -45,6 +47,7 @@ import type {
   RequestResultMap,
   RouteResult,
   ScreenPoint,
+  SnapToBuildingResult,
   SnapToRoadResult,
   SubscriptionTopic,
   ThemeSpec,
@@ -361,6 +364,18 @@ export interface MapramaViewRef {
   unproject(point: { x: number; y: number }, options?: RequestOptions): Promise<LngLat | null>;
   /** Nearest point on the road network, or `null` when none is within range. */
   snapToRoad(coordinate: LngLat, maxDistanceMeters?: number, options?: RequestOptions): Promise<SnapToRoadResult | null>;
+  /**
+   * The building a coordinate belongs to: the one whose footprint contains it,
+   * or the nearest one within `maxDistanceMeters` (default
+   * {@link DEFAULT_SNAP_TO_BUILDING_METERS}). `null` when there is none.
+   *
+   * For apps that own their coordinates — a POI table on your own server was
+   * surveyed separately from the OSM building footprints, so a marker drawn at
+   * your coordinate often stands beside the building rather than on it. The
+   * result's `coordinate` sits inside the footprint and `heightMeters` is the
+   * drawn roof height, so a pin can be placed on the roof.
+   */
+  snapToBuilding(coordinate: LngLat, maxDistanceMeters?: number, options?: RequestOptions): Promise<SnapToBuildingResult | null>;
   /** Plans a route without moving anything. */
   route(from: LngLat, to: LngLat, modes?: TravelMode[], options?: RequestOptions): Promise<RouteResult>;
   /**
@@ -633,6 +648,27 @@ export interface MarkerLayerProps<T> {
   getAlwaysVisible?: (item: T) => boolean | undefined;
   /** Text a screen reader announces, e.g. `` `${title}, ${faction}` ``. */
   getAccessibilityLabel?: (item: T) => string | undefined;
+  /**
+   * How high the pin sits: `'ground'` (the default — unchanged from the first
+   * release), `'roof'` (the top of the building under the coordinate, the
+   * ground when there is none) or a number of meters above the ground.
+   *
+   * On a tilted camera a ground pin inside a tall building is drawn *behind*
+   * the building, which reads as "the pin is in the wrong place".
+   * `'roof'` is the fix; see the guide.
+   */
+  getAnchorHeight?: (item: T) => MarkerAnchorHeight | undefined;
+  /**
+   * Move the pin onto the nearest building when the coordinate falls outside
+   * every footprint. `true` searches
+   * {@link DEFAULT_SNAP_TO_BUILDING_METERS} meters; `{ maxDistanceMeters }`
+   * sets the radius. Default off — the engine does not move a coordinate the
+   * app gave it unless asked.
+   *
+   * `onPress` still reports the **original** coordinate, so a press maps back
+   * to your own record.
+   */
+  getSnapToBuilding?: (item: T) => boolean | MarkerSnapToBuilding | undefined;
   /** Marker drawn selected: scaled by `selectedScale` and never hidden. */
   selectedId?: string | null;
   /** Scale of the selected marker. Default 1.25. */

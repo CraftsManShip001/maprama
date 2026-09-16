@@ -337,6 +337,8 @@ export interface RequestParamsMap {
   unproject: { x: number; y: number };
   /** Nearest point on the road network. */
   snapToRoad: { coordinate: LngLat; maxDistanceMeters?: number };
+  /** The building a coordinate falls in, or the nearest one within range. */
+  snapToBuilding: { coordinate: LngLat; maxDistanceMeters?: number };
   /** Plans a route without moving anything. */
   route: { from: LngLat; to: LngLat; modes: TravelMode[] };
   /** Frames a geographic box and moves the camera there. */
@@ -443,6 +445,32 @@ export interface SnapToRoadResult {
   distanceMeters: number;
 }
 
+/**
+ * Result of `snapToBuilding`: which building a coordinate belongs to, where on
+ * it a pin should sit, and how far the answer moved the input.
+ *
+ * Built for the case where an app owns the coordinates (its own server's POI
+ * table) and our world owns the buildings: the two were surveyed separately, so
+ * a marker drawn at the app's coordinate often stands next to the building
+ * rather than on it.
+ */
+export interface SnapToBuildingResult {
+  /**
+   * The snapped ground coordinate: the input itself when it was already inside
+   * the footprint, otherwise a point just inside the building's outline.
+   */
+  coordinate: LngLat;
+  buildingId: string;
+  /** The building's height in meters, at the theme's current `heightScale`. */
+  heightMeters: number;
+  /** `coordinate` again — the point a roof-anchored pin stands over. */
+  roofCoordinate: LngLat;
+  /** How far `coordinate` is from the input, in meters. 0 when `inside`. */
+  distanceMeters: number;
+  /** True when the input coordinate was already inside the footprint. */
+  inside: boolean;
+}
+
 /** One leg of a planned route. */
 export interface RouteLeg {
   mode: TravelMode;
@@ -468,6 +496,8 @@ export interface RequestResultMap {
   unproject: { coordinate: LngLat | null };
   /** `null` when no road is within range. */
   snapToRoad: SnapToRoadResult | null;
+  /** `null` when no building contains the coordinate or lies within range. */
+  snapToBuilding: SnapToBuildingResult | null;
   route: RouteResult;
   fitBounds: FitBoundsResult;
   focusOn: FocusOnResult;
@@ -477,7 +507,7 @@ export interface RequestResultMap {
  * Request methods. Methods added after the first release are appended, so the
  * index an engine derives from this list stays stable.
  */
-export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route', 'fitBounds', 'focusOn'] as const;
+export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route', 'fitBounds', 'focusOn', 'snapToBuilding'] as const;
 /** A request method name. */
 export type RequestMethod = keyof RequestParamsMap;
 
@@ -935,6 +965,7 @@ const requestChecks: { [M in RequestMethod]: Check } = {
   project: object({ coordinate: checkLngLat }),
   unproject: object({ x: number, y: number }),
   snapToRoad: object({ coordinate: checkLngLat }, { maxDistanceMeters: nonNegativeNumber }),
+  snapToBuilding: object({ coordinate: checkLngLat }, { maxDistanceMeters: nonNegativeNumber }),
   route: object({ from: checkLngLat, to: checkLngLat, modes: array(oneOf(TRAVEL_MODES), { min: 1 }) }),
   fitBounds: object(
     { bounds: checkLngLatBounds },
