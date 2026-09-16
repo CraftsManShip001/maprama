@@ -21,6 +21,8 @@
   selectedScale={1.25}
   size={36}                                  // dp (핀 높이)
   anchor="bottom"                            // 핀 끝이 좌표 위 (기본)
+  getAnchorHeight={() => 'roof'}             // 'ground'(기본) | 'roof' | 지면 위 미터
+  getSnapToBuilding={() => true}             // 건물 밖 좌표를 가장 가까운 건물로
   onPress={(e) => openSheet(e.markerId, e.point)}
 />
 ```
@@ -36,6 +38,49 @@
 | `selectedId` | 선택된 마커. `selectedScale`만큼 커지고 **절대 숨겨지지 않습니다**. `null`이면 선택 없음 |
 | `size` | 핀 높이(dp). 기본 36. 카메라 거리와 무관하게 화면상 크기가 고정입니다 |
 | `anchor` | `bottom`(기본, 핀 끝이 좌표 위)·`center`·`top` |
+| `getAnchorHeight` | `'ground'`(기본)·`'roof'`·숫자(지면 위 미터). [아래 참고](#핀이-건물-위에-서게-하기) |
+| `getSnapToBuilding` | `true` 또는 `{ maxDistanceMeters }`. 좌표가 어떤 건물 폴리곤에도 안 들어가면 반경 안의 가장 가까운 건물로 옮깁니다. 기본 꺼짐 |
+
+## 핀이 건물 위에 서게 하기
+
+기울인 카메라에서 "핀이 건물 없는 곳에 있다"고 보이는 원인은 보통 둘입니다.
+
+**1. 앵커가 지면입니다.** POI가 15층 건물 안에 있어도 핀 끝은 지면에 붙습니다. 지면의 그 점은 건물에 가려 보이지 않으므로, 핀은 건물 **벽에 붙어 있거나 건물 뒤 도로에 떠 있는 것처럼** 보입니다. `getAnchorHeight`를 `'roof'`로 두면 핀이 그 건물 지붕 위에 섭니다.
+
+**2. 좌표가 건물 밖입니다.** 앱 서버의 POI 좌표와 우리 월드의 건물 폴리곤은 따로 조사된 데이터입니다. 실측(서울·지방 5개 지역, POI 171개)에서 **약 25 %** 의 POI가 어떤 건물 폴리곤에도 들어가지 않았습니다. `getSnapToBuilding`을 켜면 반경(기본 20 m) 안의 가장 가까운 건물 안으로 핀을 옮깁니다.
+
+```tsx
+<MarkerLayer
+  id="poi"
+  data={pois}
+  getId={(p) => p.id}
+  getCoordinate={(p) => p.coord}
+  getAnchorHeight={() => 'roof'}        // 건물 지붕 위
+  getSnapToBuilding={() => true}        // 20 m 안의 건물로 스냅
+  onPress={(e) => openSheet(e.markerId, e.point)}
+/>
+```
+
+- **기본값은 바뀌지 않았습니다.** 아무것도 주지 않으면 예전처럼 지면 앵커에 스냅 없음입니다. 이미 지면 기준으로 화면을 짠 앱이 깨지지 않습니다.
+- 두 옵션은 서로 독립입니다. 스냅만 켜면 핀이 건물 **안 지면**으로, 지붕 앵커만 켜면 좌표가 이미 건물 안일 때만 지붕으로 올라갑니다. 보통은 둘 다 켭니다.
+- `onPress`의 `coordinate`는 **원래 좌표 그대로**입니다. 스냅은 그리기에만 영향을 주므로, 탭 결과를 앱 레코드와 맞추는 코드는 그대로 둡니다.
+- 줌아웃 뷰는 건물을 납작하게 눌러 그리는데, 지붕 앵커는 **매 프레임 지붕 높이를 다시 읽으므로** 핀이 지붕에 붙어 함께 내려옵니다.
+- 건물이 렌더에서 빠졌으면(면적 미달 등) 조용히 지면으로 되돌아갑니다.
+
+::: warning 깊이 테스트: 핀은 건물에 가려지지 않습니다
+마커는 캔버스 위의 뷰라서 **건물에 가려지지 않습니다.** 지붕 앵커를 켜도 마찬가지고, 이건 의도한 동작입니다(라벨도 같습니다). 핀을 숨기는 건 충돌 패스와 "카메라 뒤" 판정뿐입니다. 즉 앞 건물 뒤에 있는 건물의 지붕 핀도 보입니다. 지붕 앵커는 깊이 문제를 만드는 게 아니라 **없애는** 쪽입니다 — 건물이 시각적으로 덮어버리는 지면 위 한 점 대신, 실제로 보이는 지붕 위에 핀을 두니까요.
+:::
+
+좌표 하나만 보정하고 싶으면(직접 그리는 오버레이 등) `ref.snapToBuilding(coordinate, maxDistanceMeters?)`가 같은 계산을 돌려줍니다.
+
+```ts
+const hit = await ref.current?.snapToBuilding({ lng, lat });
+// { coordinate, buildingId, heightMeters, roofCoordinate, distanceMeters, inside } | null
+```
+
+::: tip 우리 월드 데이터의 POI는 이미 붙어 있습니다
+`maprama-osm`으로 만든 월드는 빌드 때 POI마다 `buildingId`를 붙이고, 건물 밖 POI는 기본 20 m 안의 건물로 스냅합니다(`snapped`, `snapDistanceMeters` 기록). 위 두 옵션은 **앱이 자기 좌표로 핀을 찍을 때** 필요한 런타임 쪽 장치입니다. [`tools/osm` README](https://github.com/CraftsManShip001/maprama/tree/main/tools/osm#attaching-pois-to-buildings) 참고.
+:::
 
 ## 충돌과 순서
 
@@ -100,3 +145,5 @@ onPress={(e) => {
 ## 지금 웹 엔진 전용
 
 마커는 기본 WebView 엔진(`@maprama/engine-web`)에서 동작합니다. `engine="native"`로 띄운 네이티브 엔진은 `setMarkerLayer` / `removeMarkerLayer`를 검증한 뒤 경고 로그만 남기고 무시합니다(네이티브 마커 뷰는 다음 마일스톤). 네이티브 엔진에서 핀이 필요하면 그때까지는 `MapOverlay`를 쓰세요.
+
+`ref.snapToBuilding` 역시 웹 엔진 전용입니다. 네이티브 코어는 요청을 해독·검증한 뒤 `unsupported`로 답합니다.

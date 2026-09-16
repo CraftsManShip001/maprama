@@ -122,6 +122,15 @@ Each of these is a real gap found while answering an integrator's questions agai
   to avoid foot sliding also lost "my position"); the cadence half is fixed — cadence now follows the ground
   covered in metres per second, so a character walking at real-world speed plays its walk clip at 1× — and the
   puck is the remaining half.
+- **World POI labels are still ground-anchored.** The marker layer got
+  `anchorHeight` / `snapToBuilding` and `maprama-osm` now writes `poi.buildingId`,
+  but the engine's own POI labels (`holo` and the DOM styles) still project from
+  the ground, so a label for a shop in a 60 m tower is drawn where the tower
+  covers it. The data is in place — the remaining work is a `labels.anchorHeight`
+  option (default `ground`, so nothing moves unasked), reading `poi.buildingId`
+  in `labels/index.ts`, and the per-frame roof refresh `markers.ts` already does.
+  The `ground` / `sign` 3D label styles bake their geometry, so they are a
+  separate, larger piece.
 - **Hiding POI / station markers.** `labels: { enabled: false }` hides label text, but POIs and stations are
   also drawn as coloured dots by the world style, with no toggle in `ThemeSpec` or `MapUiSpec`. Workaround:
   build the world without `pois` / `stations`.

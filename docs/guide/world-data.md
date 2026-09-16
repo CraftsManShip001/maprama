@@ -41,13 +41,30 @@ const p = proj.toWorld({ lng: 127.0571, lat: 37.5449 }); // { x, z }
 | `roads[]` | 도로 중심선. `cls`는 `arterial`/`local`/`alley`, `bridge`, `name` |
 | `buildings[]` | 건물 윤곽(`[x, z]` 링, 양의 신발끈 면적), `height`(월드 단위), `levels`, `kind`(`glass`/`office`/`apartment`/`brick`) |
 | `water[]`, `parks[]` | 폴리곤 (구멍 없음) |
-| `pois[]` | 이름과 `cat`(`subway`, `cafe`, `store`, `music`, `school`, `book`, `plaza`, `park`) |
+| `pois[]` | 이름과 `cat`(`subway`, `cafe`, `store`, `music`, `school`, `book`, `plaza`, `park`), 그리고 POI가 속한 건물 `buildingId`·`snapped`·`snapDistanceMeters`(모두 선택) |
 | `stations[]` | 지하철역 (지하철 이동의 승하차 지점) |
 | `districts[]` | 동·하천 이름 라벨 |
 | `plaza` | 광장 중심점 `{ x, z }` (선택). 광장 바닥과 기본 카메라 시점에 쓰입니다 |
 | `attribution[]` | 반드시 표시해야 하는 출처 문구 |
 
 `validateWorldData(value)`로 직접 검증할 수 있습니다.
+
+### POI는 어느 건물에 속하는가
+
+OSM의 POI 노드는 대부분 자기 건물 **안에** 있지 않습니다. 부지 중심, 출입구,
+도로변에 찍혀 있고 건물은 별도의 `building=*` 웨이입니다. 2.5D 지도에서는 이게
+"핀이 건물 없는 곳에 있다"로 보입니다.
+
+`maprama-osm`은 빌드 때 POI마다 건물을 찾아 붙입니다.
+
+- 폴리곤이 POI를 포함하면 `buildingId`만 기록하고 위치는 그대로 둡니다.
+- 포함하는 건물이 없고 `--poi-snap-meters`(기본 20 m) 안에 건물이 있으면 그 안으로
+  옮기고 `snapped: true`와 `snapDistanceMeters`를 남깁니다.
+- 아무것도 없으면 필드를 추가하지 않습니다. OSM에 건물이 없는 경우라 고칠 수 없습니다.
+- `plaza`·`park`·`subway`는 열린 공간이라 **절대 옮기지 않습니다.**
+
+세 필드는 모두 **선택**입니다. 이 기능 이전에 만든 월드 파일도 그대로 로드되고,
+필드를 읽지 않는 엔진에서도 그대로 동작합니다.
 
 ### 엔진은 데이터에 없는 건물을 만들지 않습니다
 
