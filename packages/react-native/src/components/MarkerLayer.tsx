@@ -69,6 +69,10 @@ export function MarkerLayer<T>(props: MarkerLayerProps<T>): null {
     if (alwaysVisible !== undefined) marker.alwaysVisible = alwaysVisible;
     const label = props.getAccessibilityLabel?.(item);
     if (label !== undefined) marker.accessibilityLabel = label;
+    const anchorHeight = props.getAnchorHeight?.(item);
+    if (anchorHeight !== undefined) marker.anchorHeight = anchorHeight;
+    const snap = props.getSnapToBuilding?.(item);
+    if (snap !== undefined) marker.snapToBuilding = snap;
     return marker;
   });
 

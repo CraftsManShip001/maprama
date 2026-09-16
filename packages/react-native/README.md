@@ -131,6 +131,7 @@ Available through `ref` on `MapramaView`, or through `useMapramaView()` inside i
 | `refreshLabelContent()` | `void` | Re-evaluates a `labels.content` function for all labels; changed entries go out with the next frame. |
 | `unproject(point, options?)` | `Promise<LngLat \| null>` | |
 | `snapToRoad(coordinate, maxDistanceMeters?, options?)` | `Promise<SnapToRoadResult \| null>` | |
+| `snapToBuilding(coordinate, maxDistanceMeters?, options?)` | `Promise<SnapToBuildingResult \| null>` | The building a coordinate falls in, or the nearest one within range (default 20 m). Reports `buildingId`, a coordinate inside the footprint, the drawn `heightMeters` and whether the input was already `inside`. Web engine only. |
 | `route(from, to, modes?, options?)` | `Promise<RouteResult>` | |
 | `fitBounds(bounds, options?)` | `Promise<FitBoundsResult>` | Frames a `{ ne, sw }` box: `padding` in dp (a number or per side), optional `pitch` / `bearing`, `orientation` (`auto` / `keep` / `reset`), `animate`. Resolves with the camera it moved to, `fitted` and `distanceLimited`. |
 | `request(method, params, options?)` | `Promise<result>` | Low-level request. |

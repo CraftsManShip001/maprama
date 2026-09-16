@@ -398,6 +398,10 @@ export class MapController implements MapramaViewRef {
     return this.request('snapToRoad', maxDistanceMeters === undefined ? { coordinate } : { coordinate, maxDistanceMeters }, options);
   }
 
+  snapToBuilding(coordinate: LngLat, maxDistanceMeters?: number, options?: RequestOptions) {
+    return this.request('snapToBuilding', maxDistanceMeters === undefined ? { coordinate } : { coordinate, maxDistanceMeters }, options);
+  }
+
   route(from: LngLat, to: LngLat, modes: TravelMode[] = ['walk'], options?: RequestOptions) {
     return this.request('route', { from, to, modes }, options);
   }
