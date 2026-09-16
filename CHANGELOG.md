@@ -37,6 +37,17 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 - Documentation site on GitHub Pages: <https://craftsmanship001.github.io/maprama/>.
 - Example app updates: a feature catalog screen per feature, including a ×20
   travel playback demo, verified on iOS and Android with Maestro.
+- `@maprama/osm`: `--kr-fill-missing` (and the `krFillMissing` option of
+  `buildWorld`) uses the Korean national building dataset passed with
+  `--kr-buildings` as a footprint source, not only as a height source. Where OSM
+  has no building, the dataset polygon is emitted as a building with that
+  record's height and floor count — useful outside dense Seoul, where OSM
+  building coverage is patchy and POI pins can otherwise land on empty ground.
+  Duplicates are avoided with the existing 50%-overlap / centroid rule, applied
+  in both directions; generated buildings get `k`-prefixed ids hashed from the
+  source geometry, so they are stable and cannot collide with OSM ids. The build
+  stats gained `buildingsFromOsm`, `buildingsFilled` and `krFillSkipped`. Off by
+  default: existing pipelines are unchanged.
 - Release tooling: package metadata, per-package READMEs, `LICENSE` / `NOTICE`
   in every tarball, GitHub Actions CI, `CONTRIBUTING.md` and `SECURITY.md`.
 

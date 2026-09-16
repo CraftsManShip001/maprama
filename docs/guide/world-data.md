@@ -59,6 +59,23 @@ maprama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
 
 국가공간정보포털 **GIS건물통합정보**를 GeoJSON으로 바꿔 `--kr-buildings`로 넘기면 OSM에 없는 건물 높이와 층수를 채웁니다. 매핑 규칙과 옵션은 [maprama-osm](/tools/osm)에 있어요.
 
+### OSM에 건물 자체가 없을 때
+
+서울 도심을 벗어나면 OSM 건물 커버리지가 듬성듬성합니다. 건물이 아예 없으면 높이를 채울 대상도 없고, POI 핀이 빈 땅에 서는 일이 생깁니다. `--kr-fill-missing`을 함께 주면 같은 국가 데이터 폴리곤을 **높이 출처이자 윤곽 출처**로 씁니다.
+
+```sh
+maprama-osm build --raw raw.json --out world.json --name "해운대, 부산" \
+  --kr-buildings kr.geojson --kr-fill-missing
+```
+
+- 기본값은 **꺼짐**입니다. 플래그를 주지 않으면 결과가 지금과 완전히 같습니다. `--kr-buildings` 없이 쓰면 사용법 오류입니다.
+- 중복 방지: 국가 데이터 폴리곤이 (1) 높이 조인에서 어떤 OSM 건물과 이미 매칭됐거나, (2) 어떤 OSM 윤곽이 그 폴리곤 면적의 50% 이상을 덮거나 중심점을 포함하면 건너뜁니다. 두 방향 모두 기존 높이 조인과 같은 50% / 중심점 기준입니다.
+- 생성된 건물 id는 `k` + 16자리 16진수입니다. 원본 경위도 링에서 해시하므로 OSM의 `n`/`w`/`r`과 겹치지 않고, 빌드 옵션이나 피처 순서가 바뀌어도 그대로입니다.
+- 높이는 `HEIGHT`(없으면 `GRND_FLR` × 3.2 m), `kind`는 태그 없는 건물과 같은 기준(60 m↑ `glass`, 20 m↑ `office`, 그 외 `brick`)입니다. 데이터에 용도 속성이 없어 이름은 붙지 않습니다.
+- CLI 통계에 `buildingsFromOsm`, `buildingsFilled`, `krFillSkipped`가 찍힙니다.
+
+자세한 규칙은 [maprama-osm의 filling gaps 절](/tools/osm)을 보세요.
+
 ::: tip 크기
 CLI는 결과가 3 MB를 넘으면 경고합니다. 넓은 지역은 여러 월드로 나누거나 타일을 쓰세요.
 :::
@@ -80,7 +97,7 @@ v1 `WorldSource`에는 타일 종류가 없습니다. 넓은 지역을 위해 Wo
 ## 라이선스와 출처 표기
 
 - **OSM 데이터**: © OpenStreetMap contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/). 생성한 월드 JSON은 파생 데이터베이스이므로 공개 배포하면 ODbL 동일조건이 적용됩니다. 저장소의 성수동 샘플도 Apache-2.0이 아니라 ODbL입니다.
-- **국내 건물 데이터**: 국가공간정보포털 다운로드 페이지의 이용 조건(보통 공공누리 출처표시)을 따르고, CLI가 넣는 출처 문구를 지우지 마세요.
+- **국내 건물 데이터**: 국가공간정보포털 다운로드 페이지의 이용 조건(보통 공공누리 제1유형 출처표시)을 따르고, CLI가 넣는 출처 문구를 지우지 마세요. `--kr-fill-missing`으로 만든 월드는 도형까지 이 데이터에서 왔으므로 ODbL(OSM 부분)과 데이터셋 자체 조건이 함께 걸립니다. 재배포한다면 양쪽을 모두 만족시키세요.
 - 앱에서는 `ui` prop의 `attribution: true`로 `attribution[]`을 화면에 표시합니다.
 
 이 절은 실무 요약이며 법률 자문이 아닙니다.

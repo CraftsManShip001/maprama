@@ -2,7 +2,8 @@
 
 Builds Maprama [`WorldData`](https://github.com/CraftsManShip001/maprama/blob/main/packages/protocol/src/world.ts) JSON from
 OpenStreetMap data (via the Overpass API). It can optionally add building
-heights from the Korean national building dataset.
+heights from the Korean national building dataset, and — where OSM has no
+building at all — the buildings themselves.
 
 - CLI: `maprama-osm` (`fetch`, `build`, `sample`)
 - Library: `buildWorld(raw, options)`, a pure function you can unit-test without network access
@@ -68,12 +69,18 @@ payload to `tools/osm/.cache/samples/seongsu.raw.json`.
 | `--unit-meters <m>` | `8` | Meters per world unit |
 | `--simplify-meters <m>` | `0.5` | Douglas–Peucker tolerance |
 | `--kr-buildings <file>` | | Korean building GeoJSON (see below) |
+| `--kr-fill-missing` | off | Also emit buildings for `--kr-buildings` polygons that OSM does not have ([filling gaps](#filling-gaps-in-osm-building-coverage)). Requires `--kr-buildings` |
 | `--precision <n>` | `2` | Decimal places of output coordinates (world units) |
 | `--include-sidewalks` | off | Keep `footway=sidewalk\|crossing` ways |
 
 The output is written one feature per line. That keeps it compact and easy to
 diff in git. The CLI validates the written file with `validateWorldData` and
 warns if it grows past 3 MB.
+
+`build` and `sample` print a JSON stats block on stdout. Besides the per-layer
+counts it reports `buildingsFromOsm`, `buildingsFilled` (generated from the
+national dataset) and `krFillSkipped` (national polygons inside the bbox that
+OSM already had), plus `krIndexed` and `krMatches`.
 
 ### Overpass endpoints
 
@@ -94,7 +101,9 @@ retryable. HTTP 400 (a bad query) is never retried.
 World space follows `@maprama/protocol`: `+x` = east, `z` = −north, in world
 units of `unitMeters` meters. Ids are `w<wayId>`, `r<relationId>` and
 `n<nodeId>`. When a way is split by the bbox, or a relation has several outer
-rings, the pieces are suffixed `_0`, `_1`, and so on.
+rings, the pieces are suffixed `_0`, `_1`, and so on. Buildings generated from
+the national dataset use a fourth prefix, `k` (see
+[filling gaps](#filling-gaps-in-osm-building-coverage)).
 
 **Footprints and polygons** are projected, simplified and clipped to the bbox
 (Sutherland–Hodgman). They are then rounded, cleaned of duplicate and collinear
@@ -192,6 +201,71 @@ matched case-insensitively. Features with neither a positive `HEIGHT` nor a
 positive `GRND_FLR` are ignored. When the join is used, the attribution line
 `건물 높이: 국가공간정보포털 GIS건물통합정보 (국토교통부)` is added.
 
+## Filling gaps in OSM building coverage
+
+OSM building coverage in Korea is uneven: dense in central Seoul, patchy
+elsewhere. In a sparsely mapped area most buildings fall back to the height
+heuristic, and POIs can end up standing on empty ground. If you already pass
+`--kr-buildings`, `--kr-fill-missing` reuses the same polygons as **footprint
+sources**, not only as a height source:
+
+```sh
+maprama-osm build --raw raw.json --out world.json --name "Haeundae, Busan" \
+  --kr-buildings kr.geojson --kr-fill-missing
+```
+
+The flag is **off by default**, so existing pipelines keep producing byte-identical
+worlds. It requires `--kr-buildings`; on its own it is a usage error. The library
+option is `buildWorld(raw, { krBuildings, krFillMissing: true })`, still pure and
+network-free.
+
+**What counts as "already represented by OSM".** A national-dataset polygon is
+skipped as a duplicate when either side of the existing 50% / centroid rule says
+OSM already has it:
+
+1. an OSM building matched it through the normal height join — it covered ≥ 50%
+   of that OSM footprint's area, or it was the smallest polygon containing that
+   footprint's centroid; **or**
+2. an emitted OSM footprint covers ≥ 50% of *the national polygon's own* area, or
+   contains its centroid. (Direction 2 catches the cases the height join misses,
+   such as one large OSM building drawn over several small national polygons, or
+   the reverse.)
+
+Both directions use `KR_MIN_OVERLAP = 0.5` and planar intersection area in world
+units, so the threshold is the one already documented for heights. Polygons whose
+bounds lie entirely outside the requested bbox are ignored and are not counted as
+duplicates.
+
+**Everything else follows the normal pipeline.** A generated footprint is
+projected, simplified with `--simplify-meters`, clipped to the bbox, rounded to
+`--precision`, cleaned of duplicate and collinear vertices, wound
+counter-clockwise, and dropped when it falls below the minimum building area. It
+is also compared against the footprints already emitted, so identical geometry is
+never written twice.
+
+| | Generated building |
+| --- | --- |
+| `id` | `k` + 16 hex characters, hashed from the source lng/lat ring rounded to 7 decimals. Cannot collide with `n`/`w`/`r`, and is stable across dataset re-exports, feature reordering and any change of `--origin`, `--unit-meters`, `--simplify-meters` or `--precision`. A hash collision inside one world gets a `_1`, `_2`, … suffix |
+| `height` | `HEIGHT` m, else `GRND_FLR` × 3.2 m — the same precedence the height join uses |
+| `levels` | `GRND_FLR`, when positive |
+| `kind` | `classifyKind` with no OSM tags: `glass` at 60 m or taller, `office` at 20 m or taller, otherwise `brick` — the same fallback an untagged OSM building gets |
+| `name` | never set |
+
+`kind` cannot be better than that today: `KrBuildingIndex.fromGeoJson` reads only
+`HEIGHT` and `GRND_FLR` from each feature, and the `ogr2ogr` export above selects
+only those two columns, so no use-type attribute (`BDTYP_CD`, `MAIN_PURPS`, …)
+reaches the builder. For the same reason a feature with neither a positive
+`HEIGHT` nor a positive `GRND_FLR` is not indexed at all, and therefore cannot be
+filled in either. In the national dataset `HEIGHT` is often `0` while `GRND_FLR`
+is set, which the floor-count fallback covers.
+
+The stats block reports `buildingsFromOsm`, `buildingsFilled` and
+`krFillSkipped`; `buildings` is their sum for the OSM and filled counts. A world
+that contains filled footprints carries the same
+`건물 높이: 국가공간정보포털 GIS건물통합정보 (국토교통부)` attribution line — with
+the flag on it covers the footprints as well as the heights, and it must not be
+removed. See [Licenses and attribution](#licenses-and-attribution).
+
 ## Licenses and attribution
 
 - **OpenStreetMap data** is © OpenStreetMap contributors and available under the
@@ -206,8 +280,14 @@ positive `GRND_FLR` are ignored. When the join is used, the attribution line
   repository's Apache-2.0 license.**
 - **Korean national building data** is distributed under the terms shown on the
   국가공간정보포털 download page (Korean public data is typically released under
-  KOGL/공공누리 terms that require source attribution). Check the terms for your
-  download, and keep the attribution line in `attribution[]`.
+  KOGL/공공누리 terms that require source attribution — usually 제1유형, 출처표시).
+  Check the terms for your download, and keep the attribution line in
+  `attribution[]`. With `--kr-fill-missing` the dataset contributes geometry and
+  not only attribute values, so a world built that way mixes two differently
+  licensed sources: the OSM part stays ODbL, the filled footprints follow the
+  dataset's own terms. If you redistribute such a world, satisfy both. We cannot
+  tell you how those two interact for your case — that is a question for your own
+  legal advice.
 - The code in this package is Apache-2.0.
 
 This section is a practical summary, not legal advice.
