@@ -21,13 +21,13 @@ interface Pin {
 }
 
 /**
- * 18 pins on a ring 2 km across — the integrator's opening screen. The default
+ * 18 pins on a ring 1.6 km across — the integrator's opening screen. The default
  * 1,200 m ceiling shows about 874 m of ground at the target, so most of them are
- * off screen; at 3,330 m the whole ring fits.
+ * off screen; at 3,330 m the whole ring fits with room to spare.
  */
 const PINS: Pin[] = Array.from({ length: 18 }, (_, i) => {
   const angle = (i / 18) * Math.PI * 2;
-  const radius = 400 + (i % 3) * 300;
+  const radius = 300 + (i % 3) * 250;
   return {
     id: `pin-${i + 1}`,
     title: `Spot ${i + 1}`,
