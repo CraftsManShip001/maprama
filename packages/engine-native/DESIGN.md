@@ -95,7 +95,7 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `setStyleJson(json)` | `MLNMapView.styleJSON` | `MapLibreMap.setStyle(Style.Builder().fromJson(json))` | — |
 | `setPaintProperties(changes)` (M2a) | KVC on `MLNStyleLayer` (`fill-extrusion-color` → `fillExtrusionColor`) with an `NSExpression` (`+expressionWithMLNJSONObject:`; `UIColor` for constant colours), queued until `didFinishLoadingStyle` | `Layer.setProperties(PaintPropertyValue(name, value))` (`Expression.Converter` for expressions) inside `getStyle {}` of the current style generation | — |
 | `setLight(light)` (M2a) | `MLNStyle.light` (`MLNLight`: anchor map, `MLNSphericalPosition`, colour, intensity) | `style.light` (`setAnchor`, `Position`, `setColor`, `setIntensity`) | — |
-| `setUi(state)` (M2a) | own scale bar / zoom buttons / attribution label + `logoView`, `attributionButton`, `compassView` | own views in the `FrameLayout` + `UiSettings` logo / attribution / compass | zoom buttons → `Engine::zoomButton(in)` |
+| `setUi(state)` (M2a) | own scale bar / zoom buttons / attribution label + `logoView`, `attributionButton`, `compassView`, all laid out inside `MapUiState::inset` (`logoViewMargins` / `attributionButtonMargins` / `compassViewMargins`, M5) | own views in the `FrameLayout` + `UiSettings` logo / attribution / compass, same inset (`setLogoMargins` / `setAttributionMargins` / `setCompassMargins`, M5) | zoom buttons → `Engine::zoomButton(in)` |
 | `setBuildingLayer(data)` (M2c) | `MapramaBuildingLayer` (`MLNCustomStyleLayer` subclass, Metal) inserted below `buildings` after every style load; `setData:` + `setNeedsDisplay` | `BuildingLayerState` (shared with the render thread) + `CustomLayer("maprama-buildings-3d", BuildingLayerHost*)` added below `buildings` (`MapramaJni.createBuildingLayerHost`), `triggerRepaint` | — |
 | `setCameraLimits(minZoom, maxZoom, minPitch, maxPitch)` | `minimum/maximumZoomLevel`, `minimum/maximumPitch` | `setMin/MaxZoomPreference`, `setMin/MaxPitchPreference` | — |
 | `moveCamera(pose, durationMs)` | `setCamera:(animated:\|withDuration:)` (altitude via `MLNAltitudeForZoomLevel`) | `moveCamera` / `easeCamera(CameraUpdateFactory.newCameraPosition)` | camera reports below |
@@ -112,7 +112,7 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
 | `startLocationUpdates()` / `stopLocationUpdates()` (M3a) | `CLLocationManager` (best accuracy, no distance filter); not authorised → error, started again on `locationManagerDidChangeAuthorization` | `LocationManager` GPS + network providers (1 s); no `ACCESS_FINE/COARSE_LOCATION` → error | `Engine::onDeviceLocation(fix)`, `Engine::onDeviceLocationError(message)` |
 | (pan observer, M3a) | `mapView:regionWillChangeWithReason:animated:` with `MLNCameraChangeReasonGesturePan` | `addOnMoveListener` (`onMoveBegin`) | `Engine::onUserPan()` (stops `setCamera.follow`) |
 | `measureLabels(token, contents)` (M2b) | `MapramaLabelLayer` lays a scratch card out (`sizeThatFits` + engine-web paddings) | `LabelCardView.configure` (`Paint.measureText` + paddings) | `Engine::onLabelsMeasured(token, sizes)` |
-| `setLabelFrame(frame)` (M2b) | `MapramaLabelLayer applyFrame:` (views recycled by label id; applied in the same run-loop turn when called on the main thread) | `MapramaLabelLayer.apply` (same) | — |
+| `setLabelFrame(frame)` (M2b) | `MapramaLabelLayer applyFrame:` (views recycled by label id; applied in the same run-loop turn when called on the main thread); M5: marker cards are drawn from the same pool | `MapramaLabelLayer.apply` (same) | VoiceOver / TalkBack activating a marker card → `Engine::tap` at the card (M5) |
 | (camera observer) | `mapViewRegionIsChanging:` / `regionDidChangeAnimated:` | `OnCameraMoveListener` / `OnCameraIdleListener` | `Engine::onCameraChanged(pose)` |
 | (tap observer, M2a) | `UITapGestureRecognizer` on the map (waits for the double-tap zoom, recognises alongside the SDK's own; not on the zoom buttons) | `addOnMapClickListener` | `Engine::tap(x, y)` → `queryBuilding` |
 
@@ -180,8 +180,11 @@ platform-implemented interface [V: `cpp/include/maprama/MapAdapter.hpp`]:
   `setLabels` / `setLabelContent`, and on every camera report projects, declutters and clamps the labels
   itself (§6.5) — no projection round trip, so the cards move with the map. The platform only measures cards
   (`measureLabels`, cached by content key) and draws the placed ones (`setLabelFrame`, sent only when it
-  changed). On iOS `automaticallyAdjustsContentInset` is off (`contentInset` zero) so the camera target is
-  the view centre, as in engine-web and in the core's projection.
+  changed). On iOS `automaticallyAdjustsContentInset` is off and `MLNMapView.contentInset` stays zero, so the
+  MapLibre camera target is the view centre, as in the core's own projector. `ui.contentInset` is applied by
+  moving the camera instead (`MapSession::poseFor` sends `centre − insetShift`, engine-web's
+  `CameraController.apply`), which keeps the core's projection and the map in agreement without an off-axis
+  frustum. Markers ride in the same frame (§6.9).
 - **Map UI (M2a).** The core resolves `MapUiSpec` into `MapUiState` [V: `m2a_map_ui_state`]: scale bar
   (engine-web's `scaleBarFor` at the target's ground resolution), zoom buttons (±1.45× distance over
   250 ms, clamped, through `Engine::zoomButton`) with the MapLibre compass, and the visible attribution
@@ -365,7 +368,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `setTheme` | fire-and-forget | `ThemeResolver` → style paint properties + light (M2a), custom building layer (M2c), zoom-out (M4) | `resolveTheme` precedence (§6.6); cross-fades lighting over 300 ms | resolved by the C++ `ThemeResolver`; changed paint properties + light sent to the map (§2.1); facades, facade details, outlines and window lights rebuilt in the custom building layer (M2c); `zoomOut` applied (§6.7: overlay, heights, low detail, icon discs); varied massing / cinematic grading warn-logged once; no cross-fade | M2a (colours, light), M2c (facades, details, outlines), **M4** (zoomOut); grade and massing open |
 | `setLabels` | fire-and-forget | `LabelSystem::setSpec` → `MapSession` label frames | Replaces the spec (defaults: enabled, `holo`, icons `auto`, `nameAndType`); re-measures and re-places the labels | spec replaced; `holo`, `app`, `minimal`, `clean`, `sticker` drawn as native views; `ground` → app, `sign` → sticker views (warn-logged once: 3D ground / sign labels are not drawn natively); `enabled: false` hides all; no `labelsIndex` (same world, as engine-web) | **M2b** (`ground` / `sign` as 3D labels: later) |
 | `setLabelContent` | fire-and-forget | `LabelSystem::setContent` | Replaces host content by label id (used with `content: "custom"`) | all entries replaced; applied with `content: "custom"` (labels without an entry keep `nameAndType`) | **M2b** |
-| `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; `GameSession` location puck (M3a) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution`; `contentInset` (dp) shrinks the *visible area* the camera, the ornaments, the labels and `camera:idle` are measured against | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` = puck layers under the player (§2.2); `contentInset` is validated and **partly applied** — `camera:idle` bounds / radius honour it, the MapLibre camera padding (`setCamera` centre, `follow` centring, `ScreenPoint.visible`) and the platform ornament layout do not yet, and a non-empty inset warn-logs once (§11.1) | M2a, **M3a** (puck), **M5** (`contentInset`, partial) |
+| `setUi` | fire-and-forget | `MapSession` → `MapUiState` → platform ornaments; `GameSession` location puck (M3a) | Toggles `locationPuck`, `scaleBar`, `zoomButtons`, `attribution`; `contentInset` (dp) shrinks the *visible area* the camera, the ornaments, the labels and `camera:idle` are measured against | replaces the spec; scale bar, zoom buttons (+ compass) and attribution text (+ MapLibre logo / attribution button) drawn from core-computed values (§2.1); `locationPuck` = puck layers under the player (§2.2); `contentInset` fully applied (§11.1): the camera centre and `follow` centring land in the middle of the visible area (`MapSession::insetShiftFor`), `fitBounds` adds it to its padding, both platform views lay every ornament out inside the visible area (`MapUiState::inset`, including MapLibre's logo / attribution button / compass), labels and markers are placed and clamped inside it, `camera:idle` measures it and `ScreenPoint.visible` means "inside the visible area" | M2a, **M3a** (puck), **M5** (`contentInset`) |
 | `setCamera` | fire-and-forget | `CameraController::setCamera` → `mbgl::Map::jumpTo/easeTo` | Merges unset fields; `distance` wins over `zoom`; `follow` locks target; `animate` duration | `MapSession::setCamera`: merge, distance clamped to 14–150 world units, pitch to 0–60°, `animate` (`true` = 600 ms); `follow` through `GameSession` (§2.2): unknown id → `error{unknown_character}` and nothing applied, `null` / `center` without `follow` / user pan stop following, the camera eases towards the character every tick (after a running animation) | M1, **M3a** (`follow`) |
 | `upsertCharacters` | fire-and-forget | `GameSession` (§2.2) | Upserts by id, merging into the existing character (absent fields keep their value); async cgltf load; `error{model_load_failed}` on failure; default avatar otherwise. `null` restores a field's default: `model` (default avatar again), `name` (tag shows the id), `color` (default player/NPC color, procedural body rebuilt), `follow` (not location-driven), `isPlayer` (`false`), `scale` (1), `animations` (automatic clip matching), `showNameTag` (`false`, tag removed); `id`/`position` are not nullable | merge / `null` semantics and engine-web spawn points; more than one player → `error{invalid_character}`; glTF / GLB models loaded off the engine lock and drawn skinned in the custom layer (clips by `animations` / conventional names, cadence, 150 ms cross-fades), the procedural body while loading / without a model / after `error{model_load_failed}` (M3b, §6.4); `showNameTag` draws the name tag as a label view (engine-web `nameTagAnchor`, §6.5) | **M3a**, **M3b** (glTF), **M2b** (name tags) |
 | `removeCharacters` | fire-and-forget | `GameSession` (`TravelTrips::cancel`) | Removes characters; running travels emit `travel:cancel` | as engine-web (also stops following the character) | **M3a** |
@@ -381,8 +384,8 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `subscribe` | fire-and-forget | `SubscriptionRegistry` (`MapSession` for `camera:change` and `camera:idle`, `GameSession` for the rest) | Topic × optional id × `throttleMs`; samples the characters / camera / trips each tick | `camera:change` emitted once on subscribe, then throttled; `character:position` (on change) and `travel:progress` throttled per subscription and key (§2.2); `camera:idle` arms one event on subscribe and then fires 150 ms after each rest (id ignored, like `camera:change`) | M1 (`camera:change`), **M3a**, **M5** (`camera:idle`) |
 | `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` and `camera:idle` removed (id ignored, as engine-web); other topics by id | M1 (`camera:change`), **M3a**, **M5** (`camera:idle`) |
 | `request` | request → `response` | `project`, `unproject`, `fitBounds` → `MapSession` (adapter / `camera_math`); `snapToRoad`, `route` → `GameSession` (`RoadGraph`, `planLegs`) | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` answered synchronously (`not_ready` without a world); `fitBounds` answered synchronously from `camera_math::fitBounds` (a port of engine-web `core/fit-bounds.ts`, fixture-compared), moves the camera through the same path as `setCamera` and reports `fitted` / `distanceLimited` (`not_ready` without a world or a laid-out view) | M1 (`project`, `unproject`), **M3a** (`snapToRoad`, `route`), **M4** (`fitBounds`) |
-| `setMarkerLayer` | fire-and-forget | marker layers (not built yet; `engine-web` draws them as recycled label views) | Replaces the layer's markers (matched by `id`), its `selectedId`, `selectedScale`, `size` and `anchor`. Markers are fixed-size screen pins placed before the labels: `alwaysVisible` markers and the selected one are never hidden, the rest lose collisions by `priority` (higher wins), then camera-target distance. A changed `color` / `selectedId` must not reload an icon or recreate a view. | decoded and validated, then warn-logged and ignored (`Dispatcher::ignoreNotImplemented`) | **M5** (native marker views on the label view pool) |
-| `removeMarkerLayer` | fire-and-forget | marker layers | Removes the layer and recycles its views | decoded and validated, then warn-logged and ignored | **M5** |
+| `setMarkerLayer` | fire-and-forget | `MapSession` → `MarkerSystem` → the label view pool (§6.9) | Replaces the layer's markers (matched by `id`), its `selectedId`, `selectedScale`, `size` and `anchor`. Markers are fixed-size screen pins placed before the labels: `alwaysVisible` markers and the selected one are never hidden, the rest lose collisions by `priority` (higher wins), then camera-target distance. A changed `color` / `selectedId` must not reload an icon or recreate a view. | drawn as cards of the same `LabelFrame` the labels use, so markers get recycled native views, accessibility elements and one collision pass shared with the labels (§6.9); placement, forced markers, anchors, `selectedScale` and the 2 dp box padding are engine-web's (`markers.ts`, port-tested); `MarkerStats` proves that a colour / selection change creates no view and loads no icon | **M5** |
+| `removeMarkerLayer` | fire-and-forget | `MarkerSystem` | Removes the layer and recycles its views | as engine-web (the views go back to the pool, nothing stays pressable) | **M5** |
 <!-- protocol-commands:end -->
 
 ### 5.2 Events (engine → host) — all 17 `ENGINE_EVENT_TYPES`
@@ -406,7 +409,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | emitted by `MapSession` (after a world load; gestures, animations and `setCamera`) | M1 |
 | `overlay:positions` | `MapSession` (`projectPoints` replies) | Anchors exist and the view or anchors changed | At most once per frame (16 ms) | emitted | M2a |
 | `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `snapToRoad` / `route` results (M3a); `not_ready` | M1 / **M3a** |
-| `marker:press` | marker layers (`engine-web`: the engine's tap hit-test, and keyboard / assistive-technology activation of the marker's DOM card) | A press hits a visible marker | Immediate; takes precedence over `building:press` and `map:press`, which are then not emitted for the same press | not emitted yet (no native marker views) | **M5** |
+| `marker:press` | `MapSession::tap` → `MarkerSystem::hitTest` (and VoiceOver / TalkBack activation of a marker card, which reports a press at the card) | A press hits a visible marker | Immediate; takes precedence over `building:press` and `map:press`, which are then not emitted for the same press | emitted: the hit test runs before the building query, so a marker press is the only event; the hit box is the visual box grown to at least 44 dp (§6.9) | **M5** |
 | `camera:idle` | `MapSession::pumpCameraIdle` (`SubscriptionRegistry` + the idle deadline armed by `cameraChanged`) | Topic subscribed and the camera has been still for `CAMERA_IDLE_DELAY_MS` (150 ms); `subscribe` arms one event | Once per rest, then floored by `throttleMs` | emitted: `camera` (the resting state), `bounds` and `radiusMeters` from `camera_math::visibleGroundCorners` (visible area, clamped to 6 × `distance`), `reason` latched at the last change (`api` for `setCamera` / `fitBounds`, `follow` for `setCamera.follow`, `gesture` for everything else **including the zoom buttons**). Honours `ui.contentInset`. | **M5** |
 <!-- protocol-events:end -->
 
@@ -756,6 +759,50 @@ routing). The same seed gives the same world as engine-web.
   4.6 ms on the arm64 Android emulator [V: device logs], far inside a 100 ms budget; real phones are
   expected within a few times the Mac figure [E].
 
+### 6.9 App markers (M5)
+
+`setMarkerLayer` draws app-owned pins. **Owner decision: markers reuse the label view pool** — a marker is a
+card of the same `LabelFrame` the labels are drawn from, so it gets a recycled native view, an accessibility
+element and one shared collision pass instead of a second renderer. The core owns everything but the
+drawing: `MarkerSystem` (`cpp/src/MarkerSystem.cpp`) is a port of engine-web's `src/labels/markers.ts`.
+
+- **Placement** runs once per frame, *before* the labels, and in engine-web's order: HUD zones (status strip,
+  ornaments, content inset) first; then the **forced** markers (`alwaysVisible`, plus the layer's
+  `selectedId`), which are never dropped; then the rest by `priority` (higher first), camera-target distance
+  and key. The boxes of the shown markers go to the label pass as extra exclusions, so a label never covers a
+  marker. Boxes are the visual size padded by 2 dp, as on the web.
+- **Geometry.** Fixed screen size in dp (`size`, default 36), anchored `bottom` by default so the pin tip sits
+  on the coordinate, `center` / `top` supported; the selected marker's card is `selectedScale` (default 1.25)
+  larger, and the core hands the platform the already-scaled size.
+- **Partial updates.** A `setMarkerLayer` that only changes `color` or `selectedId` keeps every marker's
+  `LabelCardContent::key` (`mk|<shape>|<uri>`), which is the *only* thing the platform layers rebuild on — so
+  no view is recreated and no icon is decoded again; the tint and the selected look are a handful of property
+  writes per frame. `MarkerStats` (`Engine::markerStats`) counts both the way engine-web's `MarkerLayers.stats`
+  does, and `cpp/tests/marker_tests.cpp` asserts on it at the system level and end to end through the session.
+- **Icons.** `icon: "pin" | "dot" | { uri }`, as on the web. The base shapes come from the core
+  (`markerBaseShape`, the same curves as engine-web's `SHAPES` SVGs) so both platforms draw the same pin, and
+  a custom image is drawn inside it (centred, 14 % down, 46 % wide, engine-web's `.mpr-mk-img`). Neither
+  `UIImage` nor `BitmapFactory` can decode SVG, and the web engine's icons are SVG, so the core parses the
+  subset those icons use (`MarkerIcons.hpp`: `<path>`, `<circle>`, `<ellipse>`, `<rect>`, `<polygon>`,
+  `<polyline>`, `<line>`, hex / named / `currentColor` paints) and each platform replays it once into a cached
+  image. The parser **fails closed** — arcs, gradients, transforms and groups make it return nothing and the
+  marker then shows its plain base shape. Raster `data:` URIs go to the platform decoder; `http(s):` / `file:`
+  icons are fetched on a background thread and cached by uri. `currentColor` follows the marker tint, as in
+  engine-web's `color: var(--mk)`.
+- **Presses.** `MapSession::tap` hit-tests the markers **before** the building query, so a press that hits a
+  marker emits `marker:press {layerId, markerId, coordinate, point}` and nothing else — engine-web's rule.
+  `point` is the marker's anchor on screen (the pin tip for `bottom`). Placement order is hit-test order, so
+  the higher-priority marker wins where two boxes overlap. **Deviation from engine-web, deliberate:** the hit
+  box is the visual box grown to at least 44 dp on each axis, because a 36 dp pin is below both platforms'
+  minimum touch target. Label cards are not pressable on either engine, and a shown marker always reserves its
+  box against the labels, so "who wins when a label and a marker overlap" has one answer: the marker.
+- **Accessibility.** A marker card carries `accessibilityLabel` and is exposed as a button (iOS
+  `UIAccessibilityTraitButton` + `UIAccessibilityTraitSelected` for the selected one; Android
+  `Button` class name, `isSelected`, an `ACTION_CLICK` action). A marker **without** a label is decorative and
+  is kept out of the accessibility tree, as engine-web's `aria-hidden` does. Activating a card with VoiceOver
+  or TalkBack reports a press at the card, which goes through the same hit test a finger does — the views stay
+  non-interactive so panning works from anywhere on the map (engine-web's cards are `pointer-events: none`).
+
 ## 7. Tiles
 
 - **Sources.** MapLibre `vector` sources over `https://…/{z}/{x}/{y}.pbf` and **PMTiles** archives
@@ -1002,25 +1049,29 @@ scripts/patch-queue/
 
 ## 11. Parity matrix and milestones
 
-### 11.1 `ui.contentInset`: what the native engine does and does not do yet
+### 11.1 `ui.contentInset` (M5: complete)
 
-The C++ core validates `ui.contentInset` with engine-web's error strings, keeps it in `MapUiSpec`, and uses
-it where the core owns the answer:
+`ui.contentInset` tells the engine that app chrome — a bottom sheet, a side panel — covers part of the map
+view. The map keeps drawing across the whole view; what moves is the **visible area** everything else is
+measured against. Since M5 the native engine applies it everywhere engine-web does:
 
-- **done** — `camera:idle` `bounds` and `radiusMeters` are measured against the visible area
-  (`camera_math::visibleGroundCorners`);
-- **done** — the engine-web-parity label placement (`hudExclusions`) takes the inset, as engine-web does.
+| Applied to | Where |
+| --- | --- |
+| `setCamera` `center` and `follow` centring landing in the middle of the visible area | `MapSession::poseFor` sends the MapLibre camera `centre − insetShift` (`camera_math::insetShift`, a port of engine-web `CameraController.insetShift`); `onCameraChanged` undoes it, so `CameraState.center` still means "under the middle of the visible area" |
+| `fitBounds` | the inset is added to the request's padding (`MapSession::fitBounds`) |
+| `camera:idle` `bounds` / `radiusMeters` | `camera_math::visibleGroundCorners` |
+| Label and marker placement, including the edge clamping | `LabelSystem::nativeHudExclusions` excludes the inset bands and moves the ornament zones; `clampLabelX` clamps into the visible band |
+| Ornaments: scale bar, zoom buttons, attribution text, and MapLibre's own logo / attribution button / compass | `MapUiState::inset` → `MapramaNativeView.mm` `layoutOrnaments` + `logoViewMargins` / `attributionButtonMargins` / `compassViewMargins`; `MapramaNativeView.kt` `layoutOrnaments` + `UiSettings.setLogoMargins` / `setAttributionMargins` / `setCompassMargins` |
+| `ScreenPoint.visible` (`project`, `overlay:positions`) | `MapSession::onProjected` / `onPointsProjected` test the visible rect |
 
-What is still open (a non-empty inset warn-logs once, so it is never silently ignored):
+**Why the camera moves instead of MapLibre's own edge insets.** MapLibre's padding is an off-axis frustum,
+not a screen translation, so setting `MLNMapView.contentInset` would put the map and the core's own
+`MapProjector` (which projects labels, markers and name tags without a round trip) out of agreement at a
+pitch. Moving the camera target by the ground offset between the two centres is exactly what engine-web
+does, and it leaves the projection model untouched.
 
-| Open | Where it belongs | Note |
-| --- | --- | --- |
-| `setCamera` `center` landing in the visible area | `MapSession::poseFor` → MapLibre camera padding (`mbgl::EdgeInsets`) through `MapAdapter::moveCamera` | MapLibre has first-class padding; it needs a new field on `MapCameraPose` plus the iOS / Android adapters. |
-| `follow` centring above the sheet | `MapSession::followCenter` | Falls out of the same padding. |
-| `fitBounds` adding the inset to its padding | `MapSession::fitBounds` | One line once the camera model above agrees on where the centre is. |
-| Ornaments (scale bar, zoom buttons, attribution, MapLibre logo / attribution button) moving inside the inset | `MapUiState` + `MapramaNativeView.mm` / `MapramaNativeView.kt` layout, `logoViewMargins` / `attributionViewMargins` / `UiSettings` margins | **This is the licensing one**: until it lands, an app with a bottom sheet over a native map must keep the sheet clear of the bottom-right corner itself. |
-| `ScreenPoint.visible` (`project`, `overlay:positions`) against the visible area | `MapSession::onProjected` / `onPointsProjected` | Currently tested against the whole viewport. |
-| Native marker / 3D-label edge clamping | `LabelSystem::nativeHudExclusions` | The native ornament layout differs from engine-web's, so the inset has to be folded into that layout, not engine-web's. |
+The ornament row is the one that is not cosmetic: the OSM attribution must stay visible (ODbL), so an app
+sheet covering the bottom-right corner without an inset is a licence problem, not a layout one.
 
 engine-web status is taken from the v1 plan: it is the shipping engine and implements the full protocol
 [U: not re-verified here]. Native columns follow the milestones below.
@@ -1143,7 +1194,7 @@ simulator and the Android emulator:
 | World load, `setTheme`, `setBuildingStyle`, adapter attach | `MapAdapter::setBuildingLayer(data)` after the style, only when the layer content changed |
 | Game tick with characters or drops on screen | `MapAdapter::setModelLayer(frame)`: palettes, instances and draws of every body, vehicle and drop item (one empty frame when the last disappears) |
 | Game tick with `showNameTag` characters | Name tags (`nameTagAnchor`) placed with the labels in the next `setLabelFrame` (cards `tag:<id>`); hidden 95+ units from the camera, from a 0.6 zoom-out factor on, over a HUD zone; one empty update clears them |
-| `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo) sent when it changes; `locationPuck` draws the puck under the player; `contentInset` reaches `camera:idle` and the label placement only (open: camera padding, ornament layout) |
+| `setUi` | `MapUiState` (scale bar, zoom buttons + compass, attribution + logo, content inset) sent when it changes; `locationPuck` draws the puck under the player; `contentInset` applied in full (§11.1: camera anchor, `fitBounds`, ornaments, labels, markers, `camera:idle`, `ScreenPoint.visible`) |
 | `upsertCharacters` / `removeCharacters` | Characters created / merged / removed (kept until a world loads); > 1 player → `error {invalid_character, "upsertCharacters: at most one character can be the player (got a, b)"}`; removal cancels trips; `model` loads the glTF (shared by URI, parsed off the lock) and shows it skinned, else the procedural body; a failed load → `error {model_load_failed, "character <id>: failed to load <uri>: <reason>", fatal: false}` |
 | `setLocationSource` / `pushLocation` / device fixes | `simulated` demo loop, `external` fixes, `device` platform feed (`error {location_unavailable, "device geolocation failed: …"}`); smoothed fixes drive `follow: "location"` characters along the roads |
 | `travel` / `cancelTravel` | `travel:start`, throttled `travel:progress`, `travel:arrive` / `travel:cancel`; `error {not_ready, "travel: no world loaded (send init first)"}`, `error {unknown_character, "travel: unknown character \"<id>\""}` |
