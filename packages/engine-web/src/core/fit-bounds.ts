@@ -20,7 +20,11 @@
 import type { WorldPoint } from '@maprama/protocol';
 import { clamp, DEG } from '../util/math.js';
 
-/** Rounds of scale + re-centre. 24 is far past convergence for any box (the test checks 8 is enough). */
+/**
+ * Rounds of scale + re-centre. The scale step is exact at pitch 0 and within a
+ * few percent at pitch 60, so a handful of rounds settle any box; 24 leaves a
+ * wide margin and costs four point projections each.
+ */
 export const FIT_ITERATIONS = 24;
 
 /** How the current pitch / bearing are treated (protocol `FitBoundsOrientation`). */
