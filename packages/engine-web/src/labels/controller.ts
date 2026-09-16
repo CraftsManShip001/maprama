@@ -107,7 +107,8 @@ export class LabelController {
     layer.classList.toggle('night', night);
     const tile = iconTileFor(spec.icons, night);
     for (const t of ['white', 'black', 'color']) layer.classList.toggle(`hi-${t}`, tile === t);
-    const exclusions = reserved.length ? [...hudExclusions(cam.width, cam.height, ui), ...reserved] : hudExclusions(cam.width, cam.height, ui);
+    const hud = hudExclusions(cam.width, cam.height, ui, cam.inset);
+    const exclusions = reserved.length ? [...hud, ...reserved] : hud;
 
     if (style && DOM_STYLES.includes(style)) {
       if (!this.dom) this.dom = new DomLabels(layer);

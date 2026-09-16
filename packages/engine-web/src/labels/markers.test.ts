@@ -142,10 +142,12 @@ function fakeDocument(): FakeDocument {
 }
 
 /** A camera that projects world x/z straight to screen pixels. */
-function fakeCamera(width = 390, height = 760): CameraController {
+function fakeCamera(width = 390, height = 760, inset = { top: 0, right: 0, bottom: 0, left: 0 }): CameraController {
   return {
     width,
     height,
+    inset,
+    view: { x: inset.left, y: inset.top, width: width - inset.left - inset.right, height: height - inset.top - inset.bottom },
     orbit: { x: 0, z: 0, distance: 40, pitch: 50, bearing: 0 },
     worldToScreen: (x: number, _y: number, z: number) => ({ x, y: z, visible: true }),
     // `inFront` reads `camera.position` and `camera.matrixWorld` (columns 3 = the camera's

@@ -90,6 +90,8 @@ export class Features {
   private lastPosition = new Map<string, string>();
   private proj: Projection | null = null;
   private ui: { root: HTMLDivElement; scale: ScaleBar; zoom: ZoomButtons; attribution: Attribution } | null = null;
+  /** Last content inset written to the ornament layer's CSS variables. */
+  private insetVars = '';
   private readonly offs: (() => void)[] = [];
   /** Active render sources currently held, by tag (see {@link hold}). */
   private readonly holds = new Map<string, () => void>();
@@ -479,7 +481,7 @@ export class Features {
     const world = this.scene.world();
     if (!world) return;
     const ui = this.scene.ui();
-    const exclusions = hudExclusions(cam.width, cam.height, ui);
+    const exclusions = hudExclusions(cam.width, cam.height, ui, cam.inset);
     // Markers are placed first and reserve their boxes for the label pass.
     this.markerBoxes = this.markers.update(cam, exclusions, this.groundY());
     this.labels.update(this.content, ui, this.groundY(), now, this.markerBoxes);
@@ -498,6 +500,7 @@ export class Features {
     if (wantUi || this.ui) {
       const u = this.ensureUi();
       u.root.classList.toggle('night', this.scene.params().lights > 0.8);
+      this.applyInsetVars(u.root, cam.inset);
       u.scale.update(!!ui.scaleBar, cam, world.unitMeters);
       u.zoom.update(!!ui.zoomButtons);
       u.attribution.update(!!ui.attribution, world.attribution);
@@ -550,6 +553,25 @@ export class Features {
     }
     if (!this.overlayTracker.update(batch, now)) return;
     this.scene.emit({ type: 'overlay:positions', positions: batch.map((p) => ({ id: p.id, x: p.x, y: p.y, visible: p.visible })) });
+  }
+
+  /**
+   * Pushes `ui.contentInset` to the ornament layer as CSS custom properties.
+   * The ornaments are positioned in CSS (`dom-styles.ts`), so the inset is one
+   * `calc()` term in each of them — the scale bar, the zoom buttons and, the
+   * reason this exists, the attribution: while `ui.attribution` is on the
+   * engine keeps drawing it and the inset moves it out from under app chrome,
+   * instead of the app turning it off and redrawing a copy that would go stale
+   * the moment the library changes its wording or its sources.
+   */
+  private applyInsetVars(root: HTMLElement, inset: Readonly<{ top: number; right: number; bottom: number; left: number }>): void {
+    const key = `${inset.top}|${inset.right}|${inset.bottom}|${inset.left}`;
+    if (key === this.insetVars) return;
+    this.insetVars = key;
+    root.style.setProperty('--mpr-inset-top', `${inset.top}px`);
+    root.style.setProperty('--mpr-inset-right', `${inset.right}px`);
+    root.style.setProperty('--mpr-inset-bottom', `${inset.bottom}px`);
+    root.style.setProperty('--mpr-inset-left', `${inset.left}px`);
   }
 
   private ensureUi(): NonNullable<Features['ui']> {

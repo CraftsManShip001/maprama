@@ -111,4 +111,27 @@ FitBoundsOutput fitBoundsOrbit(const FitBoundsInput& input);
 /// engine-web `fitBounds`: `fitBoundsOrbit` plus the `orientation` rule.
 FitBoundsOutput fitBounds(const FitBoundsInput& input, FitOrientation orientation);
 
+// ---- camera:idle viewport (port of engine-web `CameraController.groundCorners`) --------------------
+
+/// The visible area of a viewport once `inset` (`ui.contentInset`, dp) is taken off it. Insets that
+/// would leave nothing are scaled down so at least one dp stays visible (engine-web `visibleAxis`).
+struct VisibleRect {
+  double x = 0.0;
+  double y = 0.0;
+  double width = 1.0;
+  double height = 1.0;
+};
+
+VisibleRect visibleRect(double width, double height, const FitPadding& inset);
+
+/// The four ground corners of the visible area, **relative to the camera centre** and in the same
+/// length unit as `distance`, in `[top-left, top-right, bottom-right, bottom-left]` order.
+///
+/// A corner whose ray runs past the horizon — it misses the ground, or hits it farther than
+/// `maxDistance` from the centre — is pulled back to `maxDistance` along the same ground direction
+/// (protocol `CAMERA_IDLE_HORIZON_FACTOR`), so the quad is always usable.
+std::vector<FitPoint> visibleGroundCorners(double width, double height, const FitPadding& inset, double distance,
+                                           double pitch, double bearing, double maxDistance,
+                                           double fovDeg = kReferenceFovDeg);
+
 }  // namespace maprama::camera_math

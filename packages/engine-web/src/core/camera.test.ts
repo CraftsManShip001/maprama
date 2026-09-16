@@ -105,3 +105,126 @@ describe('frustum planes follow the distance', () => {
     expect(cam.camera.near).toBeCloseTo(500 / 300, 6);
   });
 });
+
+describe('content inset', () => {
+  /** A controller sized like a phone, looking at a known ground point. */
+  const phone = (inset?: { top?: number; right?: number; bottom?: number; left?: number }): CameraController => {
+    const cam = new CameraController();
+    cam.setViewport(390, 760);
+    cam.setInset(inset);
+    cam.set({ x: 10, z: -20, distance: 60, pitch: 50, bearing: 28 });
+    cam.apply();
+    return cam;
+  };
+
+  it('is the whole view without an inset', () => {
+    const cam = phone();
+    expect(cam.view).toEqual({ x: 0, y: 0, width: 390, height: 760 });
+    expect(cam.insetShift()).toEqual({ x: 0, z: 0 });
+  });
+
+  it('shrinks the visible area by the inset', () => {
+    const cam = phone({ top: 56, bottom: 380, left: 8 });
+    expect(cam.view).toEqual({ x: 8, y: 56, width: 382, height: 324 });
+  });
+
+  it('never leaves a zero-sized visible area for an over-large inset', () => {
+    const cam = phone({ top: 900, bottom: 900 });
+    expect(cam.view.height).toBeGreaterThanOrEqual(1);
+    expect(cam.view.y).toBeLessThan(760);
+  });
+
+  it('puts the camera target under the centre of the visible area, not the viewport', () => {
+    const plain = phone();
+    const inset = phone({ bottom: 380 });
+    const at = (cam: CameraController) => cam.worldToScreen(cam.orbit.x, cam.groundY, cam.orbit.z);
+    // Without an inset the target sits at the centre of the whole view.
+    expect(at(plain).x).toBeCloseTo(195, 3);
+    expect(at(plain).y).toBeCloseTo(380, 3);
+    // With a 380 dp sheet at the bottom it sits at the centre of the top half.
+    expect(at(inset).x).toBeCloseTo(195, 3);
+    expect(at(inset).y).toBeCloseTo(190, 3);
+  });
+
+  it('keeps the same ground point centred when the distance, pitch or bearing changes', () => {
+    const cam = phone({ bottom: 380, top: 56 });
+    const centre = () => cam.screenToGround(cam.view.x + cam.view.width / 2, cam.view.y + cam.view.height / 2);
+    const before = centre()!;
+    for (const change of [{ distance: 240 }, { pitch: 20 }, { bearing: -140 }]) {
+      cam.set(change);
+      cam.apply();
+      const now = centre()!;
+      expect(now.x).toBeCloseTo(before.x, 3);
+      expect(now.z).toBeCloseTo(before.z, 3);
+    }
+  });
+
+  it('reports `visible` against the visible area while keeping full-view coordinates', () => {
+    const cam = phone({ bottom: 380 });
+    // A point low on the screen, under the sheet: real coordinates, but not visible.
+    const under = cam.screenToGround(195, 600)!;
+    const s = cam.worldToScreen(under.x, cam.groundY, under.z);
+    expect(s.y).toBeCloseTo(600, 3);
+    expect(s.visible).toBe(false);
+    const above = cam.screenToGround(195, 150)!;
+    expect(cam.worldToScreen(above.x, cam.groundY, above.z).visible).toBe(true);
+  });
+});
+
+describe('visible ground corners (camera:idle bounds)', () => {
+  const cam = (pitch: number, inset?: { top?: number; bottom?: number }): CameraController => {
+    const c = new CameraController();
+    c.setViewport(390, 760);
+    c.setInset(inset);
+    c.set({ x: 0, z: 0, distance: 100, pitch, bearing: 0 });
+    c.apply();
+    return c;
+  };
+
+  it('returns four corners in top-left, top-right, bottom-right, bottom-left order', () => {
+    const corners = cam(0).groundCorners(6 * 100);
+    expect(corners).toHaveLength(4);
+    // Looking straight down with bearing 0: -z is north (the top of the screen).
+    expect(corners[0]!.z).toBeLessThan(0);
+    expect(corners[3]!.z).toBeGreaterThan(0);
+    expect(corners[0]!.x).toBeLessThan(corners[1]!.x);
+  });
+
+  it('never reports a corner past the horizon clamp, whatever the pitch', () => {
+    const limit = 6 * 100;
+    for (const pitch of [0, 30, 50, 60]) {
+      for (const c of cam(pitch).groundCorners(limit)) {
+        expect(Math.hypot(c.x, c.z)).toBeLessThanOrEqual(limit + 1e-6);
+      }
+    }
+  });
+
+  it('shrinks with a bottom inset: the sheet hides the near edge', () => {
+    const full = cam(50).groundCorners(600);
+    const sheet = cam(50, { bottom: 380 }).groundCorners(600);
+    const depth = (cs: { z: number }[]) => Math.max(...cs.map((c) => c.z)) - Math.min(...cs.map((c) => c.z));
+    expect(depth(sheet)).toBeLessThan(depth(full));
+  });
+});
+
+describe('camera:idle reason', () => {
+  it('is honest about who moved the camera', () => {
+    const cam = new CameraController();
+    cam.setViewport(390, 760);
+    cam.set({ distance: 50 });
+    expect(cam.moveReason).toBe('api');
+    cam.panBy(1, 1);
+    expect(cam.moveReason).toBe('gesture');
+    cam.set({ distance: 80 });
+    expect(cam.moveReason).toBe('api');
+    cam.zoomTo(40);
+    expect(cam.moveReason).toBe('gesture');
+    cam.rotateBy(10, 0);
+    expect(cam.moveReason).toBe('gesture');
+    // Following a character that is not where the camera is: the easing owns the move.
+    cam.set({ x: 0, z: 0 });
+    cam.follow(() => ({ x: 30, z: 30 }), 'me');
+    cam.update(0.2);
+    expect(cam.moveReason).toBe('follow');
+  });
+});

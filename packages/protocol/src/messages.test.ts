@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CAMERA_IDLE_DELAY_MS,
+  CAMERA_IDLE_HORIZON_FACTOR,
+  CAMERA_IDLE_REASONS,
   ENGINE_COMMAND_TYPES,
   ENGINE_EVENT_TYPES,
   PROTOCOL_VERSION,
+  SUBSCRIPTION_TOPICS,
   PRESETS,
   REQUEST_METHODS,
   decodeCommand,
@@ -72,7 +76,11 @@ const commands: CommandFixtures = {
       entries: { 'poi:p1': { title: 'Blue Bottle', subtitle: 'Coffee', icon: 'cafe' }, 'road:r1': { title: 'Sejong-daero', icon: 'avenue' } },
     },
   ],
-  setUi: [{ type: 'setUi', ui: { zoomButtons: true } }],
+  setUi: [
+    { type: 'setUi', ui: { zoomButtons: true } },
+    { type: 'setUi', ui: { attribution: true, contentInset: { top: 56, bottom: 420, left: 0, right: 0 } } },
+    { type: 'setUi', ui: { contentInset: { bottom: 380 } } },
+  ],
   setCamera: [
     { type: 'setCamera', camera: { zoom: 16, animate: true } },
     { type: 'setCamera', camera: { follow: null } },
@@ -174,6 +182,7 @@ const commands: CommandFixtures = {
   subscribe: [
     { type: 'subscribe', topic: 'character:position', id: 'me', throttleMs: 100 },
     { type: 'subscribe', topic: 'camera:change', throttleMs: 0 },
+    { type: 'subscribe', topic: 'camera:idle', throttleMs: 250 },
   ],
   unsubscribe: [{ type: 'unsubscribe', topic: 'travel:progress', id: 'me' }],
   request: [
@@ -229,6 +238,29 @@ const events: EventFixtures = {
   'character:position': [{ type: 'character:position', id: 'me', coordinate: here, headingDeg: 270, speedMps: 1.3 }],
   'camera:change': [{ type: 'camera:change', camera: { center: here, distance: 300, pitch: 45, bearing: -30 } }],
   'overlay:positions': [{ type: 'overlay:positions', positions: [{ id: 'o1', x: 12.5, y: 300, visible: true }] }],
+  'camera:idle': [
+    {
+      type: 'camera:idle',
+      camera: { center: here, distance: 300, pitch: 45, bearing: -30 },
+      bounds: { sw: here, ne: there },
+      radiusMeters: 812.5,
+      reason: 'gesture',
+    },
+    {
+      type: 'camera:idle',
+      camera: { center: there, distance: 900, pitch: 0, bearing: 0 },
+      bounds: { sw: here, ne: there },
+      radiusMeters: 0,
+      reason: 'api',
+    },
+    {
+      type: 'camera:idle',
+      camera: { center: here, distance: 120, pitch: 60, bearing: 180 },
+      bounds: { sw: here, ne: there },
+      radiusMeters: 400,
+      reason: 'follow',
+    },
+  ],
   response: [
     { type: 'response', requestId: 'q1', ok: true, result: { x: 1, y: 2, visible: true } },
     { type: 'response', requestId: 'q2', ok: true, result: { coordinate: null } },
@@ -248,12 +280,23 @@ describe('fixtures cover the protocol', () => {
     expect(Object.keys(commands).sort()).toEqual([...ENGINE_COMMAND_TYPES].sort());
     expect(Object.keys(events).sort()).toEqual([...ENGINE_EVENT_TYPES].sort());
     expect(ENGINE_COMMAND_TYPES).toHaveLength(22);
-    expect(ENGINE_EVENT_TYPES).toHaveLength(17);
+    expect(ENGINE_EVENT_TYPES).toHaveLength(18);
     // New messages are appended, so the index of an existing one never moves.
     expect(ENGINE_COMMAND_TYPES.slice(-2)).toEqual(['setMarkerLayer', 'removeMarkerLayer']);
-    expect(ENGINE_EVENT_TYPES.at(-1)).toBe('marker:press');
+    expect(ENGINE_EVENT_TYPES.at(-1)).toBe('camera:idle');
+    expect(ENGINE_EVENT_TYPES.at(-2)).toBe('marker:press');
+    expect(SUBSCRIPTION_TOPICS.at(-1)).toBe('camera:idle');
     expect(REQUEST_METHODS.at(-1)).toBe('fitBounds');
     expect(PROTOCOL_VERSION).toBe(1);
+  });
+});
+
+describe('camera:idle contract', () => {
+  it('names the three honest reasons and the shared idle timing', () => {
+    expect([...CAMERA_IDLE_REASONS]).toEqual(['gesture', 'api', 'follow']);
+    expect(CAMERA_IDLE_DELAY_MS).toBe(150);
+    // A clamped corner keeps `radiusMeters` finite even with the horizon in frame.
+    expect(CAMERA_IDLE_HORIZON_FACTOR).toBe(6);
   });
 });
 
@@ -365,6 +408,9 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'setMarkerLayer', layerId: '', markers: [] }, '$.msg.layerId'],
       [{ type: 'removeMarkerLayer' }, '$.msg.layerId'],
       [{ type: 'subscribe', topic: 'fps', throttleMs: 10 }, '$.msg.topic'],
+      [{ type: 'setUi', ui: { contentInset: { bottom: -20 } } }, '$.msg.ui.contentInset.bottom'],
+      [{ type: 'setUi', ui: { contentInset: { top: 'half' } } }, '$.msg.ui.contentInset.top'],
+      [{ type: 'setUi', ui: { contentInset: 40 } }, '$.msg.ui.contentInset'],
       [{ type: 'subscribe', topic: 'camera:change' }, '$.msg.throttleMs'],
       [{ type: 'request', requestId: 'q', method: 'teleport', params: {} }, '$.msg.method'],
       [{ type: 'request', requestId: 'q', method: 'project', params: { x: 1, y: 2 } }, '$.msg.params.coordinate'],
@@ -429,6 +475,40 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'drop:collect', layerId: 'l', dropId: 'd', characterId: 'me', coordinate: here }, '$.msg.collectId'],
       [{ type: 'travel:progress', requestId: 't', characterId: 'me', remainingMeters: 1, etaSeconds: 1, mode: 'boat' }, '$.msg.mode'],
       [{ type: 'camera:change', camera: { center: here, distance: 1, pitch: 1 } }, '$.msg.camera.bearing'],
+      [
+        { type: 'camera:idle', camera: { center: here, distance: 1, pitch: 1, bearing: 0 }, bounds: { sw: here, ne: there } },
+        '$.msg.radiusMeters',
+      ],
+      [
+        {
+          type: 'camera:idle',
+          camera: { center: here, distance: 1, pitch: 1, bearing: 0 },
+          bounds: { sw: here, ne: there },
+          radiusMeters: -1,
+          reason: 'gesture',
+        },
+        '$.msg.radiusMeters',
+      ],
+      [
+        {
+          type: 'camera:idle',
+          camera: { center: here, distance: 1, pitch: 1, bearing: 0 },
+          bounds: { sw: here, ne: there },
+          radiusMeters: 10,
+          reason: 'user',
+        },
+        '$.msg.reason',
+      ],
+      [
+        {
+          type: 'camera:idle',
+          camera: { center: here, distance: 1, pitch: 1, bearing: 0 },
+          bounds: { sw: there, ne: here },
+          radiusMeters: 10,
+          reason: 'api',
+        },
+        '$.msg.bounds',
+      ],
       [{ type: 'overlay:positions', positions: [{ id: 'o', x: 1, y: 2 }] }, '$.msg.positions[0].visible'],
       [{ type: 'labelsIndex', labels: [{ id: 'l', kind: 'shop', name: 'x', lngLat: here }] }, '$.msg.labels[0].kind'],
       [{ type: 'marker:press', layerId: 'poi', markerId: 'm', coordinate: here }, '$.msg.point'],

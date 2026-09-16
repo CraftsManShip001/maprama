@@ -4,7 +4,8 @@
  * - {@link MapramaView} with {@link Character}, {@link CharacterLayer}, {@link DropLayer},
  *   {@link MarkerLayer}, {@link Geofence} and {@link MapOverlay} children.
  * - Imperative API via `ref` ({@link MapramaViewRef}) or {@link useMapramaView}.
- * - Opt-in continuous values with {@link useCharacterPosition} and {@link useCameraState}.
+ * - Opt-in continuous values with {@link useCharacterPosition}, {@link useCameraState}
+ *   and {@link useCameraIdle} ("the camera stopped; here is what is on screen").
  * - Swappable engine hosts via {@link registerEngineHost}.
  *
  * @packageDocumentation
@@ -33,6 +34,7 @@ export {
 export { useMapramaView } from './hooks/useMapramaView';
 export { useCharacterPosition, type UseCharacterPositionOptions } from './hooks/useCharacterPosition';
 export { useCameraState, type UseCameraStateOptions } from './hooks/useCameraState';
+export { useCameraIdle, type CameraIdle, type UseCameraIdleOptions } from './hooks/useCameraIdle';
 
 export { MapramaError, normalizeErrorCode, type MapramaErrorCode, type HostErrorCode } from './errors';
 export { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_THROTTLE_MS, DEFAULT_TRAVEL_START_TIMEOUT_MS } from './ref';
@@ -102,12 +104,21 @@ export type {
   TravelResult,
 } from './types';
 
-export { CAMERA_FOV_DEG, visibleSpanMeters } from '@maprama/protocol';
+export {
+  CAMERA_FOV_DEG,
+  CAMERA_IDLE_DELAY_MS,
+  CAMERA_IDLE_HORIZON_FACTOR,
+  CAMERA_IDLE_REASONS,
+  visibleSpanMeters,
+} from '@maprama/protocol';
 export type {
   BuildingStyle,
+  CameraIdleEvent,
+  CameraIdleReason,
   CameraSpec,
   CameraState,
   CharacterSpec,
+  ContentInset,
   DropSpec,
   EngineInfo,
   FitBoundsOrientation,

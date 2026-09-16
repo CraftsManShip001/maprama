@@ -7,6 +7,7 @@ import {
   Character,
   MapramaError,
   MapramaView,
+  useCameraIdle,
   useCameraState,
   useCharacterPosition,
   useMapramaView,
@@ -413,6 +414,47 @@ describe('subscriptions', () => {
     expect(commandsOf('subscribe')).toEqual([{ type: 'subscribe', topic: 'camera:change', throttleMs: 0 }]);
     await emit({ type: 'camera:change', camera: { center: DEST, distance: 42, pitch: 45, bearing: 0 } });
     expect(getByTestId('cam').props.children).toBe('42');
+  });
+
+  it('useCameraIdle reports the resting viewport: centre, radius and an honest reason', async () => {
+    function Inside() {
+      const idle = useCameraIdle(null, { throttleMs: 0 });
+      return (
+        <Text testID="idle">
+          {idle ? `${Math.round(idle.radiusMeters)}|${idle.reason}|${idle.bounds.ne.lat}` : 'none'}
+        </Text>
+      );
+    }
+    const { getByTestId } = await render(
+      <MapramaView world={{ kind: 'procedural', layout: 'town' }} ui={{ attribution: true, contentInset: { bottom: 380 } }}>
+        <Inside />
+      </MapramaView>,
+    );
+    await emit(READY);
+    expect(commandsOf('subscribe')).toEqual([{ type: 'subscribe', topic: 'camera:idle', throttleMs: 0 }]);
+    // The inset reaches the engine as part of `setUi`, so the engine can move the attribution.
+    expect(commandsOf('init')[0]).toMatchObject({ ui: { attribution: true, contentInset: { bottom: 380 } } });
+    await emit({
+      type: 'camera:idle',
+      camera: { center: DEST, distance: 300, pitch: 45, bearing: 0 },
+      bounds: { ne: { lng: 127.07, lat: 37.56 }, sw: { lng: 127.05, lat: 37.54 } },
+      radiusMeters: 812.4,
+      reason: 'gesture',
+    });
+    expect(getByTestId('idle').props.children).toBe('812|gesture|37.56');
+  });
+
+  it('sends setUi when only the content inset changes', async () => {
+    function App({ sheet }: { sheet: number }) {
+      return <MapramaView world={{ kind: 'procedural', layout: 'grid' }} ui={{ attribution: true, contentInset: { bottom: sheet } }} />;
+    }
+    const { rerender } = await render(<App sheet={0} />);
+    await emit(READY);
+    clearPosted();
+    await rerender(<App sheet={420} />);
+    expect(commandsOf('setUi')).toEqual([
+      { type: 'setUi', ui: { attribution: true, contentInset: { bottom: 420 } } },
+    ]);
   });
 
   it('hooks holding a ref subscribe once a conditionally rendered map mounts, and follow a remounted map', async () => {

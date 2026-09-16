@@ -157,16 +157,27 @@ export const overlaps = (a: Box, b: Box): boolean => Math.abs(a.x - b.x) < a.hw 
  * Screen regions labels must not cover: the status bar strip, the engine's
  * map UI (zoom buttons, scale bar, attribution) and a bottom margin. The
  * game HUD is drawn by the host, which reserves space with the same idea.
+ *
+ * Boxes are in full-view screen pixels. `insets` is `ui.contentInset`: the
+ * whole inset band is excluded (app chrome covers it) and the ornaments, which
+ * move inside the visible area with the inset, are excluded where they now sit.
  */
-export function hudExclusions(vw: number, vh: number, ui: MapUiSpec = {}, insets: { top?: number; bottom?: number } = {}): Box[] {
-  const top = insets.top ?? 0, bottom = insets.bottom ?? 0;
+export function hudExclusions(
+  vw: number,
+  vh: number,
+  ui: MapUiSpec = {},
+  insets: { top?: number; right?: number; bottom?: number; left?: number } = {},
+): Box[] {
+  const top = insets.top ?? 0, bottom = insets.bottom ?? 0, left = insets.left ?? 0, right = insets.right ?? 0;
   const boxes: Box[] = [
     { x: vw / 2, y: top / 2 + 14, hw: vw / 2, hh: top / 2 + 22 },
     { x: vw / 2, y: vh - bottom / 2 - 6, hw: vw / 2, hh: bottom / 2 + 14 },
   ];
-  if (ui.zoomButtons) boxes.push({ x: vw - 36, y: top + 56 + 48, hw: 36, hh: 56 });
-  if (ui.scaleBar) boxes.push({ x: 70, y: vh - bottom - 30, hw: 70, hh: 18 });
-  if (ui.attribution) boxes.push({ x: vw - 90, y: vh - bottom - 24, hw: 90, hh: 14 });
+  if (left > 0) boxes.push({ x: left / 2, y: vh / 2, hw: left / 2, hh: vh / 2 });
+  if (right > 0) boxes.push({ x: vw - right / 2, y: vh / 2, hw: right / 2, hh: vh / 2 });
+  if (ui.zoomButtons) boxes.push({ x: vw - right - 36, y: top + 56 + 48, hw: 36, hh: 56 });
+  if (ui.scaleBar) boxes.push({ x: left + 70, y: vh - bottom - 30, hw: 70, hh: 18 });
+  if (ui.attribution) boxes.push({ x: vw - right - 90, y: vh - bottom - 24, hw: 90, hh: 14 });
   return boxes;
 }
 
@@ -237,12 +248,13 @@ export const LABEL_EDGE_MARGIN = 6;
 
 /**
  * Horizontal center for a label box of half width `hw` wanted at `x`, moved
- * so the box stays inside `[margin, vw − margin]` (a box wider than that is
- * centered in the viewport).
+ * so the box stays inside `[x0 + margin, x0 + vw − margin]` (a box wider than
+ * that is centered in the band). `x0` is the left edge of the visible area,
+ * so a left content inset slides the labels out from under the app chrome.
  */
-export function clampLabelX(x: number, hw: number, vw: number, margin = LABEL_EDGE_MARGIN): number {
-  const lo = margin + hw, hi = vw - margin - hw;
-  return lo > hi ? vw / 2 : Math.min(hi, Math.max(lo, x));
+export function clampLabelX(x: number, hw: number, vw: number, margin = LABEL_EDGE_MARGIN, x0 = 0): number {
+  const lo = x0 + margin + hw, hi = x0 + vw - margin - hw;
+  return lo > hi ? x0 + vw / 2 : Math.min(hi, Math.max(lo, x));
 }
 
 /** Collision box of a rotated DOM label of size `w`×`h` at `(x, y)` (prototype padding). */

@@ -66,11 +66,21 @@ Driven by the first integrator (a location-based game app). Their priority order
    `accessibilityLabel` that reaches the screen reader, and **partial updates** (changing only `color` or
    `selected` must not rebuild the marker or re-upload its icon). Icons must support either
    `data:image/svg+xml` or a two-layer base-shape + glyph form where only the base is tinted.
-2. **`camera:idle`** — a camera-stopped event with `bounds`, `radiusMeters` from the centre and
-   `reason: 'gesture' | 'api' | 'follow'`, used as the trigger to fetch data for the visible area.
-3. **`ui.contentInset`** — top/right/bottom/left in dp affecting the camera centre, `follow` centring,
-   engine ornaments, label/marker placement, `overlay:positions` and the `camera:idle` bounds, plus
-   engine-drawn attribution that can be repositioned instead of switched off.
+2. ~~**`camera:idle`**~~ — **done** (unreleased): a subscription topic that fires once, 150 ms
+   (`CAMERA_IDLE_DELAY_MS`) after the camera comes to rest, with the resting `camera`, the ground `bounds` of
+   the visible area, a required `radiusMeters` (centre → the farthest visible corner, so a radius query never
+   drops the POIs in the corners of the screen; clamped at the far plane, `CAMERA_IDLE_HORIZON_FACTOR × distance`,
+   when the horizon is in frame) and `reason: 'gesture' | 'api' | 'follow'` — `gesture` covers the engine's own
+   zoom buttons, because the user presses them and the host never issues them. Subscribing arms one event.
+   React Native: `ref.subscribe('camera:idle', …)` and `useCameraIdle`.
+3. ~~**`ui.contentInset`**~~ — **done in engine-web** (unreleased): top/right/bottom/left in dp on `MapUiSpec`.
+   The map keeps drawing across the whole view; the *visible area* moves the camera centre (reported back the
+   same way), `follow` centring, the engine ornaments, label / marker placement and clamping,
+   `ScreenPoint.visible`, `fitBounds` padding and the `camera:idle` bounds. **The attribution stays
+   engine-drawn and moves with the inset**, so a sheet cannot cover it while `attribution: true`.
+   `project` / `unproject` keep full-view screen coordinates. The native engine validates and stores it and
+   applies it to `camera:idle` and label placement only — the MapLibre camera padding and the platform
+   ornament layout are still open (`packages/engine-native/DESIGN.md` §11.1), and a non-empty inset warn-logs.
 
 4. ~~**Camera distance limits**~~ — **done** (unreleased): `minDistanceMeters` / `maxDistanceMeters` on
    `CameraSpec` clamp the camera in real metres whatever `WorldData.unitMeters` is, on every path that changes

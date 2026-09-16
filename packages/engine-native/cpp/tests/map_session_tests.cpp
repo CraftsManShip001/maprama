@@ -540,3 +540,83 @@ MAPRAMA_TEST(camera_fit_bounds_request) {
   ctx.check(h.sink->errors() == 0, "no dropped events");
   appendEmitted(ctx, *h.sink);
 }
+
+MAPRAMA_TEST(camera_idle_reports_the_resting_viewport) {
+  Harness h;
+  h.send(initMsg(dataWorld(ctx), Value::object({{"distance", 400}, {"pitch", 50}, {"bearing", 0}})));
+  h.send(Value::object({{"type", "subscribe"}, {"topic", "camera:idle"}, {"throttleMs", 0}}));
+  ctx.check(h.sink->eventsOfType("camera:idle").empty(), "not emitted while the camera may still move");
+
+  // Subscribing arms one event: the host learns what is on screen without waiting for a gesture.
+  h.run(200);
+  std::vector<Value> idle = h.sink->eventsOfType("camera:idle");
+  if (!ctx.check(idle.size() == 1, "one event after the idle delay")) {
+    appendEmitted(ctx, *h.sink);
+    return;
+  }
+  const Value& first = idle[0];
+  const maprama::CameraState state = h.engine->cameraState();
+  ctx.near(first.find("camera")->find("distance")->asNumber(), state.distance, 1e-9, "the resting camera");
+  ctx.check(first.find("reason")->asString() == "api", "init's camera is the app's own move");
+
+  const double radius = first.find("radiusMeters")->asNumber();
+  const Value& bounds = *first.find("bounds");
+  ctx.check(radius > 0, "radiusMeters is always present and positive");
+  // The far plane clamp bounds it whatever the pitch (protocol CAMERA_IDLE_HORIZON_FACTOR).
+  ctx.check(radius <= 6.0 * state.distance + 1e-6, "radiusMeters stays inside the horizon clamp");
+  ctx.check(bounds.find("ne")->find("lat")->asNumber() >= bounds.find("sw")->find("lat")->asNumber() &&
+                bounds.find("ne")->find("lng")->asNumber() >= bounds.find("sw")->find("lng")->asNumber(),
+            "bounds is a valid north-east / south-west box");
+  // The centre is inside its own bounds.
+  ctx.check(state.center.lat <= bounds.find("ne")->find("lat")->asNumber() &&
+                state.center.lat >= bounds.find("sw")->find("lat")->asNumber(),
+            "the camera centre is inside the reported bounds");
+
+  // A camera change the app did not command is the user's gesture, and it emits exactly once.
+  maprama::MapCameraPose pose = h.adapter->moves.back().first;
+  h.now += 1000;
+  h.engine->onCameraChanged(pose);  // same pose: no change
+  pose.bearing += 30;
+  h.engine->onCameraChanged(pose);
+  ctx.check(h.sink->eventsOfType("camera:idle").size() == 1, "nothing while the camera is moving");
+  h.run(200);
+  idle = h.sink->eventsOfType("camera:idle");
+  if (ctx.check(idle.size() == 2, "one more event once it came to rest")) {
+    ctx.check(idle[1].find("reason")->asString() == "gesture", "a move the host never sent is a gesture");
+  }
+
+  // A zoom button is user input on an engine ornament, so it is a gesture too.
+  h.engine->zoomButton(true);
+  h.engine->onCameraChanged(h.adapter->moves.back().first);
+  h.run(400);
+  idle = h.sink->eventsOfType("camera:idle");
+  if (ctx.check(idle.size() == 3, "the zoom button settles into one event")) {
+    ctx.check(idle[2].find("reason")->asString() == "gesture", "zoom buttons report gesture, not api");
+  }
+
+  // A commanded move is `api`.
+  h.send(setCameraMsg(Value::object({{"bearing", 12}})));
+  h.run(400);
+  idle = h.sink->eventsOfType("camera:idle");
+  if (ctx.check(idle.size() == 4, "setCamera settles into one event")) {
+    ctx.check(idle[3].find("reason")->asString() == "api", "setCamera is the app's own move");
+  }
+
+  // The content inset shrinks the ground the event describes (and is validated by the schema).
+  h.send(Value::object({{"type", "setUi"},
+                        {"ui", Value::object({{"attribution", true},
+                                              {"contentInset", Value::object({{"bottom", 380}})}})}}));
+  h.send(setCameraMsg(Value::object({{"bearing", 13}})));
+  h.run(400);
+  idle = h.sink->eventsOfType("camera:idle");
+  if (ctx.check(idle.size() == 5, "an event after the inset was applied")) {
+    ctx.check(idle[4].find("radiusMeters")->asNumber() < radius, "a bottom sheet shrinks the visible ground");
+  }
+
+  h.send(Value::object({{"type", "unsubscribe"}, {"topic", "camera:idle"}}));
+  h.send(setCameraMsg(Value::object({{"bearing", 44}})));
+  h.run(400);
+  ctx.check(h.sink->eventsOfType("camera:idle").size() == 5, "unsubscribe stops the stream");
+  ctx.check(h.sink->errors() == 0, "no dropped events");
+  appendEmitted(ctx, *h.sink);
+}

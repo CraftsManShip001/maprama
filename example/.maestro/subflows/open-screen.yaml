@@ -1,5 +1,5 @@
 # Opens one catalog screen from a fresh launch and waits for the engine.
-# env: SCREEN = themes | world | character | travel | drops | labels | buildings | multiplayer | markers
+# env: SCREEN = themes | world | character | travel | drops | labels | buildings | multiplayer | markers | camera | sheet
 appId: dev.maprama.catalog
 ---
 - launchApp:

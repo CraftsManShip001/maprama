@@ -92,14 +92,22 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       }
       ignoreNotImplemented(envelope);
       return;
-    case 17:  // subscribe -> MapSession (camera:change, M1), GameSession (character:position, travel:progress, M3a)
+    case 17:  // subscribe -> MapSession (camera:change M1, camera:idle), GameSession (character:position, travel:progress, M3a)
     case 18: {  // unsubscribe
       const bool subscribe = commandIndex(envelope.type()) == 17;
       const std::optional<SubscriptionTopic> topic = parseEnum<SubscriptionTopic>(msg.find("topic")->asString());
-      if (session != nullptr && topic == SubscriptionTopic::CameraChange) {
+      if (session != nullptr && (topic == SubscriptionTopic::CameraChange || topic == SubscriptionTopic::CameraIdle)) {
         ++stats_.handled;
+        const bool idle = topic == SubscriptionTopic::CameraIdle;
         if (subscribe) {
-          session->subscribeCamera(msg.find("throttleMs")->asNumber());
+          const double throttleMs = msg.find("throttleMs")->asNumber();
+          if (idle) {
+            session->subscribeCameraIdle(throttleMs);
+          } else {
+            session->subscribeCamera(throttleMs);
+          }
+        } else if (idle) {
+          session->unsubscribeCameraIdle();
         } else {
           session->unsubscribeCamera();
         }

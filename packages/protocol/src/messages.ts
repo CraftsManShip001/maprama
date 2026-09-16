@@ -242,8 +242,16 @@ export interface SetOverlayAnchorsCommand {
   anchors: OverlayAnchor[];
 }
 
-/** Continuous-value subscription topics. */
-export const SUBSCRIPTION_TOPICS = ['character:position', 'camera:change', 'travel:progress'] as const;
+/**
+ * Continuous-value subscription topics. Topics added after the first release
+ * are appended, so the index an engine derives from this list stays stable.
+ */
+export const SUBSCRIPTION_TOPICS = [
+  'character:position',
+  'camera:change',
+  'travel:progress',
+  'camera:idle',
+] as const;
 /** Topic of an opt-in, throttled continuous event stream. */
 export type SubscriptionTopic = (typeof SUBSCRIPTION_TOPICS)[number];
 
@@ -253,7 +261,12 @@ export interface SubscribeCommand {
   topic: SubscriptionTopic;
   /** Character id for `character:position` / `travel:progress`; all when absent. */
   id?: string;
-  /** Minimum interval between events in milliseconds. */
+  /**
+   * Minimum interval between events in milliseconds. For `camera:idle` this is
+   * a floor **between** idle events, not a delay before one: the event is
+   * emitted once the camera has been still for the engine's idle delay
+   * ({@link CAMERA_IDLE_DELAY_MS}) and then at most once per `throttleMs`.
+   */
   throttleMs: number;
 }
 
@@ -579,10 +592,107 @@ export interface CharacterPositionEvent {
 /** Concrete camera state reported by the engine. */
 export type CameraState = Required<Pick<CameraSpec, 'center' | 'distance' | 'pitch' | 'bearing'>>;
 
-/** Camera moved (subscription topic `camera:change`). */
+/**
+ * Camera moved (subscription topic `camera:change`).
+ *
+ * `camera.center` is the ground point at the centre of the **visible area**
+ * (the view minus `ui.contentInset`), i.e. what `setCamera({ center })` puts
+ * there.
+ */
 export interface CameraChangeEvent {
   type: 'camera:change';
   camera: CameraState;
+}
+
+/** What moved the camera before it came to rest. */
+export const CAMERA_IDLE_REASONS = ['gesture', 'api', 'follow'] as const;
+/**
+ * Why the camera moved:
+ *
+ * - `gesture`: **user input** — a pan, pinch, rotate or wheel on the map, and
+ *   the engine's own zoom buttons (`ui.zoomButtons`), which the user presses
+ *   and the app never issues.
+ * - `api`: **the app** moved it — `setCamera` (including the `camera` prop) or
+ *   `fitBounds`. This is the one an app can predict, so it is the one worth
+ *   filtering out when a move was its own doing.
+ * - `follow`: the camera settled on the character it follows
+ *   (`CameraSpec.follow`).
+ */
+export type CameraIdleReason = (typeof CAMERA_IDLE_REASONS)[number];
+
+/**
+ * How long the camera must be still before {@link CameraIdleEvent} is emitted,
+ * in milliseconds. Shared by every Maprama engine so the same gesture produces
+ * the same number of events on web and native.
+ */
+export const CAMERA_IDLE_DELAY_MS = 150;
+
+/**
+ * Ground distance limit of {@link CameraIdleEvent}, as a multiple of
+ * `camera.distance`: a tilted camera can see towards the horizon, where a
+ * viewport corner projects arbitrarily far away (or misses the ground plane
+ * entirely). Such a corner is pulled back to
+ * `CAMERA_IDLE_HORIZON_FACTOR × camera.distance` from the camera centre, which
+ * is the engine's far plane — beyond it nothing is drawn, so nothing is
+ * cropped that the user could have seen.
+ *
+ * Consequences: `radiusMeters ≤ CAMERA_IDLE_HORIZON_FACTOR × camera.distance`
+ * always, and `bounds` is always a box an app can query.
+ */
+export const CAMERA_IDLE_HORIZON_FACTOR = 6;
+
+/**
+ * The camera came to rest (subscription topic `camera:idle`): emitted once,
+ * {@link CAMERA_IDLE_DELAY_MS} after the last camera movement of a gesture, a
+ * `setCamera` / `fitBounds` animation, a zoom button, or a followed character
+ * settling.
+ *
+ * `subscribe` itself arms one event, so the first `camera:idle` arrives one
+ * idle delay later and describes where the camera already is: an app can make
+ * its first query without waiting for the user to touch the map.
+ *
+ * It answers "what is on screen now?" in one message, so a host does not have
+ * to debounce `camera:change` and unproject the corners itself:
+ *
+ * ```ts
+ * map.subscribe('camera:idle', ({ camera, radiusMeters }) => {
+ *   void fetchPois(snapToGrid(camera.center), radiusMeters);
+ * });
+ * ```
+ */
+export interface CameraIdleEvent {
+  type: 'camera:idle';
+  /** The camera it came to rest at. `center` is the centre of the visible area. */
+  camera: CameraState;
+  /**
+   * Axis-aligned geographic box around the ground the visible area covers
+   * (the view minus `ui.contentInset`).
+   *
+   * At a pitch above 0 that ground area is a trapezoid, and `bounds` is the
+   * north-aligned box **around** it: every visible point is inside `bounds`,
+   * but not every point of `bounds` is visible. Corners that reach past the
+   * horizon are clamped, see {@link CAMERA_IDLE_HORIZON_FACTOR}.
+   */
+  bounds: LngLatBounds;
+  /**
+   * Radius in meters from `camera.center` to the **farthest corner of the
+   * visible area** on the ground — the circle around `camera.center` that
+   * contains everything the user can see.
+   *
+   * It measures to the corners of the visible ground quad, not to the corners
+   * of `bounds` (which is the box around that quad, so its corners are usually
+   * farther out). It is deliberately the circumscribed radius and not the
+   * inscribed one: a "give me everything within R of here" query must not drop
+   * the POIs sitting in the corners of the screen. At a pitch above 0 the
+   * farthest corner is one of the two at the top of the visible area.
+   *
+   * Always present — that is the point: an app can ask its server for
+   * everything within `radiusMeters` of `camera.center` without re-deriving
+   * the field of view.
+   */
+  radiusMeters: number;
+  /** What moved the camera. */
+  reason: CameraIdleReason;
 }
 
 /** Screen position of an overlay anchor. */
@@ -639,7 +749,8 @@ export type EngineEvent =
   | CharacterPositionEvent
   | CameraChangeEvent
   | OverlayPositionsEvent
-  | ResponseEvent;
+  | ResponseEvent
+  | CameraIdleEvent;
 
 /** Event `type` tag. */
 export type EngineEventType = EngineEvent['type'];
@@ -754,6 +865,13 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
   removeMarkerLayer: object({ layerId: id }),
 };
 
+const cameraState: Check = object({
+  center: checkLngLat,
+  distance: number,
+  pitch: range(0, 90),
+  bearing: number,
+});
+
 const travelRef = { requestId: id, characterId: id };
 const geofenceRef = object({ geofenceId: id, characterId: id });
 const protocolError = object({ code: string, message: string });
@@ -780,9 +898,7 @@ const eventChecks: { [K in EngineEventType]: Check } = {
   'geofence:enter': geofenceRef,
   'geofence:exit': geofenceRef,
   'character:position': object({ id, coordinate: checkLngLat, headingDeg: number, speedMps: number }),
-  'camera:change': object({
-    camera: object({ center: checkLngLat, distance: number, pitch: range(0, 90), bearing: number }),
-  }),
+  'camera:change': object({ camera: cameraState }),
   'overlay:positions': object({
     positions: array(object({ id, x: number, y: number, visible: boolean })),
   }),
@@ -799,6 +915,12 @@ const eventChecks: { [K in EngineEventType]: Check } = {
     markerId: id,
     coordinate: checkLngLat,
     point: object({ x: number, y: number }),
+  }),
+  'camera:idle': object({
+    camera: cameraState,
+    bounds: checkLngLatBounds,
+    radiusMeters: nonNegativeNumber,
+    reason: oneOf(CAMERA_IDLE_REASONS),
   }),
 };
 

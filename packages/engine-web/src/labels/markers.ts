@@ -244,7 +244,7 @@ export class MarkerLayers {
     }
     const candidates: MarkerCandidate[] = [];
     const screen = new Map<string, { x: number; y: number }>();
-    const o = cam.orbit;
+    const o = cam.orbit, v = cam.view;
     for (const state of this.layers.values()) {
       for (const m of state.markers) {
         const p = state.points.get(m.id);
@@ -262,7 +262,8 @@ export class MarkerLayers {
           priority: m.priority ?? 0,
           forced: m.alwaysVisible === true || selected,
           onScreen:
-            s.x >= -width && s.x <= cam.width + width && s.y >= -height && s.y <= cam.height + height && inFront(cam, p.x, p.z),
+            s.x >= v.x - width && s.x <= v.x + v.width + width && s.y >= v.y - height &&
+            s.y <= v.y + v.height + height && inFront(cam, p.x, p.z),
           dT: Math.hypot(p.x - o.x, p.z - o.z),
           box: { x: s.x, y: s.y + height * ANCHORS[state.anchor].centerFactor, hw: width / 2 + 2, hh: height / 2 + 2 },
         });

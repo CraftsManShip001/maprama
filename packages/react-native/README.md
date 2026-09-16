@@ -101,7 +101,7 @@ export function GameMap() {
 
 | Component | Purpose | Key props |
 | --- | --- | --- |
-| `MapramaView` | Hosts the engine and owns all children. | `world` (read at init), `theme`, `labels`, `ui`, `camera`, `location`, `engine`, `requestTimeoutMs`, `travelStartTimeoutMs`, `onReady`, `onPress`, `onBuildingPress`, `onError`, `style`, `testID` |
+| `MapramaView` | Hosts the engine and owns all children. | `world` (read at init), `theme`, `labels`, `ui` (incl. `contentInset`), `camera`, `location`, `engine`, `requestTimeoutMs`, `travelStartTimeoutMs`, `onReady`, `onPress`, `onBuildingPress`, `onError`, `style`, `testID` |
 | `Character` | One character (the player or an actor). | `id`, `isPlayer`, `model`, `animations`, `follow` (`'location'` \| `'none'`), `position`, `name`, `color`, `scale`, `showNameTag` |
 | `CharacterLayer` | Many characters from app data. | `data`, `getId`, `getPosition`, `getModel`, `getName`, `getColor`, `getScale`, `getAnimations`, `showNameTags` |
 | `DropLayer` | Collectible drops from app data or the hosted service. | `id`, `collectRadiusMeters` (15), `collectorIds`, `onCollect`; data: `data`, `getId`, `getCoordinate`, `getType`, `getRarity`, `getValue`, `getModel`, `getPayload`; service: `source="service"`, `channel`, `apiKey`, `baseUrl`, `userId`, `radiusMeters`, `refetchDistanceMeters` (150), `characterId`, `positionThrottleMs` (1000), `onCollectVerified`, `onCollectRejected` |
@@ -134,7 +134,7 @@ Available through `ref` on `MapramaView`, or through `useMapramaView()` inside i
 | `route(from, to, modes?, options?)` | `Promise<RouteResult>` | |
 | `fitBounds(bounds, options?)` | `Promise<FitBoundsResult>` | Frames a `{ ne, sw }` box: `padding` in dp (a number or per side), optional `pitch` / `bearing`, `orientation` (`auto` / `keep` / `reset`), `animate`. Resolves with the camera it moved to, `fitted` and `distanceLimited`. |
 | `request(method, params, options?)` | `Promise<result>` | Low-level request. |
-| `subscribe(topic, listener, { id?, throttleMs? })` | `() => void` | `character:position`, `camera:change`, `travel:progress`. Engine subscriptions are shared and reference-counted. |
+| `subscribe(topic, listener, { id?, throttleMs? })` | `() => void` | `character:position`, `camera:change`, `travel:progress`, `camera:idle`. Engine subscriptions are shared and reference-counted. |
 | `addEventListener(type, listener)` | `() => void` | Any engine event. |
 | `getEngineInfo()` / `isReady()` | | |
 
@@ -147,8 +147,38 @@ Timeouts are read from the latest `requestTimeoutMs` / `travelStartTimeoutMs` pr
 | `useMapramaView()` | The enclosing map's `MapramaViewRef` (throws outside `MapramaView`). |
 | `useCharacterPosition(map, characterId, { throttleMs })` | Latest `{ coordinate, headingDeg, speedMps }` or `null`. Subscribes on mount, unsubscribes on unmount. |
 | `useCameraState(map, { throttleMs })` | Latest camera state or `null`. |
+| `useCameraIdle(map, { throttleMs })` | Latest `{ camera, bounds, radiusMeters, reason }` from `camera:idle`, or `null`. |
 
 `map` may be a `useRef<MapramaViewRef>()` object, the API itself, or `null` inside `MapramaView` (uses the enclosing map). The map may mount after the hook, e.g. when it is rendered conditionally. The hooks subscribe as soon as it mounts and follow a remounted map.
+
+### The camera stopped: `camera:idle`
+
+`camera:change` fires all the way through a gesture. `camera:idle` fires once, 150 ms after the camera came to rest — after a gesture, a zoom button, a `setCamera` / `fitBounds` animation, or a followed character settling — and carries everything a "what is near here?" query needs:
+
+```tsx
+const idle = useCameraIdle(map, { throttleMs: 500 });
+useEffect(() => {
+  if (!idle) return;
+  void loadPois(snapToGrid(idle.camera.center, 0.005), idle.radiusMeters);
+}, [idle]);
+```
+
+- `camera` — the resting camera. `center` is the centre of the **visible** area (see `ui.contentInset`).
+- `bounds` — `{ ne, sw }`, the north-aligned box around the ground the visible area covers. At a pitch above 0 that ground is a trapezoid, so the box is a superset of it.
+- `radiusMeters` — always present: the distance from `camera.center` to the farthest corner of the visible area, i.e. the circle that contains everything on screen. It is the circumscribed radius on purpose, so a radius query never drops the POIs in the corners of the screen. A tilted camera looking towards the horizon is clamped to 6 × `camera.distance` (the engine's far plane), so the number is always usable.
+- `reason` — `gesture` for user input (**including the engine's zoom buttons**, which the user presses and your code never issues), `api` for your own `setCamera` / `fitBounds`, `follow` for the camera catching up with a followed character.
+
+Subscribing arms one event, so the first `camera:idle` arrives without waiting for the user to touch the map.
+
+### App chrome over the map: `ui.contentInset`
+
+```tsx
+<MapramaView ui={{ attribution: true, contentInset: { bottom: sheetHeight } }} … />
+```
+
+The map keeps drawing across the whole view — only the *visible area* moves. That changes where a `setCamera` `center` lands, where a followed character sits, where the engine's ornaments are drawn (so **a sheet can never cover the attribution while `attribution` is on** — keep it engine-drawn instead of switching it off and copying the text, which goes stale the moment the library changes its wording or its sources), how labels and markers are placed and clamped, what `ScreenPoint.visible` means for `project` and `MapOverlay`, and the `bounds` / `radiusMeters` of `camera:idle`. `fitBounds` adds the inset to its `padding`.
+
+It does **not** move the screen coordinate frame: `project` and `unproject` keep working in full-view pixels with the origin at the top left of the whole map view.
 
 ### Errors
 
