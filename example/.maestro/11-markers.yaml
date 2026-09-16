@@ -1,0 +1,79 @@
+# Markers: 40 engine-drawn pins, a partial colour/selection update that keeps them,
+# and a tap on the pin at the camera target that reports only marker:press.
+#
+# The screen frames the station straight down (pitch 0), so the "hero" pin's tip sits on the
+# centre of the map view and its 40 dp body reaches up from there. The map fills the area
+# above the control panel (panel maxHeight 45%), so the centre of the map is around 30% of
+# the screen height and the pin body just above it.
+appId: dev.maprama.catalog
+name: Markers collide, update partially and take press precedence
+tags:
+  - markers
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: markers
+- assertVisible:
+    id: "marker-count"
+    text: "markers: 40"
+- assertVisible:
+    id: "marker-selected"
+    text: "selected: hero"
+- assertVisible:
+    id: "marker-tick"
+    text: "colour updates: 0"
+# Let the engine place the pins before the first screenshot.
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: screenshots/11-markers
+# Partial update: only colours and the selection change, the marker list does not.
+- tapOn:
+    id: "markers-refresh"
+    waitToSettleTimeoutMs: 500
+- assertVisible:
+    id: "marker-tick"
+    text: "colour updates: 1"
+- assertVisible:
+    id: "marker-count"
+    text: "markers: 40"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: screenshots/11-markers-recolored
+- tapOn:
+    id: "markers-select-hero"
+    waitToSettleTimeoutMs: 500
+- assertVisible:
+    id: "marker-selected"
+    text: "selected: hero"
+# Press precedence: tap the pin over the camera target. The sheet opens at the reported
+# screen point and the log gets a marker:press line — and no building:press / map:press.
+- tapOn:
+    point: "50%,28%"
+    waitToSettleTimeoutMs: 1000
+- extendedWaitUntil:
+    visible:
+      id: "marker-point"
+      text: "sheet at: [0-9]+, [0-9]+"
+    timeout: 20000
+- assertVisible:
+    id: "marker-sheet"
+- takeScreenshot: screenshots/11-markers-press
+# The event log sits below the fold of the control panel; swipe on the panel, not the map.
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        text: ".*marker:press .*"
+    commands:
+      - swipe:
+          from:
+            id: "panel"
+          direction: UP
+- assertVisible:
+    text: ".*marker:press .*"
+- assertNotVisible:
+    text: ".*building:press.*"
+- assertNotVisible:
+    text: ".*map:press.*"
+- takeScreenshot: screenshots/11-markers-log

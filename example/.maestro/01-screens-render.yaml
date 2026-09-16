@@ -119,3 +119,13 @@ tags:
       text: "server tick: ([3-9]|[1-9][0-9]+).*"
     timeout: 15000
 - takeScreenshot: screenshots/08-multiplayer
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: markers
+- assertVisible:
+    id: "marker-count"
+    text: "markers: 40"
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: screenshots/09-markers
