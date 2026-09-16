@@ -28,19 +28,22 @@ import {
   type Projection,
   type SubscriptionTopic,
   type ThemeSpec,
+  type ViewMode,
   type WorldSource,
 } from '@maprama/protocol';
 import { Group, type Fog } from 'three';
 import { Dispatcher, EngineError, UNSUPPORTED } from '../bridge/dispatcher.js';
 import { EventEmitter, type EventListener } from '../bridge/emitter.js';
 import type { Transport } from '../bridge/transport.js';
-import { CameraController, limitsInUnits, NO_INSET, type FollowTarget } from '../core/camera.js';
+import { CameraController, limitsInUnits, NO_INSET, PITCH_MAX, PITCH_MIN, type FollowTarget } from '../core/camera.js';
 import { fitBounds, fitBoundsOrbit, type FitPadding, type FitPoint } from '../core/fit-bounds.js';
 import { GestureController } from '../core/gestures.js';
 import { RenderCore } from '../core/renderer.js';
 import { BuildingRenderer } from '../render/buildings.js';
 import type { RenderContext } from '../render/parts.js';
+import { FlatBuildings } from '../render/flat-buildings.js';
 import { StaticWorldRenderer } from '../render/static-world.js';
+import { ViewTransition, viewDurationMs } from '../render/view-mode.js';
 import { ZoomOutController } from '../render/zoom-out.js';
 import type { SceneApi, SubscriptionHandler } from '../scene-api.js';
 import { MaterialFactory } from '../theme/materials.js';
@@ -109,6 +112,12 @@ const FOCUS_START_HEIGHT_FACTOR = 3;
 /** Error code of the non-fatal event emitted when a requested distance range had to be narrowed. */
 export const CAMERA_LIMITS_CLAMPED = 'camera_limits_clamped';
 
+/**
+ * Error code of the non-fatal event emitted when a pitch was asked for while
+ * the 2D view owns the pitch (see {@link Engine.applyPitch}).
+ */
+export const VIEW_PITCH_LOCKED = 'view_pitch_locked';
+
 /** Normalises `FitBoundsParams.padding` (dp) to four sides. */
 function fitPadding(padding: FitBoundsParams['padding']): FitPadding {
   if (typeof padding === 'number') return { top: padding, right: padding, bottom: padding, left: padding };
@@ -133,6 +142,14 @@ export class Engine implements EngineHandle {
   private readonly staticR = new StaticWorldRenderer();
   private readonly buildingsR = new BuildingRenderer();
   private readonly zoomOut = new ZoomOutController();
+  private readonly flatBuildings = new FlatBuildings();
+  private readonly view = new ViewTransition();
+  /** Flatness applied to the renderers last frame (`-1` = never). */
+  private appliedView = -1;
+  /** The `view_pitch_locked` warning is emitted once per distinct refused pitch. */
+  private warnedPitch = '';
+  /** Pitch the 2.5D view is restored to when the flat view is left. */
+  private tiltPitch = DEFAULT_ORBIT.pitch;
   private readonly dynamic = new Group();
   private ui: MapUiSpec = {};
   private labels: LabelsSpec = {};
@@ -183,7 +200,7 @@ export class Engine implements EngineHandle {
       return;
     }
     const core = this.core;
-    core.world.add(this.staticR.group, this.buildingsR.group, this.zoomOut.mapGroup, this.dynamic);
+    core.world.add(this.staticR.group, this.buildingsR.group, this.flatBuildings.group, this.zoomOut.mapGroup, this.dynamic);
     this.dynamic.name = 'dynamic';
     this.buildingsR.onModelError = (id, uri, err) => this.emit({ type: 'error', code: 'model_load_failed', message: `building ${id}: failed to load ${uri}: ${err instanceof Error ? err.message : String(err)}`, fatal: false });
     // A late-arriving glTF replacement rebuilds a building outside any frame hook.
@@ -246,6 +263,7 @@ export class Engine implements EngineHandle {
     this.options.transport.close?.();
     this.staticR.clear();
     this.buildingsR.dispose();
+    this.flatBuildings.dispose();
     this.core?.dispose();
     this.mats.dispose();
     this.tex?.dispose();
@@ -274,9 +292,14 @@ export class Engine implements EngineHandle {
       this.labels = { ...cmd.labels };
       this.locationSource = cmd.locationSource;
       this.params = renderParamsFor(cmd.theme);
+      // The view mode is applied before the camera: a `camera.pitch` in the same `init` as
+      // `view: '2d'` is then refused by the same rule as one sent later, instead of tilting a map
+      // that is supposed to start flat.
+      if (cmd.view) this.setView(cmd.view, false);
       await this.loadWorld(cmd.world);
       if (cmd.camera) this.setCamera(cmd.camera);
     });
+    d.register('setView', (cmd) => this.setView(cmd.view, cmd.animate));
     d.register('setTheme', (cmd) => this.setTheme(cmd.theme));
     d.register('setUi', (cmd) => this.setUi(cmd.ui));
     // ---- part 2 (delegated to Features, which needs the renderer) ----
@@ -379,6 +402,88 @@ export class Engine implements EngineHandle {
     this.applyTheme();
   }
 
+  /**
+   * `setView` / `init.view`: switches the render view mode.
+   *
+   * **Nothing else in the engine changes this** — not a zoom threshold, not a
+   * device class, not `prefers-reduced-motion` (which only makes the switch
+   * instant). The mode is the app's, so a declarative `view="2d"` prop and a
+   * `ref.setView()` call never fight each other.
+   *
+   * ### What owns what while a transition runs
+   *
+   * The view transition owns the **pitch** and nothing else: it pins the
+   * camera's pitch limits to the interpolated value, so a `setCamera`,
+   * `fitBounds`, `focusOn` or gesture issued at the same time keeps moving the
+   * centre, the distance and the bearing while the tilt follows the mode. A
+   * second `setView` mid-transition retargets from where the map is now
+   * instead of restarting (`ViewTransition.request`), so tapping the toggle
+   * twice reads as one continuous motion.
+   */
+  private setView(mode: ViewMode, animate: boolean | { durationMs: number } | undefined): void {
+    // Entering the flat view from the tilted one records the pitch to come back to: the same value
+    // is retraced on the way out, including after a mid-flight reversal.
+    if (mode === '2d' && this.view.t === 0) this.tiltPitch = this.cam.orbit.pitch;
+    const moving = this.view.request(mode, viewDurationMs(animate), this.reduceMotion);
+    this.applyView();
+    this.core?.requestRender();
+    this.core?.requestShadowUpdate();
+    // `animating: true` goes out at the start so an app can swap its own 2D chrome immediately;
+    // the settled event is emitted by `frame` when `t` lands (or right here for an instant switch).
+    this.emit({ type: 'view:change', view: mode, animating: moving && this.view.animating });
+  }
+
+  /**
+   * Applies the current flatness to everything that is not per-frame animation:
+   * the camera's pitch window and the shadow pass. The renderers (buildings,
+   * flat layer, fog, clutter) are driven from {@link frame}, which has the
+   * frame's `dt`.
+   */
+  private applyView(): void {
+    const t = this.view.t;
+    this.appliedView = t;
+    // Pitch: free in 2.5D, pinned to the interpolated value from the first frame of a transition
+    // on. `setPitchLimits` re-clamps the current pitch and any running camera transition's target.
+    if (t > 0) {
+      const pitch = this.tiltPitch * (1 - t);
+      this.cam.setPitchLimits(pitch, pitch);
+    } else this.cam.setPitchLimits(PITCH_MIN, PITCH_MAX);
+    this.overlays?.setViewFlat(t);
+    const core = this.core;
+    if (!core) return;
+    // Shadows exist to make height readable. A flat map has no height, and turning the pass off is
+    // where a large part of the 2D view's frame cost goes (see `scripts/view-cost.mjs`).
+    core.sun.castShadow = this.params.shadows && !this.view.flat;
+  }
+
+  /** Clamps a requested pitch into the limits in force and reports a refusal once. */
+  private applyPitch(requested: number | undefined): number {
+    const current = this.cam.orbit.pitch;
+    if (requested === undefined) return current;
+    const allowed = this.cam.clampPitch(requested);
+    if (allowed === requested) {
+      this.warnedPitch = '';
+      return allowed;
+    }
+    // Refused, not silently obeyed and not a reason to leave the mode: the app asked for two things
+    // that cannot both be true, and the mode it set explicitly outranks a pitch that came along
+    // with a camera move. Leaving 2D on its own would also fight a declarative `view="2d"` prop,
+    // which would immediately put the engine back. Everything else in the same command is applied.
+    const key = `${requested}`;
+    if (this.warnedPitch !== key) {
+      this.warnedPitch = key;
+      this.emit({
+        type: 'error',
+        code: VIEW_PITCH_LOCKED,
+        message:
+          `pitch ${requested}° was ignored: the "${this.view.mode}" view keeps the pitch at ${allowed}°. ` +
+          'Send setView("2.5d") first (the rest of the command was applied).',
+        fatal: false,
+      });
+    }
+    return allowed;
+  }
+
   /** Applies render params: lights, fog, overlays, materials; rebuilds the static world and buildings. */
   private applyTheme(): void {
     const core = this.core;
@@ -396,6 +501,12 @@ export class Engine implements EngineHandle {
       this.zoomOut.buildOverlay(this.worldModel, this.mats);
     }
     this.zoomOut.invalidate();
+    // The flat layer's materials belong to the generation `disposeOld` is about to drop, and its
+    // fills come from the theme palette: rebuild it (lazily, and only if the view still needs it).
+    this.flatBuildings.invalidate();
+    // `core.applyTheme` just wrote `sun.castShadow = params.shadows`; the view mode may say no.
+    this.appliedView = -1;
+    this.applyView();
     for (const h of [...this.themeHooks]) h(p);
     disposeOld();
   }
@@ -427,7 +538,9 @@ export class Engine implements EngineHandle {
     }
     if (spec.distance !== undefined) o.distance = this.proj.metersToUnits(spec.distance);
     else if (spec.zoom !== undefined) o.distance = this.proj.metersToUnits(this.zoomToMeters(spec.zoom, spec.center?.lat ?? this.proj.origin.lat));
-    if (spec.pitch !== undefined) o.pitch = spec.pitch;
+    // A pitch is only honoured while the 2.5D view owns it; in 2D it is refused with one
+    // `view_pitch_locked` and the rest of the spec still applies (see `applyPitch`).
+    if (spec.pitch !== undefined) o.pitch = this.applyPitch(spec.pitch);
     if (spec.bearing !== undefined) o.bearing = spec.bearing;
     const ms = spec.animate === true ? DEFAULT_ANIMATION_MS : typeof spec.animate === 'object' ? spec.animate.durationMs : 0;
     if (spec.follow !== undefined) {
@@ -496,7 +609,10 @@ export class Engine implements EngineHandle {
         left: pad.left + inset.left,
       },
       fovDeg: CAMERA_FOV_DEG,
-      pitch: params.pitch ?? this.cam.orbit.pitch,
+      // Clamped before the solver, not after: framing a box for a pitch the camera will not get
+      // would report a camera that is not the one the map ends up with. At pitch 0 the fit is also
+      // exact on the first step — the visible ground is a rectangle, not a trapezium.
+      pitch: this.applyPitch(params.pitch),
       bearing: params.bearing ?? this.cam.orbit.bearing,
       orientation: params.orientation ?? (explicit ? 'keep' : 'auto'),
       minDistance: limits.min,
@@ -545,7 +661,7 @@ export class Engine implements EngineHandle {
     const useInset = params.inset !== false;
     const inset = useInset ? this.cam.inset : NO_INSET;
     const limits = this.cam.distanceLimits;
-    const pitch = params.pitch ?? this.cam.orbit.pitch;
+    const pitch = this.applyPitch(params.pitch);
     const bearing = params.bearing ?? this.cam.orbit.bearing;
     // A pinned distance is clamped into the camera limits first, then used as the whole search
     // range, so the iteration only re-centres.
@@ -663,13 +779,25 @@ export class Engine implements EngineHandle {
   private frame(dt: number, t: number): void {
     const core = this.core!;
     this.cam.update(0);
+    // The view transition is advanced first: everything below reads its flatness for this frame.
+    const wasAnimating = this.view.animating;
+    if (this.view.update(dt) || this.appliedView !== this.view.t) this.applyView();
+    if (wasAnimating && !this.view.animating) this.emit({ type: 'view:change', view: this.view.mode, animating: false });
+    const vt = this.view.t;
     this.zoomOut.update(dt, this.cam.orbit.distance, this.params, {
       fog: core.scene.fog as Fog,
       shadowCamera: core.sun.shadow.camera,
       clutter: this.staticR.clutter,
       setHazeFade: (tt, map) => this.overlays?.setZoomFade(tt, map),
-    }, this.reduceMotion);
-    this.buildingsR.step(dt, t, this.zoomOut.scaleY, this.reduceMotion);
+    }, this.reduceMotion, vt);
+    // Extruded buildings sink to nothing, then leave the scene graph entirely; the flat layer fades
+    // in underneath them. `info()` reads the group's world matrix, so a roof-anchored info card
+    // comes down to the ground with them for free.
+    // Hidden first, then stepped: `step` skips its animations while hidden, so the frame that
+    // leaves the flat view must show the group before it is stepped back to its real height.
+    this.buildingsR.setHidden(this.view.flat);
+    this.buildingsR.step(dt, t, this.zoomOut.scaleY * (1 - vt), this.reduceMotion);
+    this.flatBuildings.update(vt, this.worldModel, this.params, this.mats, this.buildingsR.styles);
     const sub = this.cameraSub;
     if (sub && sub.pending && this.worldModel) {
       const now = performance.now();
@@ -696,6 +824,9 @@ export class Engine implements EngineHandle {
     // Keep the loop awake exactly while the part-1 renderers still animate. A camera subscription
     // that is still pending also needs one more frame to get its throttled event out.
     this.hold('camera', this.cam.animating);
+    // Held for the duration of a view transition and released the frame it lands, so a settled 2D
+    // map goes back to 0 idle frames exactly like a settled 2.5D one.
+    this.hold('view', this.view.animating);
     this.hold('zoomOut', this.zoomOut.animating);
     this.hold('buildings', this.buildingsR.animating);
     // Only while a world is loaded: without one the emit above never runs and `pending` would
@@ -723,17 +854,23 @@ export class Engine implements EngineHandle {
     if (!this.worldModel) return;
     // Markers come first: a press that hits one emits `marker:press` only.
     if (this.features?.pressMarker(x, y)) return;
-    const hit = this.buildingsR.pick(this.cam.rayAt(x, y));
+    const ground = this.cam.screenToGround(x, y);
+    // In the flat view there is no extruded geometry to hit: the press is resolved against the
+    // footprints under the ground point, which is what the flat layer actually draws.
+    const hit = this.view.flat ? (ground ? this.buildingsR.pickAt(ground.x, ground.z) : null) : this.buildingsR.pick(this.cam.rayAt(x, y));
     if (hit) {
-      this.buildingsR.bounce(hit.id);
-      // the bounce starts outside a frame hook, and a squashed building throws a different shadow
-      this.core?.requestRender();
-      this.core?.requestShadowUpdate();
+      // The squash-and-stretch feedback is a height animation: in the flat view it would hold a
+      // render source for a third of a second and show nothing.
+      if (!this.view.flat) {
+        this.buildingsR.bounce(hit.id);
+        // the bounce starts outside a frame hook, and a squashed building throws a different shadow
+        this.core?.requestRender();
+        this.core?.requestShadowUpdate();
+      }
       this.emit({ type: 'building:press', buildingId: hit.id, coordinate: this.proj.toLngLat({ x: hit.point.x, z: hit.point.z }) });
       return;
     }
-    const g = this.cam.screenToGround(x, y);
-    if (g) this.emit({ type: 'map:press', coordinate: this.proj.toLngLat(g) });
+    if (ground) this.emit({ type: 'map:press', coordinate: this.proj.toLngLat(ground) });
   }
 
   private createSceneApi(): SceneApi {
@@ -741,7 +878,7 @@ export class Engine implements EngineHandle {
     const self = this;
     return {
       three: { scene: core.scene, root: core.world, camera: this.cam.camera, renderer: core.renderer },
-      groups: { static: this.staticR.group, buildings: this.buildingsR.group, mapOverlay: this.zoomOut.mapGroup, dynamic: this.dynamic },
+      groups: { static: this.staticR.group, buildings: this.buildingsR.group, flatBuildings: this.flatBuildings.group, mapOverlay: this.zoomOut.mapGroup, dynamic: this.dynamic },
       materials: this.mats,
       textures: () => {
         if (!self.tex) self.tex = createTextures({ anisotropy: core.anisotropy });
@@ -762,6 +899,8 @@ export class Engine implements EngineHandle {
       labels: () => self.labels,
       locationSource: () => self.locationSource,
       zoomOutFactor: () => self.zoomOut.t,
+      viewMode: () => self.view.mode,
+      anchorHeightScale: () => 1 - self.view.t,
       onFrame: (hook) => core.onFrame(hook),
       onBeforeRender: (hook) => core.onBeforeRender(hook),
       // The scene API is how content is changed from outside a frame, so it also invalidates the

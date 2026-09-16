@@ -33,6 +33,13 @@ export class MoodOverlays {
   /** Layer for DOM labels / map UI (part 2). Pointer events are off by default. */
   readonly layer: HTMLDivElement;
   private hazeOpacity = 1;
+  private gradeOpacity = 0;
+  private raysOn = false;
+  /** Flatness of the 2D view; the mood overlays fade out with it (see {@link setViewFlat}). */
+  private flat = 0;
+  /** Last zoom-out fade applied, so a view change can re-apply both together. */
+  private zoomFade = 0;
+  private zoomMapColors = false;
 
   constructor(private readonly root: HTMLElement) {
     const doc = root.ownerDocument;
@@ -62,16 +69,40 @@ export class MoodOverlays {
     this.haze.style.background = o.haze;
     this.vignette.style.background = o.vignette;
     this.hazeOpacity = o.hazeOpacity;
-    this.haze.style.opacity = String(o.hazeOpacity);
-    this.vignette.style.opacity = String(o.hazeOpacity);
+    this.gradeOpacity = o.gradeOpacity;
+    this.raysOn = o.rays;
     this.grade.style.background = o.grade ?? 'none';
-    this.grade.style.opacity = String(o.gradeOpacity);
-    this.rays.hidden = !o.rays;
+    this.applyOpacities();
   }
 
   /** Fades the haze while zoomed out (prototype `stepMap`). */
   setZoomFade(t: number, mapColors: boolean): void {
-    this.haze.style.opacity = String(this.hazeOpacity * (1 - (mapColors ? t * 0.6 : t * 0.3)));
+    this.zoomFade = t;
+    this.zoomMapColors = mapColors;
+    this.applyOpacities();
+  }
+
+  /**
+   * Flatness of the 2D view (0 = 2.5D, 1 = 2D).
+   *
+   * Haze, vignette, colour grade and light rays are all atmosphere — they read
+   * as air between the camera and a scene that has depth. On a flat map there
+   * is no air to read, and a sky gradient across a top-down map looks like a
+   * rendering fault, so they fade out with the transition.
+   */
+  setViewFlat(t: number): void {
+    if (t === this.flat) return;
+    this.flat = t;
+    this.applyOpacities();
+  }
+
+  private applyOpacities(): void {
+    const view = 1 - this.flat;
+    const haze = this.hazeOpacity * (1 - (this.zoomMapColors ? this.zoomFade * 0.6 : this.zoomFade * 0.3)) * view;
+    this.haze.style.opacity = String(haze);
+    this.vignette.style.opacity = String(this.hazeOpacity * view);
+    this.grade.style.opacity = String(this.gradeOpacity * view);
+    this.rays.hidden = !this.raysOn || this.flat > 0.5;
   }
 
   dispose(): void {

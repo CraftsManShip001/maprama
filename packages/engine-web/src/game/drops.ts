@@ -378,7 +378,10 @@ export class DropVisuals {
           g.scale.setScalar(Math.max(0.001, easeOutBack(k)));
           if (k >= 1) { it.state = 'idle'; g.scale.setScalar(1); }
         }
-        g.position.y = it.groundY + (it.music ? 0.95 : 0.9) + (rm ? 0 : Math.sin(t * (it.music ? 2.4 : 3) + it.phase) * (it.music ? 0.1 : 0.12));
+        // The hover (and its bob) is an anchor height: the flat view brings it down to the ground,
+        // where the item marks its own coordinate instead of floating beside it.
+        const hover = this.scene.anchorHeightScale();
+        g.position.y = it.groundY + hover * ((it.music ? 0.95 : 0.9) + (rm ? 0 : Math.sin(t * (it.music ? 2.4 : 3) + it.phase) * (it.music ? 0.1 : 0.12)));
         it.spin.rotation.y += dt * (rm ? 0.5 : it.music ? 1.6 : 2.2);
         if (it.fx && it.beam && it.ring) {
           const appear = Math.min(1, it.t / 0.5);

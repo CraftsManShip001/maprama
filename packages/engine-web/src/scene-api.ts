@@ -42,6 +42,7 @@ import type {
   Projection,
   RequestMethod,
   SubscriptionTopic,
+  ViewMode,
   WorldPoint,
 } from '@maprama/protocol';
 import type { Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
@@ -76,6 +77,8 @@ export interface SceneApi {
     static: Group;
     /** Buildings (rebuilt on theme / world change). */
     buildings: Group;
+    /** Filled footprints + outline drawn instead of the buildings in the 2D view. */
+    flatBuildings: Group;
     /** Map-colors overlay (zoom out). */
     mapOverlay: Group;
     /** Part-2 dynamic content (characters, vehicles, drops…). Kept across rebuilds. */
@@ -103,6 +106,20 @@ export interface SceneApi {
   locationSource(): LocationSourceKind;
   /** Current zoom-out factor 0..1 (see zoom-out behaviours). */
   zoomOutFactor(): number;
+  /** The render view mode the engine is in or moving to. */
+  viewMode(): ViewMode;
+  /**
+   * How much of an anchor's height above the ground is still drawn: 1 in the
+   * 2.5D view, 0 in the flat 2D one, interpolated during a transition.
+   *
+   * Everything that floats over a coordinate — a holo label's stalk, a drop
+   * item's hover, a name tag — multiplies its height by this instead of
+   * carrying its own 2D branch. It is not cosmetic: a perspective camera
+   * looking straight down still projects a point at height `h` further from the
+   * screen centre than the ground point below it, so in a flat view an
+   * unflattened anchor sits visibly beside its own coordinate.
+   */
+  anchorHeightScale(): number;
 
   onFrame(hook: FrameHook): () => void;
   /** Runs after the camera update, right before rendering (use for screen-space projection such as DOM labels). */

@@ -84,6 +84,7 @@ const samples: Record<Exclude<EngineCommandType, 'request'>, EngineCommand[]> = 
     },
   ],
   removeInfoCard: [{ type: 'removeInfoCard', id: 'poi-1' }],
+  setView: [{ type: 'setView', view: '2d', animate: false }, { type: 'setView', view: '2.5d' }],
   setGeofences: [{ type: 'setGeofences', geofences: [{ id: 'g', center: c, radiusMeters: 50 }] }],
   setBuildingStyle: [{ type: 'setBuildingStyle', buildingId: 'b', style: null }],
   setOverlayAnchors: [{ type: 'setOverlayAnchors', anchors: [{ id: 'a', coordinate: c }] }],

@@ -8,6 +8,8 @@ import {
   farFor,
   limitsInUnits,
   nearFor,
+  PITCH_MAX,
+  PITCH_MIN,
 } from './camera.js';
 
 /** The world scales an app is likely to pick (8 = default, 24 = "just make the camera go further"). */
@@ -226,5 +228,72 @@ describe('camera:idle reason', () => {
     cam.follow(() => ({ x: 30, z: 30 }), 'me');
     cam.update(0.2);
     expect(cam.moveReason).toBe('follow');
+  });
+});
+
+describe('pitch limits (the 2D view owns the pitch)', () => {
+  const fresh = (): CameraController => {
+    const c = new CameraController();
+    c.setViewport(390, 760);
+    c.set({ pitch: 50, bearing: 20, distance: 40 });
+    return c;
+  };
+
+  it('defaults to the full range and is not locked', () => {
+    const c = fresh();
+    expect(c.pitchLimits).toEqual({ min: PITCH_MIN, max: PITCH_MAX });
+    expect(c.pitchLocked).toBe(false);
+  });
+
+  it('pins the pitch immediately when the window closes', () => {
+    const c = fresh();
+    c.setPitchLimits(0, 0);
+    expect(c.orbit.pitch).toBe(0);
+    expect(c.pitchLocked).toBe(true);
+  });
+
+  it('refuses a pitch from set() and from a gesture while pinned', () => {
+    const c = fresh();
+    c.setPitchLimits(0, 0);
+    c.set({ pitch: 45 });
+    expect(c.orbit.pitch).toBe(0);
+    c.rotateBy(30, 25);
+    expect(c.orbit.pitch).toBe(0);
+    // …while the bearing keeps turning: only the tilt is locked.
+    expect(c.orbit.bearing).toBe(50);
+  });
+
+  it('re-clamps a running camera transition without cancelling it', () => {
+    const c = fresh();
+    c.set({ x: 100, z: 100, distance: 90, pitch: 60 }, 1000);
+    c.setPitchLimits(0, 0);
+    c.update(0.5);
+    expect(c.orbit.pitch).toBe(0);
+    // The rest of the transition is untouched: it is still on its way to (100, 100) at distance 90.
+    expect(c.orbit.x).toBeGreaterThan(0);
+    expect(c.orbit.x).toBeLessThan(100);
+    expect(c.animating).toBe(true);
+    c.update(1);
+    expect(c.orbit.x).toBeCloseTo(100, 6);
+    expect(c.orbit.distance).toBeCloseTo(90, 6);
+    expect(c.orbit.pitch).toBe(0);
+  });
+
+  it('keeps "to north" flat while the pitch is pinned', () => {
+    const c = fresh();
+    c.setPitchLimits(0, 0);
+    c.toNorth();
+    for (let i = 0; i < 300 && c.animating; i++) c.update(1 / 60);
+    expect(c.orbit.bearing).toBe(0);
+    expect(c.orbit.pitch).toBe(0);
+  });
+
+  it('restores the full range and lets the pitch come back', () => {
+    const c = fresh();
+    c.setPitchLimits(0, 0);
+    c.setPitchLimits(PITCH_MIN, PITCH_MAX);
+    expect(c.pitchLocked).toBe(false);
+    c.set({ pitch: 42 });
+    expect(c.orbit.pitch).toBe(42);
   });
 });
