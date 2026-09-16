@@ -1,0 +1,93 @@
+# camera:idle and ui.contentInset under an app bottom sheet.
+#
+# The screen is the first integrator's: an opaque sheet over half the display. Without the inset the
+# engine-drawn "© OpenStreetMap" attribution (and the scale bar) sit behind the sheet — a licensing
+# problem, not a cosmetic one. Turning the inset on moves them, and the camera centre, into the visible
+# half; the map keeps rendering across the whole view.
+#
+# camera:idle is asserted through the readouts: one event per rest, the resting centre, the ground
+# bounds, the radius a "POIs near here" query needs, and an honest reason (api for the screen's own
+# setCamera, gesture for a pan).
+appId: dev.maprama.catalog
+name: Bottom sheet, camera:idle and content inset
+tags:
+  - camera
+  - ui
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: sheet
+
+# Subscribing arms one event, so the first query happens without the user touching anything.
+- extendedWaitUntil:
+    visible:
+      id: "idle-count"
+      text: "camera:idle events: [1-9][0-9]*"
+    timeout: 20000
+- assertVisible:
+    id: "idle-reason"
+    text: "reason: api"
+- assertVisible:
+    id: "idle-radius"
+    text: "radius: [0-9]+ m"
+- assertVisible:
+    id: "idle-bounds"
+    text: "bounds: 12[0-9]\\.[0-9]+,3[0-9]\\.[0-9]+ → 12[0-9]\\.[0-9]+,3[0-9]\\.[0-9]+"
+- assertVisible:
+    id: "idle-pois"
+    text: "POIs within the radius: [0-9]+ of [0-9]+"
+- assertVisible:
+    id: "inset-toggle"
+    text: "content inset: off"
+- waitForAnimationToEnd:
+    timeout: 4000
+
+# BEFORE: no inset. The attribution and the scale bar are drawn at the bottom of the map — behind the sheet.
+- takeScreenshot: screenshots/13-sheet-inset-off
+
+# AFTER: the inset is the sheet's height. The ornaments and the camera centre move into the visible half.
+- tapOn:
+    id: "inset-toggle"
+    waitToSettleTimeoutMs: 1500
+- assertVisible:
+    id: "inset-toggle"
+    text: "content inset: on \\([0-9]+ dp\\)"
+# Moving the camera anchor into the visible half is itself a camera change: another idle event lands.
+- extendedWaitUntil:
+    visible:
+      id: "idle-count"
+      text: "camera:idle events: [2-9][0-9]*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 4000
+# The attribution now sits above the sheet: this screenshot is the licensing evidence.
+- takeScreenshot: screenshots/13-sheet-inset-on-attribution-above
+
+# The app's own move reports `api`, so an app can tell its own camera changes from the user's.
+- tapOn:
+    id: "idle-move-north"
+    waitToSettleTimeoutMs: 1500
+- extendedWaitUntil:
+    visible:
+      id: "idle-reason"
+      text: "reason: api"
+    timeout: 20000
+- takeScreenshot: screenshots/13-sheet-idle-api
+
+# A pan on the visible half of the map is the user's: `gesture`, and one event when it comes to rest.
+- swipe:
+    start: "50%, 22%"
+    end: "50%, 38%"
+    duration: 500
+- extendedWaitUntil:
+    visible:
+      id: "idle-reason"
+      text: "reason: gesture"
+    timeout: 20000
+- assertVisible:
+    id: "idle-radius"
+    text: "radius: [0-9]+ m"
+- takeScreenshot: screenshots/13-sheet-idle-gesture
+- assertNotVisible:
+    text: "engine error.*"
