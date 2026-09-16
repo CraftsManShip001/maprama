@@ -107,6 +107,19 @@ describe('placement', () => {
     expect([...noZoom.keys()]).toEqual(['zoom']);
   });
 
+  it('keeps cards out of the content inset and follows the ornaments into the visible area', () => {
+    const ui = { scaleBar: true, attribution: true, zoomButtons: true };
+    const inset = { top: 56, bottom: 380, left: 24 };
+    const ex = hudExclusions(390, 760, ui, inset);
+    // A card that is free on a full-screen map is now under the sheet.
+    expect([...placeHolo([cand('sheet', { top: { x: 200, y: 520 } })], hudExclusions(390, 760, ui)).keys()]).toEqual(['sheet']);
+    expect([...placeHolo([cand('sheet', { top: { x: 200, y: 520 } })], ex).keys()]).toEqual([]);
+    // …and the attribution / scale bar now sit just above the sheet, so that strip is taken too.
+    expect([...placeHolo([cand('attrib', { top: { x: 300, y: 356 }, w: 60, h: 20 })], ex).keys()]).toEqual([]);
+    // The left inset band is excluded as well.
+    expect([...placeHolo([cand('left', { top: { x: 10, y: 200 }, w: 16, h: 16 })], ex).keys()]).toEqual([]);
+  });
+
   it('places by priority then distance, skips overlaps, ineligible/off-screen cards and caps roads at 5', () => {
     const shown = placeHolo([
       cand('poi-far', { dT: 9 }),

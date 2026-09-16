@@ -7,7 +7,10 @@
 
 import {
   CAMERA_FOV_DEG,
+  CAMERA_IDLE_DELAY_MS,
+  CAMERA_IDLE_HORIZON_FACTOR,
   encodeEvent,
+  type CameraIdleEvent,
   type CameraSpec,
   type CameraState,
   type FitBoundsParams,
@@ -16,6 +19,7 @@ import {
   type EngineEvent,
   type EngineEventType,
   type LabelsSpec,
+  type LngLat,
   type LocationSourceKind,
   type MapUiSpec,
   type Projection,
@@ -106,6 +110,9 @@ export class Engine implements EngineHandle {
   private followResolver: ((id: string) => FollowTarget | null) | null = null;
   private features: Features | null = null;
   private cameraSub: { throttleMs: number; last: number; pending: boolean } | null = null;
+  private idleSub: { throttleMs: number; last: number } | null = null;
+  /** `performance.now()` at which `camera:idle` becomes due; `Infinity` when nothing is pending. */
+  private idleAt = Infinity;
   /** Camera distance limits the app asked for, in meters (converted to world units per world). */
   private limitMeters: { min?: number; max?: number } = {};
   /** The `camera_limits_clamped` warning is emitted once per distinct requested range. */
@@ -167,9 +174,14 @@ export class Engine implements EngineHandle {
     this.cleanups.push(() => gestures.dispose());
 
     this.cam.set(DEFAULT_ORBIT);
-    this.cleanups.push(this.cam.onChange(() => { if (this.cameraSub) this.cameraSub.pending = true; }));
+    this.cleanups.push(this.cam.onChange(() => {
+      if (this.cameraSub) this.cameraSub.pending = true;
+      this.armIdle();
+    }));
     // Every input path (gestures, wheel, zoom buttons, setCamera) ends in the camera: one frame each.
-    this.cleanups.push(this.cam.onActivity(() => core.requestRender()));
+    // Activity fires *before* the move is applied, which is also what pushes the idle deadline back
+    // while an animation or a gesture is still running.
+    this.cleanups.push(this.cam.onActivity(() => { core.requestRender(); this.armIdle(); }));
     core.onFrame((dt, t) => this.frame(dt, t));
     this.scene = this.createSceneApi();
     this.features = new Features(this.scene);
@@ -225,7 +237,7 @@ export class Engine implements EngineHandle {
   private registerHandlers(): void {
     const d = this.dispatcher;
     d.register('init', async (cmd) => {
-      this.ui = { ...cmd.ui };
+      this.setUi(cmd.ui);
       this.labels = { ...cmd.labels };
       this.locationSource = cmd.locationSource;
       this.params = renderParamsFor(cmd.theme);
@@ -233,7 +245,7 @@ export class Engine implements EngineHandle {
       if (cmd.camera) this.setCamera(cmd.camera);
     });
     d.register('setTheme', (cmd) => this.setTheme(cmd.theme));
-    d.register('setUi', (cmd) => { this.ui = { ...cmd.ui }; });
+    d.register('setUi', (cmd) => this.setUi(cmd.ui));
     // ---- part 2 (delegated to Features, which needs the renderer) ----
     const f = (): Features => {
       if (!this.features) throw new EngineError('webgl_unavailable', 'renderer is not available', true);
@@ -268,6 +280,18 @@ export class Engine implements EngineHandle {
     this.topics.set('camera:change', {
       subscribe: (_id, throttleMs) => { this.cameraSub = { throttleMs, last: -Infinity, pending: true }; },
       unsubscribe: () => { this.cameraSub = null; },
+    });
+    this.topics.set('camera:idle', {
+      subscribe: (_id, throttleMs) => {
+        this.idleSub = { throttleMs, last: -Infinity };
+        // Subscribing arms one event: the app gets "this is what is on screen" without having to
+        // wait for the user to touch the map first.
+        this.armIdle();
+      },
+      unsubscribe: () => {
+        this.idleSub = null;
+        this.idleAt = Infinity;
+      },
     });
     d.register('subscribe', (cmd) => {
       const h = this.topics.get(cmd.topic);
@@ -340,6 +364,17 @@ export class Engine implements EngineHandle {
     disposeOld();
   }
 
+  /**
+   * Applies a `MapUiSpec`. The only part the engine shell owns is
+   * `contentInset`: it moves the camera anchor (and with it what `setCamera`,
+   * `follow`, `fitBounds` and `camera:idle` mean by "the centre"), while the
+   * ornaments read the spec again in `Features.project`.
+   */
+  private setUi(ui: MapUiSpec): void {
+    this.ui = { ...ui };
+    this.cam.setInset(ui.contentInset);
+  }
+
   private setCamera(spec: CameraSpec): void {
     // Limits first: a spec that widens the range and moves out in one command must not be
     // clamped by the range it is replacing.
@@ -410,11 +445,20 @@ export class Engine implements EngineHandle {
     // An explicit pitch / bearing is an instruction, so it turns `auto`'s fallback off.
     const explicit = params.pitch !== undefined || params.bearing !== undefined;
     const limits = this.cam.distanceLimits;
+    // The content inset is app chrome over the map, so the box has to fit *beside* it: the inset is
+    // added to the request's padding, which is space the app wants free inside the visible area.
+    const inset = this.cam.inset;
+    const pad = fitPadding(params.padding);
     const out = fitBounds({
       corners,
       width: this.cam.width,
       height: this.cam.height,
-      padding: fitPadding(params.padding),
+      padding: {
+        top: pad.top + inset.top,
+        right: pad.right + inset.right,
+        bottom: pad.bottom + inset.bottom,
+        left: pad.left + inset.left,
+      },
       fovDeg: CAMERA_FOV_DEG,
       pitch: params.pitch ?? this.cam.orbit.pitch,
       bearing: params.bearing ?? this.cam.orbit.bearing,
@@ -425,10 +469,14 @@ export class Engine implements EngineHandle {
     });
     const ms = params.animate === true ? DEFAULT_ANIMATION_MS : typeof params.animate === 'object' ? params.animate.durationMs : 0;
     this.cam.follow(null);
-    this.cam.set({ x: out.x, z: out.z, distance: out.distance, pitch: out.pitch, bearing: out.bearing }, ms);
+    // `fitBounds` works in the viewport-centred model; the camera's target is the centre of the
+    // *visible* area, so the result is shifted by the inset before it becomes the camera anchor.
+    const shift = this.cam.insetShift({ distance: out.distance, pitch: out.pitch, bearing: out.bearing });
+    const ax = out.x + shift.x, az = out.z + shift.z;
+    this.cam.set({ x: ax, z: az, distance: out.distance, pitch: out.pitch, bearing: out.bearing }, ms);
     return {
       camera: {
-        center: this.proj.toLngLat({ x: out.x, z: out.z }),
+        center: this.proj.toLngLat({ x: ax, z: az }),
         distance: this.proj.unitsToMeters(out.distance),
         pitch: out.pitch,
         bearing: ((out.bearing % 360) + 360) % 360,
@@ -443,6 +491,44 @@ export class Engine implements EngineHandle {
     const mpp = (156543.03392 * Math.cos(lat * DEG)) / Math.pow(2, zoom);
     const spanMeters = mpp * this.cam.height;
     return spanMeters / 2 / Math.tan((CAMERA_FOV_DEG * DEG) / 2);
+  }
+
+  /** Pushes the `camera:idle` deadline back to "the idle delay from now". */
+  private armIdle(): void {
+    if (this.idleSub) this.idleAt = performance.now() + CAMERA_IDLE_DELAY_MS;
+  }
+
+  /**
+   * The `camera:idle` payload for the camera as it stands.
+   *
+   * `bounds` is the north-aligned box around the four ground corners of the
+   * visible area, and `radiusMeters` the distance from the reported centre to
+   * the farthest of those corners — the circle that holds everything on
+   * screen. Corners that run to the horizon are pulled back to
+   * `CAMERA_IDLE_HORIZON_FACTOR × distance`, which is the engine's far plane
+   * (`farFor`), so the numbers stay finite and describe ground that is really
+   * drawn.
+   */
+  private cameraIdleEvent(): CameraIdleEvent {
+    const camera = this.cameraState();
+    const o = this.cam.orbit;
+    const corners = this.cam.groundCorners(CAMERA_IDLE_HORIZON_FACTOR * o.distance);
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity, maxUnits = 0;
+    for (const c of corners) {
+      const ll: LngLat = this.proj.toLngLat(c);
+      if (ll.lng < minLng) minLng = ll.lng;
+      if (ll.lng > maxLng) maxLng = ll.lng;
+      if (ll.lat < minLat) minLat = ll.lat;
+      if (ll.lat > maxLat) maxLat = ll.lat;
+      maxUnits = Math.max(maxUnits, Math.hypot(c.x - o.x, c.z - o.z));
+    }
+    return {
+      type: 'camera:idle',
+      camera,
+      bounds: { ne: { lng: maxLng, lat: maxLat }, sw: { lng: minLng, lat: minLat } },
+      radiusMeters: this.proj.unitsToMeters(maxUnits),
+      reason: this.cam.moveReason,
+    };
   }
 
   private cameraState(): CameraState {
@@ -474,6 +560,20 @@ export class Engine implements EngineHandle {
         this.emit({ type: 'camera:change', camera: this.cameraState() });
       }
     }
+    const idle = this.idleSub;
+    if (idle && this.worldModel && this.idleAt !== Infinity) {
+      const now = performance.now();
+      if (now >= this.idleAt) {
+        if (now - idle.last >= idle.throttleMs) {
+          idle.last = now;
+          this.idleAt = Infinity;
+          this.emit(this.cameraIdleEvent());
+        } else {
+          // Inside the throttle window: the camera is still at rest, so try again when it opens.
+          this.idleAt = idle.last + idle.throttleMs;
+        }
+      }
+    }
     // Keep the loop awake exactly while the part-1 renderers still animate. A camera subscription
     // that is still pending also needs one more frame to get its throttled event out.
     this.hold('camera', this.cam.animating);
@@ -482,6 +582,9 @@ export class Engine implements EngineHandle {
     // Only while a world is loaded: without one the emit above never runs and `pending` would
     // stay true forever, keeping the loop awake for nothing.
     this.hold('camera:change', !!sub?.pending && !!this.worldModel);
+    // Same idea for the idle timer: the loop stays awake for the idle delay after the last move,
+    // then emits one event and lets the map go idle again.
+    this.hold('camera:idle', this.idleAt !== Infinity && !!idle && !!this.worldModel);
   }
 
   /** Acquires / releases the active render source `tag` so it is held exactly while `want` is true. */

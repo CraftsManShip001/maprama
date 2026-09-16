@@ -69,7 +69,7 @@ export interface FitBoundsOutput {
   distanceLimited: boolean;
 }
 
-interface Basis {
+export interface Basis {
   cx: number;
   cy: number;
   cz: number;
@@ -80,7 +80,7 @@ interface Basis {
 }
 
 /** The camera frame for an orbit: position plus the three axes three's `lookAt` builds. */
-function basisFor(x: number, z: number, distance: number, pitchDeg: number, bearingDeg: number): Basis {
+export function basisFor(x: number, z: number, distance: number, pitchDeg: number, bearingDeg: number): Basis {
   const p = pitchDeg * DEG, b = bearingDeg * DEG, h = distance * Math.sin(p);
   const cx = x - Math.sin(b) * h, cy = distance * Math.cos(p), cz = z + Math.cos(b) * h;
   // up vector of the orbit camera
@@ -116,7 +116,7 @@ function project(
 }
 
 /** Ground-plane (y = 0) point under a pixel, or `null` when the ray misses the ground. */
-function groundAt(
+export function groundAt(
   basis: Basis,
   px: number, py: number,
   width: number, height: number, tanHalf: number,

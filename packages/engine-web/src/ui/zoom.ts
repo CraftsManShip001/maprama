@@ -24,7 +24,9 @@ export class ZoomButtons {
       b.textContent = text;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.cam.set({ distance: this.cam.clampDistance(this.cam.orbit.distance * factor) }, 250);
+        // `gesture`, not `api`: the user pressed this, the host never issued it. `camera:idle.reason`
+        // exists so an app can tell the moves it made itself from the ones it has to react to.
+        this.cam.set({ distance: this.cam.clampDistance(this.cam.orbit.distance * factor) }, 250, 'gesture');
       });
       b.addEventListener('pointerdown', (e) => e.stopPropagation());
       return b;

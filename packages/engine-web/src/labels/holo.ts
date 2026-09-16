@@ -84,7 +84,8 @@ export class HoloLabels {
   }
 
   update(cam: CameraController, mode: LabelContentMode, entries: Readonly<Record<string, LabelContent>>, exclusions: readonly Box[], groundY: number, now: number): void {
-    const tx = cam.orbit.x, tz = cam.orbit.z, dist = cam.orbit.distance, W = cam.width, H = cam.height;
+    const tx = cam.orbit.x, tz = cam.orbit.z, dist = cam.orbit.distance;
+    const v = cam.view, X0 = v.x, Y0 = v.y, W = v.width, H = v.height;
     const cands: HoloCandidate[] = [];
     // true anchors: the ground dot and the top of the leader line
     const anchors = new Map<string, { gx: number; gy: number; tx: number }>();
@@ -95,7 +96,7 @@ export class HoloLabels {
       if (eligible) {
         this.applyContent(h, mode, entries);
         const g = cam.worldToScreen(e.x, groundY, e.z), t = cam.worldToScreen(e.x, groundY + HOLO_HEIGHT[e.kind], e.z);
-        onScreen = inFront(cam, e.x, e.z) && t.x >= -0.01 * W && t.x <= 1.01 * W && t.y >= 0.01 * H && t.y <= 0.99 * H;
+        onScreen = inFront(cam, e.x, e.z) && t.x >= X0 - 0.01 * W && t.x <= X0 + 1.01 * W && t.y >= Y0 + 0.01 * H && t.y <= Y0 + 0.99 * H;
         anchors.set(e.id, { gx: g.x, gy: g.y, tx: t.x });
         if (onScreen && !h.w) {
           h.root.style.display = '';
@@ -104,7 +105,7 @@ export class HoloLabels {
         }
         // keep the whole card inside the viewport horizontally: the panel slides along the edge
         // (the dot and the leader line stay at the true anchor)
-        top = { x: h.w ? clampLabelX(t.x, h.w / 2, W) : t.x, y: t.y };
+        top = { x: h.w ? clampLabelX(t.x, h.w / 2, W, undefined, X0) : t.x, y: t.y };
       }
       cands.push({ id: e.id, kind: e.kind, pri: e.pri, dT, eligible, top, onScreen, w: h.w, h: h.h });
     }

@@ -10,12 +10,21 @@
  * - `distance` world units here (the protocol uses meters; convert with `unitMeters`), clamped to
  *   the current distance limits (by default 14–150 world units, see {@link CameraController.setDistanceLimits}).
  *
+ * Content inset (`ui.contentInset`): the renderer keeps drawing the whole
+ * viewport, but the camera's target — `orbit.x` / `orbit.z`, the *anchor* — is
+ * the ground point at the centre of the **visible area** (the viewport minus
+ * the inset). {@link CameraController.apply} is the only place that knows the
+ * difference: it looks at `anchor − insetShift()`. Everything else (gestures,
+ * follow, zoom, `fitBounds`, the reported camera state) works on the anchor,
+ * and screen coordinates stay full-view pixels.
+ *
  * @module
  */
 
-import { CAMERA_FOV_DEG } from '@maprama/protocol';
+import { CAMERA_FOV_DEG, type CameraIdleReason, type ContentInset } from '@maprama/protocol';
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { clamp, DEG, wrapDeg } from '../util/math.js';
+import { basisFor, groundAt } from './fit-bounds.js';
 
 export const PITCH_MIN = 0;
 export const PITCH_MAX = 60;
@@ -79,11 +88,38 @@ export interface CameraTransition {
 /** A follow target provider; return `null` to hold position. */
 export type FollowTarget = () => { x: number; z: number } | null;
 
-/** Result of {@link CameraController.worldToScreen}: CSS pixels plus "inside the viewport". */
+/** Result of {@link CameraController.worldToScreen}: CSS pixels plus "inside the visible area". */
 export interface ScreenProjection {
   x: number;
   y: number;
   visible: boolean;
+}
+
+/** A rectangle in CSS pixels, origin top-left. */
+export interface ViewRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The four inset sides in CSS pixels, all present. */
+export type Insets = Required<ContentInset>;
+
+/** No content inset. */
+export const NO_INSET: Readonly<Insets> = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0 });
+
+/**
+ * Splits one axis of the viewport into "before the visible area" and "how long
+ * it is". Insets that together leave nothing are scaled down proportionally so
+ * that at least one pixel of map stays visible: a bug in an app's layout must
+ * not produce a zero-sized rectangle the rest of the engine divides by.
+ */
+function visibleAxis(size: number, before: number, after: number): { start: number; length: number } {
+  const total = Math.max(0, before) + Math.max(0, after);
+  if (total <= 0 || size <= 1) return { start: 0, length: Math.max(1, size) };
+  const k = total > size - 1 ? (size - 1) / total : 1;
+  return { start: Math.max(0, before) * k, length: Math.max(1, size - total * k) };
 }
 
 /** The distance limits in force, in world units, and whether the renderer had to narrow the request. */
@@ -101,12 +137,21 @@ const FOLLOW_SNAP = 1e-3;
 
 export class CameraController {
   readonly camera: PerspectiveCamera;
+  /**
+   * The orbit. `x` / `z` are the **anchor**: the ground point the camera keeps
+   * at the centre of the *visible area* (the viewport minus {@link inset}).
+   * Without an inset that is the centre of the viewport, as before; with one,
+   * {@link apply} shifts the three.js camera so the anchor lands there.
+   */
   readonly orbit: CameraOrbit = { x: 0, z: 0, distance: 36, pitch: 50, bearing: 28 };
   /** Ground plane height used by picking. */
   groundY = 0;
   width = 1;
   height = 1;
   reduceMotion = false;
+  /** What moved the camera last, for `camera:idle.reason`. */
+  moveReason: CameraIdleReason = 'api';
+  private insets: Insets = { ...NO_INSET };
   private transition: CameraTransition | null = null;
   /** False while the follow easing is still catching up to its target (see {@link animating}). */
   private followSettled = true;
@@ -164,21 +209,53 @@ export class CameraController {
     this.height = Math.max(1, height);
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
-    this.markChanged();
+    this.markChanged('api');
+  }
+
+  /** The content inset in force, in CSS pixels. */
+  get inset(): Readonly<Insets> {
+    return this.insets;
+  }
+
+  /**
+   * Replaces the content inset (`ui.contentInset`, dp). The anchor is kept, so
+   * the ground point the camera looks at stays at the centre of the *new*
+   * visible area: opening a bottom sheet slides the map up instead of leaving
+   * the centre under the sheet.
+   */
+  setInset(inset: ContentInset | undefined): void {
+    const next: Insets = {
+      top: Math.max(0, inset?.top ?? 0),
+      right: Math.max(0, inset?.right ?? 0),
+      bottom: Math.max(0, inset?.bottom ?? 0),
+      left: Math.max(0, inset?.left ?? 0),
+    };
+    const cur = this.insets;
+    if (next.top === cur.top && next.right === cur.right && next.bottom === cur.bottom && next.left === cur.left) return;
+    this.insets = next;
+    this.markChanged('api');
+  }
+
+  /** The visible area — the viewport minus the content inset — in CSS pixels. */
+  get view(): ViewRect {
+    const h = visibleAxis(this.width, this.insets.left, this.insets.right);
+    const v = visibleAxis(this.height, this.insets.top, this.insets.bottom);
+    return { x: h.start, y: v.start, width: h.length, height: v.length };
   }
 
   /** Moves the camera. Unset fields keep their value. `durationMs > 0` animates (skipped with reduced motion). */
-  set(o: Partial<CameraOrbit>, durationMs = 0): void {
+  set(o: Partial<CameraOrbit>, durationMs = 0, reason: CameraIdleReason = 'api'): void {
     const to = this.clampOrbit({ ...this.orbit, ...o });
     if (durationMs > 0 && !this.reduceMotion) {
       // shortest rotation
       to.bearing = this.orbit.bearing + wrapDeg(to.bearing - this.orbit.bearing);
       this.transition = { from: { ...this.orbit }, to, t: 0, duration: durationMs / 1000 };
+      this.moveReason = reason;
       this.notifyActivity();
     } else {
       this.transition = null;
       Object.assign(this.orbit, to);
-      this.markChanged();
+      this.markChanged(reason);
     }
     if (o.pitch !== undefined || o.bearing !== undefined) this.toNorthActive = false;
   }
@@ -190,7 +267,7 @@ export class CameraController {
     this.followId = null;
     this.orbit.x += dx;
     this.orbit.z += dz;
-    this.markChanged();
+    this.markChanged('gesture');
   }
 
   rotateBy(dBearing: number, dPitch: number): void {
@@ -198,13 +275,13 @@ export class CameraController {
     this.toNorthActive = false;
     this.orbit.bearing = this.orbit.bearing + dBearing;
     this.orbit.pitch = clamp(this.orbit.pitch + dPitch, PITCH_MIN, PITCH_MAX);
-    this.markChanged();
+    this.markChanged('gesture');
   }
 
   zoomTo(distance: number): void {
     this.transition = null;
     this.orbit.distance = this.clampDistance(distance);
-    this.markChanged();
+    this.markChanged('gesture');
   }
 
   /** Follows a moving target (part 2 characters). `id` is informational. Pass `null` to stop. */
@@ -221,15 +298,16 @@ export class CameraController {
     return this.followId;
   }
 
-  /** Animates bearing to north and pitch to 45°. */
+  /** Animates bearing to north and pitch to 45° (a map-UI affordance, so `gesture`). */
   toNorth(): void {
     this.toNorthActive = true;
+    this.moveReason = 'gesture';
     this.notifyActivity();
     if (this.reduceMotion) {
       this.orbit.bearing = 0;
       this.orbit.pitch = 45;
       this.toNorthActive = false;
-      this.markChanged();
+      this.markChanged('gesture');
     }
   }
 
@@ -281,6 +359,7 @@ export class CameraController {
           this.orbit.x = nx;
           this.orbit.z = nz;
           this.dirty = true;
+          this.moveReason = 'follow';
         }
         this.followSettled = nx === p.x && nz === p.z;
       } else this.followSettled = true;
@@ -304,6 +383,24 @@ export class CameraController {
     }
   }
 
+  /**
+   * Ground offset (world units) from the point under the centre of the whole
+   * viewport to the point under the centre of the **visible area**, at the
+   * current pose. `{ x: 0, z: 0 }` without an inset.
+   *
+   * The camera pose is a pure translation in `x` / `z`, so this offset is the
+   * whole correction: looking at `anchor − shift` puts `anchor` under the
+   * visible centre exactly, with no iteration.
+   */
+  insetShift(pose: Pick<CameraOrbit, 'distance' | 'pitch' | 'bearing'> = this.orbit): { x: number; z: number } {
+    const i = this.insets;
+    if (i.top === 0 && i.right === 0 && i.bottom === 0 && i.left === 0) return { x: 0, z: 0 };
+    const v = this.view, o = pose;
+    const basis = basisFor(0, 0, o.distance, o.pitch, o.bearing);
+    const hit = groundAt(basis, v.x + v.width / 2, v.y + v.height / 2, this.width, this.height, Math.tan((this.camera.fov * DEG) / 2));
+    return hit ?? { x: 0, z: 0 };
+  }
+
   /** Applies the orbit to the three camera immediately. */
   apply(): void {
     const o = this.orbit;
@@ -315,19 +412,63 @@ export class CameraController {
       this.camera.far = far;
       this.camera.updateProjectionMatrix();
     }
+    // The three camera still looks at the centre of the *viewport*; the content inset moves that
+    // look-at point so the anchor (`orbit.x/z`) ends up under the centre of the visible area.
+    const s = this.insetShift();
+    const tx = o.x - s.x, tz = o.z - s.z;
     const p = o.pitch * DEG, b = o.bearing * DEG, h = o.distance * Math.sin(p);
     // forward (ground) = (sin b, −cos b); camera sits behind the target
-    this.camera.position.set(o.x - Math.sin(b) * h, this.groundY + o.distance * Math.cos(p), o.z + Math.cos(b) * h);
+    this.camera.position.set(tx - Math.sin(b) * h, this.groundY + o.distance * Math.cos(p), tz + Math.cos(b) * h);
     this.camera.up.set(Math.sin(b), 0, -Math.cos(b));
-    this.camera.lookAt(o.x, this.groundY, o.z);
+    this.camera.lookAt(tx, this.groundY, tz);
     this.camera.updateMatrixWorld();
   }
 
   /**
-   * Projects a world point to CSS pixels (origin top-left). Pass `out` to
-   * write into an existing object instead of allocating one — used by the
-   * per-frame batches (overlay anchors, name tags), which would otherwise
-   * allocate one short-lived object per item per frame.
+   * The four ground corners of the **visible area**, in world units and in
+   * `[top-left, top-right, bottom-right, bottom-left]` order.
+   *
+   * A corner whose ray runs past the horizon — it misses the ground plane, or
+   * hits it farther than `maxDistance` from the anchor — is pulled back to
+   * `maxDistance` along the same ground direction, so the result is always a
+   * usable quad (protocol `CAMERA_IDLE_HORIZON_FACTOR`).
+   */
+  groundCorners(maxDistance: number): { x: number; z: number }[] {
+    const v = this.view;
+    const x0 = v.x, y0 = v.y, x1 = v.x + v.width, y1 = v.y + v.height;
+    return [
+      this.groundOrClamped(x0, y0, maxDistance),
+      this.groundOrClamped(x1, y0, maxDistance),
+      this.groundOrClamped(x1, y1, maxDistance),
+      this.groundOrClamped(x0, y1, maxDistance),
+    ];
+  }
+
+  /** Ground point under a pixel, pulled back to `maxDistance` from the anchor when it runs to the horizon. */
+  private groundOrClamped(px: number, py: number, maxDistance: number): { x: number; z: number } {
+    const ray = this.rayAt(px, py).ray;
+    const o = this.orbit, dir = ray.direction, org = ray.origin;
+    const limit = Math.max(1e-6, maxDistance);
+    if (dir.y < -1e-9) {
+      const t = (this.groundY - org.y) / dir.y;
+      if (t > 0) {
+        const hx = org.x + dir.x * t, hz = org.z + dir.z * t;
+        const dx = hx - o.x, dz = hz - o.z, d = Math.hypot(dx, dz);
+        return d <= limit ? { x: hx, z: hz } : { x: o.x + (dx / d) * limit, z: o.z + (dz / d) * limit };
+      }
+    }
+    // Above the horizon (or parallel to the ground): go `limit` along the ray's ground direction.
+    const hl = Math.hypot(dir.x, dir.z) || 1;
+    return { x: o.x + (dir.x / hl) * limit, z: o.z + (dir.z / hl) * limit };
+  }
+
+  /**
+   * Projects a world point to CSS pixels (origin top-left of the **whole**
+   * map view — the content inset never moves the coordinate frame). `visible`
+   * is "inside the visible area", i.e. inset-aware. Pass `out` to write into
+   * an existing object instead of allocating one — used by the per-frame
+   * batches (overlay anchors, name tags), which would otherwise allocate one
+   * short-lived object per item per frame.
    */
   worldToScreen<T extends ScreenProjection>(x: number, y: number, z: number, out: T): T;
   worldToScreen(x: number, y: number, z: number): ScreenProjection;
@@ -335,7 +476,8 @@ export class CameraController {
     const v = this.tmp.set(x, y, z).project(this.camera);
     const sx = (v.x * 0.5 + 0.5) * this.width, sy = (-v.y * 0.5 + 0.5) * this.height;
     const inFront = v.z >= -1 && v.z <= 1;
-    const visible = inFront && sx >= 0 && sx <= this.width && sy >= 0 && sy <= this.height;
+    const r = this.view;
+    const visible = inFront && sx >= r.x && sx <= r.x + r.width && sy >= r.y && sy <= r.y + r.height;
     if (!out) return { x: sx, y: sy, visible };
     out.x = sx;
     out.y = sy;
@@ -367,8 +509,9 @@ export class CameraController {
     };
   }
 
-  private markChanged(): void {
+  private markChanged(reason: CameraIdleReason = 'api'): void {
     this.dirty = true;
+    this.moveReason = reason;
     this.notifyActivity();
   }
 

@@ -89,14 +89,14 @@ const CSS = `
 .mpr-tag.me{background:var(--tag,#2F5BEA);color:#fff}
 .mpr-plus{position:absolute;left:0;top:0;font-family:${DISPLAY};font-size:20px;color:#FFC93C;-webkit-text-stroke:1.5px #2A2540;animation:mpr-rise .9s ease-out forwards;pointer-events:none}
 @keyframes mpr-rise{from{opacity:1;margin-top:0}to{opacity:0;margin-top:-46px}}
-.mpr-ui{position:absolute;inset:0;pointer-events:none;font-family:${FONT}}
-.mpr-zoombtns{position:absolute;right:14px;top:calc(env(safe-area-inset-top,0px) + 56px);display:grid;gap:8px}
+.mpr-ui{position:absolute;inset:0;pointer-events:none;font-family:${FONT};--mpr-inset-top:0px;--mpr-inset-right:0px;--mpr-inset-bottom:0px;--mpr-inset-left:0px}
+.mpr-zoombtns{position:absolute;right:calc(var(--mpr-inset-right) + 14px);top:calc(env(safe-area-inset-top,0px) + var(--mpr-inset-top) + 56px);display:grid;gap:8px}
 .mpr-zb{pointer-events:auto;width:44px;height:44px;display:grid;place-items:center;padding:0;cursor:pointer;font:400 22px/1 ${DISPLAY};background:#fff;border:2px solid #2A2540;border-radius:999px;box-shadow:0 3px 0 #2A2540;color:#2A2540;-webkit-tap-highlight-color:transparent}
 .mpr-zb:active{transform:translateY(2px);box-shadow:0 1px 0 #2A2540}
 .mpr-zb:focus-visible{outline:2px solid #2F5BEA;outline-offset:2px}
-.mpr-scalebar{position:absolute;left:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);display:grid;gap:2px;font:600 11px ${FONT};color:#2A2540;text-shadow:0 0 3px #fff,0 0 3px #fff}
+.mpr-scalebar{position:absolute;left:calc(var(--mpr-inset-left) + 16px);bottom:calc(env(safe-area-inset-bottom,0px) + var(--mpr-inset-bottom) + 22px);display:grid;gap:2px;font:600 11px ${FONT};color:#2A2540;text-shadow:0 0 3px #fff,0 0 3px #fff}
 .mpr-scalebar i{display:block;height:6px;border:2px solid #2A2540;border-top:0;box-shadow:0 1px 0 #fff}
-.mpr-attrib{position:absolute;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);max-width:60%;text-align:right;font:10px ${FONT};color:rgba(42,37,64,.8);text-shadow:0 0 3px #fff,0 0 3px #fff}
+.mpr-attrib{position:absolute;right:calc(var(--mpr-inset-right) + 16px);bottom:calc(env(safe-area-inset-bottom,0px) + var(--mpr-inset-bottom) + 18px);max-width:60%;text-align:right;font:10px ${FONT};color:rgba(42,37,64,.8);text-shadow:0 0 3px #fff,0 0 3px #fff}
 .mpr-ui.night .mpr-scalebar{color:#EEF2F8;text-shadow:0 0 3px #0B1020}
 .mpr-ui.night .mpr-scalebar i{border-color:#EEF2F8;box-shadow:0 1px 0 #0B1020}
 .mpr-ui.night .mpr-attrib{color:rgba(238,242,248,.8);text-shadow:0 0 3px #0B1020}
@@ -165,7 +165,7 @@ export class DomLabels {
     if (now - this.lastUpdate < MIN_INTERVAL_MS) return;
     this.lastUpdate = now;
     const mode: LabelContentMode = spec.content ?? 'nameAndType';
-    const dist = cam.orbit.distance, W = cam.width, H = cam.height;
+    const dist = cam.orbit.distance, v = cam.view, X0 = v.x, Y0 = v.y, W = v.width, H = v.height;
     const placed: Box[] = [...exclusions];
     for (const l of this.labels) {
       const e = l.entry;
@@ -173,7 +173,7 @@ export class DomLabels {
       let sx = 0, sy = 0;
       if (show) {
         const s = cam.worldToScreen(e.x, 0.3, e.z);
-        if (!(s.x >= -0.025 * W && s.x <= 1.025 * W && s.y >= -0.025 * H && s.y <= 1.025 * H) || !inFront(cam, e.x, e.z)) show = false;
+        if (!(s.x >= X0 - 0.025 * W && s.x <= X0 + 1.025 * W && s.y >= Y0 - 0.025 * H && s.y <= Y0 + 1.025 * H) || !inFront(cam, e.x, e.z)) show = false;
         sx = s.x;
         sy = s.y;
       }
@@ -187,7 +187,7 @@ export class DomLabels {
       l.el.style.display = '';
       if (!l.w) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
       // keep the whole (rotated) label inside the viewport horizontally instead of clipping it at the edge
-      sx = clampLabelX(sx, (Math.abs(Math.cos(ang)) * l.w + Math.abs(Math.sin(ang)) * l.h) / 2, W);
+      sx = clampLabelX(sx, (Math.abs(Math.cos(ang)) * l.w + Math.abs(Math.sin(ang)) * l.h) / 2, W, undefined, X0);
       const box = rotatedBox(sx, sy, l.w, l.h, ang);
       if (placed.some((p) => overlaps(p, box))) { l.el.style.display = 'none'; l.shown = false; continue; }
       placed.push(box);
