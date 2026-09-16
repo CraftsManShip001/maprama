@@ -267,6 +267,8 @@ struct Schemas {
          }},
     };
     const Check subscriptionTopic = oneOfEnum<SubscriptionTopic>();
+    // view.ts — `VIEW_MODES`; used by `init`, `setView` and the `view:change` event.
+    const Check viewMode = oneOf({"2.5d", "2d"});
     const Check requestHeader =
         object({{"requestId", id}, {"method", oneOfEnum<RequestMethod>()}, {"params", object({})}});
 
@@ -279,7 +281,7 @@ struct Schemas {
                          {"ui", mapUiSpec},
                          {"locationSource", oneOfEnum<LocationSourceKind>()},
                      },
-                     {{"camera", cameraSpec}})},
+                     {{"camera", cameraSpec}, {"view", viewMode}})},
         {"setTheme", object({{"theme", themeSpec}})},
         {"setLabels", object({{"labels", labelsSpec}})},
         {"setLabelContent", object({{"entries", record(labelContent)}})},
@@ -319,6 +321,9 @@ struct Schemas {
         // info-card.ts, appended after the marker commands.
         {"setInfoCard", object({{"card", infoCardSpec}})},
         {"removeInfoCard", object({{"id", id}})},
+        // view.ts, appended after the info-card commands.
+        {"setView", object({{"view", viewMode}},
+                           {{"animate", anyOf({boolean, object({{"durationMs", nonNeg}})})}})},
     };
     engineCommand = discriminated("type", std::move(commands));
 
@@ -378,6 +383,7 @@ struct Schemas {
                                 {"reason", oneOfEnum<CameraIdleReason>()}})},
         {"infoCard:press", object({{"id", id}}, {{"actionId", nonEmptyString}})},
         {"infoCard:dismiss", object({{"id", id}})},
+        {"view:change", object({{"view", viewMode}, {"animating", boolean}})},
     };
     engineEvent = discriminated("type", std::move(events));
   }
