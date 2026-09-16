@@ -240,6 +240,10 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
         session->removeMarkerLayer(msg.find("layerId")->asString());
       }
       return;
+    case 22:  // setInfoCard -> holographic info cards (engine-web v1; the native views are a follow-up)
+    case 23:  // removeInfoCard
+      ignoreNotImplemented(envelope);
+      return;
     default:  // unreachable: decodeCommand rejects unknown types
       ignoreNotImplemented(envelope, "unknown command type");
       return;

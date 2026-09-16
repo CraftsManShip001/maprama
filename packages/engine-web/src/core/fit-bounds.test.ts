@@ -164,3 +164,56 @@ describe('fitBounds orientation', () => {
     expect(out.fitted).toBe(false);
   });
 });
+
+describe('elevated points (the focusOn prism)', () => {
+  /**
+   * The prism `focusOn` frames: a square footprint of `height / 2` half-width
+   * (the engine's `FOCUS_FOOTPRINT_FACTOR`) around the anchor, from the ground
+   * up to `height`. The footprint is what keeps the solve well conditioned — a
+   * bare vertical segment has no horizontal extent, and the scale-then-recentre
+   * iteration then runs away to `maxDistance`.
+   */
+  const prism = (height: number, half = height / 2) => [
+    ...box(half).map((p) => ({ ...p, y: 0 })),
+    ...box(half).map((p) => ({ ...p, y: height })),
+  ];
+
+  it('is unchanged for ground corners (`y` absent means 0)', () => {
+    const ground = fitBoundsOrbit(base({ corners: box(40) }));
+    const explicit = fitBoundsOrbit(base({ corners: box(40).map((p) => ({ ...p, y: 0 })) }));
+    expect(explicit).toEqual(ground);
+  });
+
+  it('backs off for a target that also has to fit vertically', () => {
+    const flat = fitBoundsOrbit(base({ corners: prism(0, 15) }));
+    const tall = fitBoundsOrbit(base({ corners: prism(30), startDistance: 90 }));
+    expect(tall.distance).toBeGreaterThan(flat.distance);
+    expect(tall.fitted).toBe(true);
+    expect(flat.fitted).toBe(true);
+  });
+
+  it('frames the anchor and the point above it, anchor lower on screen', () => {
+    for (const pitch of [0, 20, 30, 40, 50, 55, 60]) {
+      for (const height of [4, 30, 120]) {
+        // The engine starts the search at `FOCUS_START_HEIGHT_FACTOR × height` (see `engine.ts`):
+        // while the camera sits inside the framed column the scale step is meaningless.
+        const out = fitBoundsOrbit(base({ corners: prism(height), pitch, bearing: 0, minDistance: 0.01, startDistance: Math.max(36, height * 3) }));
+        expect(out.fitted, `pitch ${pitch}, height ${height}`).toBe(true);
+        const cam = new CameraController();
+        cam.setDistanceLimits(0.01, 1e6);
+        cam.setViewport(W, H);
+        cam.set({ x: out.x, z: out.z, distance: out.distance, pitch: out.pitch, bearing: out.bearing });
+        cam.apply();
+        const foot = cam.worldToScreen(0, 0, 0);
+        const top = cam.worldToScreen(0, height, 0);
+        if (height > 0 && pitch > 0) expect(top.y, `pitch ${pitch}, height ${height}`).toBeLessThan(foot.y);
+        for (const p of [foot, top]) {
+          expect(p.x).toBeGreaterThanOrEqual(-0.5);
+          expect(p.x).toBeLessThanOrEqual(W + 0.5);
+          expect(p.y).toBeGreaterThanOrEqual(-0.5);
+          expect(p.y).toBeLessThanOrEqual(H + 0.5);
+        }
+      }
+    }
+  });
+});

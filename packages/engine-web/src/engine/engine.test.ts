@@ -63,6 +63,27 @@ const samples: Record<Exclude<EngineCommandType, 'request'>, EngineCommand[]> = 
     },
   ],
   removeMarkerLayer: [{ type: 'removeMarkerLayer', layerId: 'poi' }],
+  setInfoCard: [
+    {
+      type: 'setInfoCard',
+      card: {
+        id: 'poi-1',
+        coordinate: c,
+        anchor: 'auto',
+        dismissible: true,
+        content: {
+          title: '스타벅스 판교점',
+          subtitle: '카페',
+          icon: 'cafe',
+          badges: [{ text: '영업 중', tone: 'good' }],
+          rating: { value: 4.3, count: 1281 },
+          rows: [{ icon: 'hours', text: '22:00 영업 종료' }],
+          actions: [{ id: 'route', label: '길찾기', primary: true }],
+        },
+      },
+    },
+  ],
+  removeInfoCard: [{ type: 'removeInfoCard', id: 'poi-1' }],
   setGeofences: [{ type: 'setGeofences', geofences: [{ id: 'g', center: c, radiusMeters: 50 }] }],
   setBuildingStyle: [{ type: 'setBuildingStyle', buildingId: 'b', style: null }],
   setOverlayAnchors: [{ type: 'setOverlayAnchors', anchors: [{ id: 'a', coordinate: c }] }],
@@ -80,6 +101,7 @@ const requests: RequestCommand[] = [
     method: 'fitBounds',
     params: { bounds: { sw: c, ne: { lng: c.lng + 0.01, lat: c.lat + 0.01 } }, padding: 24 },
   },
+  { type: 'request', requestId: 'o', method: 'focusOn', params: { coordinate: c, heightMeters: 30 } },
 ];
 
 describe('engine handler coverage', () => {
@@ -109,7 +131,7 @@ describe('engine handler coverage', () => {
     expect(codes).not.toContain(UNSUPPORTED);
     expect(codes).not.toContain(NOT_IMPLEMENTED);
     const responses = events.filter((e) => e.type === 'response');
-    expect(responses.map((r) => (r as { requestId: string }).requestId).sort()).toEqual(['f', 'p', 'r', 's', 'u']);
+    expect(responses.map((r) => (r as { requestId: string }).requestId).sort()).toEqual(['f', 'o', 'p', 'r', 's', 'u']);
     engine.destroy();
   });
 });

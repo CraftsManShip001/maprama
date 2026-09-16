@@ -15,6 +15,26 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- **Holographic info cards** (`<InfoCard>` / `setInfoCard` / `removeInfoCard`):
+  a structured place card floating over a coordinate on a beam — title,
+  subtitle, place icon, status badges, a rating, detail rows and action
+  buttons — in the same visual language as the `holo` labels. Several cards can
+  be on screen at once (`id` is the key), a card wins every collision (its box
+  becomes an exclusion for the markers and then the labels) and is never
+  cropped: it is clamped into the visible area (`ui.contentInset`) and shrinks
+  with camera distance only down to a readable size. The whole card is one
+  accessibility element read in content order, with real buttons for the
+  actions. `content` is a fixed schema, not host markup, so both engines can
+  draw the same card and app data cannot inject markup; free rendering stays
+  with `<MapOverlay>` + `project`. A card that is simply on screen holds no
+  active render source, so an idle map with cards up still draws **0 frames**.
+- `ref.focusOn(target, options)` — frames one point, and the column of air above
+  it where a card floats, and moves the camera there. `target` is a coordinate
+  or `{ infoCardId }`. Like `fitBounds` it is a *request*: it is clamped into
+  `minDistanceMeters` / `maxDistanceMeters` and reports `fitted` and
+  `distanceLimited` instead of refusing or silently disobeying, and it honours
+  `ui.contentInset` by default. **The engine never calls it by itself** — tap →
+  camera → card is wired by the app (see the guide and `example/app/info-card.tsx`).
 - `camera:idle`, a subscription topic that fires **once** when the camera comes
   to rest — 150 ms (`CAMERA_IDLE_DELAY_MS`) after the last movement of a
   gesture, a zoom button, a `setCamera` / `fitBounds` animation or a followed

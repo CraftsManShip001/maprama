@@ -9,12 +9,15 @@ import {
   CAMERA_FOV_DEG,
   CAMERA_IDLE_DELAY_MS,
   CAMERA_IDLE_HORIZON_FACTOR,
+  INFO_CARD_GROUND_HEIGHT_METERS,
   encodeEvent,
   type CameraIdleEvent,
   type CameraSpec,
   type CameraState,
   type FitBoundsParams,
   type FitBoundsResult,
+  type FocusOnParams,
+  type FocusOnResult,
   type EngineCommand,
   type EngineEvent,
   type EngineEventType,
@@ -31,8 +34,8 @@ import { Group, type Fog } from 'three';
 import { Dispatcher, EngineError, UNSUPPORTED } from '../bridge/dispatcher.js';
 import { EventEmitter, type EventListener } from '../bridge/emitter.js';
 import type { Transport } from '../bridge/transport.js';
-import { CameraController, limitsInUnits, type FollowTarget } from '../core/camera.js';
-import { fitBounds, type FitPadding } from '../core/fit-bounds.js';
+import { CameraController, limitsInUnits, NO_INSET, type FollowTarget } from '../core/camera.js';
+import { fitBounds, fitBoundsOrbit, type FitPadding, type FitPoint } from '../core/fit-bounds.js';
 import { GestureController } from '../core/gestures.js';
 import { RenderCore } from '../core/renderer.js';
 import { BuildingRenderer } from '../render/buildings.js';
@@ -52,6 +55,7 @@ import { ENGINE_NAME, ENGINE_VERSION } from '../version.js';
 import { createRequestHandlers, projectionFor } from './requests.js';
 import { Features } from './features.js';
 import { routeResult } from '../game/travel.js';
+import { groundYFor } from '../game/follower.js';
 
 export interface EngineOptions {
   transport: Transport;
@@ -72,6 +76,35 @@ export interface EngineHandle {
 
 const DEFAULT_ORBIT = { distance: 36, pitch: 50, bearing: 28 };
 const DEFAULT_ANIMATION_MS = 600;
+
+/**
+ * Half-width of the square footprint `focusOn` frames around its anchor, as a
+ * fraction of the framed height. Half the height keeps a little of the
+ * surroundings in view (a bare vertical segment has no width, so the horizontal
+ * term of the fit would be degenerate) without pulling the camera so far back
+ * that the anchor becomes a dot.
+ */
+const FOCUS_FOOTPRINT_FACTOR = 0.5;
+/** Smallest footprint half-width `focusOn` uses, in world units (a `heightMeters: 0` target still fits). */
+const FOCUS_MIN_FOOTPRINT_UNITS = 1;
+/**
+ * Space `focusOn` keeps free around the framed prism, in dp, on top of
+ * `ui.contentInset`: room for the info card's own body, which is drawn in
+ * screen pixels above the anchor and therefore not part of the world geometry.
+ */
+const FOCUS_PADDING_DP = 24;
+/**
+ * The search starts at least this many times the framed height away.
+ *
+ * `fitBoundsOrbit` scales the distance by how much the framed box over- or
+ * undershoots the viewport, and that step is meaningless while the camera sits
+ * *inside* the framed column — the top of the prism is then level with the eye
+ * and projects towards infinity, which sends the first step to the far limit
+ * and the iteration never recovers. Three times the height puts the camera
+ * comfortably above the card at every pitch (the camera's own height is
+ * `distance × cos(pitch)`, at worst 0.5 × distance at the 60° pitch cap).
+ */
+const FOCUS_START_HEIGHT_FACTOR = 3;
 
 /** Error code of the non-fatal event emitted when a requested distance range had to be narrowed. */
 export const CAMERA_LIMITS_CLAMPED = 'camera_limits_clamped';
@@ -263,6 +296,8 @@ export class Engine implements EngineHandle {
     d.register('removeDropLayer', (cmd) => f().removeDropLayer(cmd.layerId));
     d.register('setMarkerLayer', (cmd) => f().setMarkerLayer(cmd));
     d.register('removeMarkerLayer', (cmd) => f().removeMarkerLayer(cmd.layerId));
+    d.register('setInfoCard', (cmd) => f().setInfoCard(cmd.card));
+    d.register('removeInfoCard', (cmd) => f().removeInfoCard(cmd.id));
     d.register('setGeofences', (cmd) => f().setGeofences(cmd.geofences));
     d.register('setOverlayAnchors', (cmd) => f().setOverlayAnchors(cmd.anchors));
     for (const topic of ['character:position', 'travel:progress'] as const) {
@@ -312,6 +347,7 @@ export class Engine implements EngineHandle {
       return routeResult(this.worldModel, this.proj, from, to, modes);
     });
     d.registerRequest('fitBounds', (params) => this.fitBounds(params));
+    d.registerRequest('focusOn', (params) => this.focusOn(params));
   }
 
   private requireScene(): RenderCore {
@@ -484,6 +520,89 @@ export class Engine implements EngineHandle {
       fitted: out.fitted,
       distanceLimited: out.distanceLimited,
     };
+  }
+
+  /**
+   * `request{focusOn}`: frames one point and the column of air above it — where
+   * an info card floats — and moves the camera there.
+   *
+   * It reuses `fitBounds`' geometry rather than inventing a second camera
+   * solver: the target becomes a **prism** (a square footprint of
+   * `FOCUS_FOOTPRINT_FACTOR × height` around the anchor, from the anchor's own
+   * base up to `height`), and `fitBoundsOrbit` frames that prism. Two things
+   * fall out of that for free: a vertical extent means the anchor lands in the
+   * lower half of the visible area and the card in the upper half, which is
+   * exactly where they belong; and the same clamping and `fitted` /
+   * `distanceLimited` reporting apply, so `focusOn` behaves like `fitBounds`
+   * when the distance limits do not allow what was asked.
+   *
+   * An explicit `distance` is honoured by pinning the search range to it (still
+   * inside the camera limits), so the re-centring step runs unchanged.
+   */
+  private focusOn(params: FocusOnParams): FocusOnResult {
+    if (!this.worldModel) throw new EngineError('not_ready', 'no world loaded (send init first)');
+    const target = this.focusTarget(params);
+    const useInset = params.inset !== false;
+    const inset = useInset ? this.cam.inset : NO_INSET;
+    const limits = this.cam.distanceLimits;
+    const pitch = params.pitch ?? this.cam.orbit.pitch;
+    const bearing = params.bearing ?? this.cam.orbit.bearing;
+    // A pinned distance is clamped into the camera limits first, then used as the whole search
+    // range, so the iteration only re-centres.
+    const pinned = params.distance === undefined ? null : this.cam.clampDistance(this.proj.metersToUnits(params.distance));
+    const half = Math.max(FOCUS_MIN_FOOTPRINT_UNITS, target.height * FOCUS_FOOTPRINT_FACTOR);
+    const corners: FitPoint[] = [];
+    for (const y of [target.baseY, target.baseY + target.height]) {
+      corners.push(
+        { x: target.x - half, z: target.z - half, y },
+        { x: target.x + half, z: target.z - half, y },
+        { x: target.x + half, z: target.z + half, y },
+        { x: target.x - half, z: target.z + half, y },
+      );
+    }
+    const out = fitBoundsOrbit({
+      corners,
+      width: this.cam.width,
+      height: this.cam.height,
+      padding: { top: inset.top + FOCUS_PADDING_DP, right: inset.right + FOCUS_PADDING_DP, bottom: inset.bottom + FOCUS_PADDING_DP, left: inset.left + FOCUS_PADDING_DP },
+      fovDeg: CAMERA_FOV_DEG,
+      pitch,
+      bearing,
+      minDistance: pinned ?? limits.min,
+      maxDistance: pinned ?? limits.max,
+      startDistance: pinned ?? Math.max(this.cam.orbit.distance, target.height * FOCUS_START_HEIGHT_FACTOR),
+    });
+    const ms = params.animate === true ? DEFAULT_ANIMATION_MS : typeof params.animate === 'object' ? params.animate.durationMs : 0;
+    this.cam.follow(null);
+    // Same frame conversion as `fitBounds`: the solver works viewport-centred, the camera anchor
+    // is the centre of the visible area.
+    const shift = this.cam.insetShift({ distance: out.distance, pitch: out.pitch, bearing: out.bearing });
+    const ax = out.x + shift.x, az = out.z + shift.z;
+    this.cam.set({ x: ax, z: az, distance: out.distance, pitch: out.pitch, bearing: out.bearing }, ms);
+    return {
+      camera: {
+        center: this.proj.toLngLat({ x: ax, z: az }),
+        distance: this.proj.unitsToMeters(out.distance),
+        pitch: out.pitch,
+        bearing: ((out.bearing % 360) + 360) % 360,
+      },
+      fitted: out.fitted,
+      // A pinned distance is the app's instruction, so "the limits decided it" means the clamp bit.
+      distanceLimited: pinned === null ? out.distanceLimited : pinned !== this.proj.metersToUnits(params.distance!),
+    };
+  }
+
+  /** Resolves a `focusOn` target to world units: the anchor, its base height and the card height. */
+  private focusTarget(params: FocusOnParams): { x: number; z: number; baseY: number; height: number } {
+    if (params.infoCardId !== undefined) {
+      const anchor = this.features?.infoCardAnchor(params.infoCardId) ?? null;
+      if (!anchor) throw new EngineError('unknown_info_card', `unknown info card "${params.infoCardId}"`);
+      const height = params.heightMeters === undefined ? anchor.height : this.proj.metersToUnits(params.heightMeters);
+      return { x: anchor.x, z: anchor.z, baseY: anchor.baseY, height };
+    }
+    const p = this.proj.toWorld(params.coordinate!);
+    const meters = params.heightMeters ?? INFO_CARD_GROUND_HEIGHT_METERS;
+    return { x: p.x, z: p.z, baseY: groundYFor(this.worldModel?.kind), height: this.proj.metersToUnits(meters) };
   }
 
   /** Web-map zoom → camera distance in meters (vertical view span at the target). */

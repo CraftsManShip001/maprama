@@ -109,18 +109,21 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
 
     if (type == "request") {
       // project/unproject/fitBounds need an attached, laid-out native map (none here) -> not_ready;
-      // snapToRoad/route are answered by the M3a game session once a world is loaded (not_ready before).
+      // snapToRoad/route are answered by the M3a game session once a world is loaded (not_ready before);
+      // focusOn is decoded and validated but has no native implementation yet -> unsupported.
       const std::string& method = decoded.find("method")->asString();
       const bool mapMethod = method == "project" || method == "unproject" || method == "fitBounds";
-      const bool expectOk = !mapMethod && engine->worldStore().loaded();
+      const bool unimplemented = method == "focusOn";
+      const bool expectOk = !unimplemented && !mapMethod && engine->worldStore().loaded();
+      const std::string expectedCode = unimplemented ? "unsupported" : "not_ready";
       bool ok = newEvents == 1;
       if (ok) {
         Value res = sink->eventMsg(eventsBefore);
         ok = res.find("type")->asString() == "response" &&
              res.find("requestId")->asString() == decoded.find("requestId")->asString() && res.find("ok")->asBool() == expectOk;
-        if (ok && !expectOk) ok = res.find("error")->find("code")->asString() == "not_ready";
+        if (ok && !expectOk) ok = res.find("error")->find("code")->asString() == expectedCode;
       }
-      ctx.check(ok, "[" + name + "] request -> " + (expectOk ? std::string("ok") : std::string("not_ready")) + " response");
+      ctx.check(ok, "[" + name + "] request -> " + (expectOk ? std::string("ok") : expectedCode) + " response");
     } else if (name.rfind("init_url", 0) == 0) {
       // url worlds are fetched by the platform adapter (none attached here).
       bool ok = newEvents == 1;
@@ -173,6 +176,10 @@ MAPRAMA_TEST(engine_skeleton_behaviour) {
       // M5: handled by the session's `MarkerSystem` (no "not implemented" warning). Nothing is emitted —
       // marker cards need a map view, and there is none here.
       ctx.check(newEvents == 0 && !notImplemented, "[" + name + "] handled by the marker system");
+    } else if (type == "setInfoCard" || type == "removeInfoCard") {
+      // Info cards are implemented by engine-web (v1); the native core decodes and validates them, then
+      // warn-logs and ignores them until the native views land (DESIGN.md §5.1, M5).
+      ctx.check(newEvents == 0 && notImplemented, "[" + name + "] warn-logged as an ignored command");
     } else {
       ctx.check(false, "[" + name + "] command type not covered by the dispatcher test");
     }

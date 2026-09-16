@@ -2,7 +2,7 @@
  * `@maprama/react-native`: a 2.5D game map for React Native.
  *
  * - {@link MapramaView} with {@link Character}, {@link CharacterLayer}, {@link DropLayer},
- *   {@link MarkerLayer}, {@link Geofence} and {@link MapOverlay} children.
+ *   {@link MarkerLayer}, {@link InfoCard}, {@link Geofence} and {@link MapOverlay} children.
  * - Imperative API via `ref` ({@link MapramaViewRef}) or {@link useMapramaView}.
  * - Opt-in continuous values with {@link useCharacterPosition}, {@link useCameraState}
  *   and {@link useCameraIdle} ("the camera stopped; here is what is on screen").
@@ -23,6 +23,7 @@ export {
   shouldRestoreRejectedDrop,
 } from './components/DropLayer';
 export { Geofence } from './components/Geofence';
+export { InfoCard } from './components/InfoCard';
 export { MapOverlay } from './components/MapOverlay';
 export {
   MarkerLayer,
@@ -87,8 +88,13 @@ export type {
   DropLayerProps,
   EngineEventOf,
   FitBoundsOptions,
+  FocusOnOptions,
+  FocusOnTarget,
   GeofenceEventInfo,
   GeofenceProps,
+  InfoCardDismissInfo,
+  InfoCardPressInfo,
+  InfoCardProps,
   LabelContentFunction,
   MapOverlayAnchor,
   MapOverlayProps,
@@ -109,6 +115,11 @@ export {
   CAMERA_IDLE_DELAY_MS,
   CAMERA_IDLE_HORIZON_FACTOR,
   CAMERA_IDLE_REASONS,
+  INFO_BADGE_TONES,
+  INFO_CARD_ANCHORS,
+  INFO_CARD_GROUND_HEIGHT_METERS,
+  INFO_CARD_ROOF_HEIGHT_METERS,
+  INFO_ROW_ICONS,
   visibleSpanMeters,
 } from '@maprama/protocol';
 export type {
@@ -125,6 +136,13 @@ export type {
   FitBoundsPadding,
   FitBoundsParams,
   FitBoundsResult,
+  FocusOnParams,
+  FocusOnResult,
+  InfoCardAnchor,
+  InfoCardContent,
+  InfoCardSpec,
+  InfoBadgeTone,
+  InfoRowIcon,
   LabelContent,
   LabelInfo,
   LngLat,

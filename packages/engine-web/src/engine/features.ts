@@ -20,6 +20,7 @@
 import type {
   CharacterSpec,
   GeofenceSpec,
+  InfoCardSpec,
   LabelContent,
   LocationFix,
   LocationSourceKind,
@@ -45,7 +46,9 @@ import { TravelManager } from '../game/travel.js';
 import { ensureLabelStyles } from '../labels/dom-styles.js';
 import { LabelController } from '../labels/controller.js';
 import { hudExclusions, overlaps, type Box } from '../labels/index.js';
+import { defaultCardHeightMeters, InfoCards, type InfoCardAnchorPoint } from '../labels/info-card.js';
 import { MarkerLayers, type MarkerPress } from '../labels/markers.js';
+import { pointInPolygon } from '../world/polygon.js';
 import type { SceneApi, SubscriptionHandler } from '../scene-api.js';
 import { Attribution } from '../ui/attribution.js';
 import { LocationPuck } from '../ui/puck.js';
@@ -72,6 +75,7 @@ export class Features {
   readonly traffic = new AmbientTraffic();
   readonly labels: LabelController;
   readonly markers: MarkerLayers;
+  readonly infoCards: InfoCards;
   readonly puck = new LocationPuck();
   readonly positionTopic = new ThrottledTopic();
   readonly progressTopic = new ThrottledTopic();
@@ -85,6 +89,7 @@ export class Features {
   private content: Record<string, LabelContent> = {};
   private dropLayers = new Map<string, SetDropLayerCommand>();
   private markerBoxes: Box[] = [];
+  private infoCardBoxes: Box[] = [];
   private geofenceSpecs: GeofenceSpec[] = [];
   private pendingChars: CharacterSpec[] = [];
   private lastPosition = new Map<string, string>();
@@ -119,6 +124,15 @@ export class Features {
     this.markers = new MarkerLayers(
       () => this.labels.domLayer(),
       (press) => this.emitMarkerPress(press),
+    );
+    this.infoCards = new InfoCards(
+      () => this.labels.domLayer(),
+      (press) => scene.emit(press.actionId === undefined
+        ? { type: 'infoCard:press', id: press.id }
+        : { type: 'infoCard:press', id: press.id, actionId: press.actionId }),
+      (id) => scene.emit({ type: 'infoCard:dismiss', id }),
+      (spec) => this.resolveInfoCardAnchor(spec),
+      (buildingId) => scene.building(buildingId)?.top.y ?? null,
     );
     this.routes.name = 'routes';
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
@@ -246,6 +260,58 @@ export class Features {
   }
 
   /**
+   * Creates or replaces one info card. The engine only draws it: opening it on
+   * a press and moving the camera (`focusOn`) stay the host's decisions.
+   */
+  setInfoCard(card: InfoCardSpec): void {
+    this.infoCards.setCard(card, performance.now());
+  }
+
+  removeInfoCard(id: string): void {
+    this.infoCards.removeCard(id, performance.now());
+  }
+
+  /** The resolved world anchor of an info card (`focusOn { infoCardId }`). */
+  infoCardAnchor(id: string): InfoCardAnchorPoint | null {
+    const a = this.infoCards.anchorOf(id);
+    if (!a) return null;
+    // Same refresh as the draw pass: a roof anchor follows the zoom-out squash.
+    if (a.buildingId !== undefined) {
+      const y = this.scene.building(a.buildingId)?.top.y;
+      if (y !== undefined) a.baseY = y;
+    }
+    return a;
+  }
+
+  /**
+   * Resolves a card's anchor in world units. `roof` / `auto` look for a
+   * building whose footprint contains the coordinate — once per command, not
+   * per frame, because it is a linear scan over the world's footprints.
+   */
+  private resolveInfoCardAnchor(spec: InfoCardSpec): InfoCardAnchorPoint | null {
+    const world = this.scene.world();
+    if (!world) return null;
+    const proj = this.scene.projection();
+    const p = proj.toWorld(spec.coordinate);
+    let baseY = this.groundY();
+    let buildingId: string | undefined;
+    if (spec.anchor !== 'ground') {
+      for (const b of world.buildings) {
+        if (!pointInPolygon(p.x, p.z, b.footprint)) continue;
+        const info = this.scene.building(b.id);
+        if (!info) break;
+        baseY = info.top.y;
+        buildingId = b.id;
+        break;
+      }
+    }
+    const meters = spec.heightMeters ?? defaultCardHeightMeters(buildingId !== undefined);
+    const anchor: InfoCardAnchorPoint = { x: p.x, z: p.z, baseY, height: proj.metersToUnits(meters) };
+    if (buildingId !== undefined) anchor.buildingId = buildingId;
+    return anchor;
+  }
+
+  /**
    * Emits `marker:press` when a press at CSS pixel coordinates hits a visible
    * marker. The engine calls this before picking buildings or the ground, so a
    * marker press never also produces `building:press` / `map:press`.
@@ -290,6 +356,7 @@ export class Features {
     this.fenceVisuals.clear();
     this.traffic.clear();
     this.markers.dispose();
+    this.infoCards.dispose();
     this.labels.dispose();
     this.puck.dispose();
     if (this.ui) {
@@ -336,6 +403,7 @@ export class Features {
     for (const d of this.collector.layerIds()) for (const s of this.collector.removeLayer(d)) this.dropVisuals.remove(s);
     for (const cmd of this.dropLayers.values()) this.applyDropLayer(cmd, world);
     this.markers.reproject(newProj);
+    this.infoCards.reproject();
     this.applyGeofences(world);
     this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
     this.lastPosition.clear();
@@ -472,6 +540,9 @@ export class Features {
     // A holo card is only marked as fading out here, so its source is picked up after projection
     // (in `frame` it would be one frame stale, and the card would never leave the layout).
     this.hold('labels', this.labels.animating);
+    // Info cards hold a source only while a card plays its entrance or exit transition: a card
+    // that is simply on screen must not keep the loop awake (see `scripts/idle-frames.mjs`).
+    this.hold('infoCards', this.infoCards.animating);
   }
 
   private project(): void {
@@ -482,9 +553,13 @@ export class Features {
     if (!world) return;
     const ui = this.scene.ui();
     const exclusions = hudExclusions(cam.width, cam.height, ui, cam.inset);
-    // Markers are placed first and reserve their boxes for the label pass.
-    this.markerBoxes = this.markers.update(cam, exclusions, this.groundY());
-    this.labels.update(this.content, ui, this.groundY(), now, this.markerBoxes);
+    // Info cards win every collision: they are placed first, never dropped, and their boxes
+    // become exclusions for the markers and then for the labels.
+    this.infoCardBoxes = this.infoCards.update(cam, this.scene.projection(), now);
+    const beforeMarkers = this.infoCardBoxes.length ? [...exclusions, ...this.infoCardBoxes] : exclusions;
+    this.markerBoxes = this.markers.update(cam, beforeMarkers, this.groundY());
+    const reserved = this.infoCardBoxes.length ? [...this.infoCardBoxes, ...this.markerBoxes] : this.markerBoxes;
+    this.labels.update(this.content, ui, this.groundY(), now, reserved);
     if (this.chars.chars.size) this.chars.updateTags(cam, this.scene.zoomOutFactor(), this.labels.domLayer(), exclusions);
     if (this.puck.group.visible) {
       // Keep the puck out of the HUD margins (attribution, scale bar, zoom buttons, screen edges). The marker

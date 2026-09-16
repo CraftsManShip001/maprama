@@ -138,6 +138,22 @@ struct Schemas {
         {{"category", oneOfEnum<PoiCategory>()}, {"subtitle", str}});
     const Check labelContent = object({{"title", str}}, {{"subtitle", str}, {"icon", oneOfEnum<LabelIcon>()}});
 
+    // info-card.ts
+    const Check infoCardContent =
+        object({{"title", str}}, {{"subtitle", str},
+                                  {"icon", oneOfEnum<LabelIcon>()},
+                                  {"badges", array(object({{"text", str}}, {{"tone", oneOfEnum<InfoBadgeTone>()}}))},
+                                  {"rating", object({{"value", number}}, {{"count", nonNeg}})},
+                                  {"rows", array(object({{"text", str}}, {{"icon", oneOfEnum<InfoRowIcon>()}}))},
+                                  {"actions", array(object({{"id", nonEmptyString}, {"label", str}},
+                                                           {{"primary", boolean}}))}});
+    const Check infoCardSpec =
+        object({{"id", nonEmptyString}, {"coordinate", lngLat}, {"content", infoCardContent}},
+               {{"anchor", oneOfEnum<InfoCardAnchor>()},
+                {"heightMeters", positiveNumber},
+                {"beam", boolean},
+                {"dismissible", boolean}});
+
     // entities.ts
     const Check modelSource = object({{"uri", nonEmptyString}});
     Fields animationFields;
@@ -234,6 +250,21 @@ struct Schemas {
                               {"bearing", number},
                               {"orientation", oneOf({"auto", "keep", "reset"})},
                               {"animate", anyOf({boolean, object({{"durationMs", nonNeg}})})}})},
+        // Appended after `fitBounds`, mirroring messages.ts.
+        {"focusOn",
+         [fields = object({}, {{"coordinate", lngLat},
+                               {"infoCardId", nonEmptyString},
+                               {"distance", positiveNumber},
+                               {"pitch", range(0, 90)},
+                               {"bearing", number},
+                               {"heightMeters", nonNeg},
+                               {"animate", anyOf({boolean, object({{"durationMs", nonNeg}})})},
+                               {"inset", boolean}})](const Value* v, const std::string& p) -> Error {
+           if (Error err = fields(v, p)) return err;
+           const int given = (v->find("coordinate") != nullptr ? 1 : 0) + (v->find("infoCardId") != nullptr ? 1 : 0);
+           if (given == 1) return std::nullopt;
+           return p + ": exactly one of \"coordinate\" / \"infoCardId\" is required";
+         }},
     };
     const Check subscriptionTopic = oneOfEnum<SubscriptionTopic>();
     const Check requestHeader =
@@ -285,6 +316,9 @@ struct Schemas {
                                    {"size", positiveNumber},
                                    {"anchor", oneOf({"bottom", "center", "top"})}})},
         {"removeMarkerLayer", object({{"layerId", id}})},
+        // info-card.ts, appended after the marker commands.
+        {"setInfoCard", object({{"card", infoCardSpec}})},
+        {"removeInfoCard", object({{"id", id}})},
     };
     engineCommand = discriminated("type", std::move(commands));
 
@@ -342,6 +376,8 @@ struct Schemas {
                                 {"bounds", lngLatBounds},
                                 {"radiusMeters", nonNeg},
                                 {"reason", oneOfEnum<CameraIdleReason>()}})},
+        {"infoCard:press", object({{"id", id}}, {{"actionId", nonEmptyString}})},
+        {"infoCard:dismiss", object({{"id", id}})},
     };
     engineEvent = discriminated("type", std::move(events));
   }

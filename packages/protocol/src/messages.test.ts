@@ -208,7 +208,53 @@ const commands: CommandFixtures = {
       method: 'fitBounds',
       params: { bounds: { sw: here, ne: there }, padding: 24, pitch: 0, bearing: 90, orientation: 'keep' },
     },
+    { type: 'request', requestId: 'q8', method: 'focusOn', params: { coordinate: here } },
+    {
+      type: 'request',
+      requestId: 'q9',
+      method: 'focusOn',
+      params: {
+        infoCardId: 'poi-3821',
+        distance: 180,
+        pitch: 55,
+        bearing: 20,
+        heightMeters: 12,
+        animate: { durationMs: 600 },
+        inset: false,
+      },
+    },
   ],
+  setInfoCard: [
+    {
+      type: 'setInfoCard',
+      card: {
+        id: 'poi-3821',
+        coordinate: here,
+        anchor: 'roof',
+        heightMeters: 12,
+        beam: true,
+        dismissible: true,
+        content: {
+          title: '스타벅스 판교점',
+          subtitle: '카페',
+          icon: 'cafe',
+          badges: [{ text: '영업 중', tone: 'good' }, { text: '주차 가능' }],
+          rating: { value: 4.3, count: 1281 },
+          rows: [
+            { icon: 'hours', text: '22:00 영업 종료' },
+            { icon: 'location', text: '성남시 분당구 …' },
+            { icon: 'phone', text: '031-000-0000' },
+          ],
+          actions: [
+            { id: 'route', label: '길찾기', primary: true },
+            { id: 'call', label: '전화' },
+          ],
+        },
+      },
+    },
+    { type: 'setInfoCard', card: { id: 'bare', coordinate: there, content: { title: 'Only a title' } } },
+  ],
+  removeInfoCard: [{ type: 'removeInfoCard', id: 'poi-3821' }],
 };
 
 const events: EventFixtures = {
@@ -273,20 +319,24 @@ const events: EventFixtures = {
     },
     { type: 'response', requestId: 'q5', ok: false, error: { code: 'unsupported', message: 'route not implemented' } },
   ],
+  'infoCard:press': [
+    { type: 'infoCard:press', id: 'poi-3821' },
+    { type: 'infoCard:press', id: 'poi-3821', actionId: 'route' },
+  ],
+  'infoCard:dismiss': [{ type: 'infoCard:dismiss', id: 'poi-3821' }],
 };
 
 describe('fixtures cover the protocol', () => {
   it('has fixtures for every command and event type', () => {
     expect(Object.keys(commands).sort()).toEqual([...ENGINE_COMMAND_TYPES].sort());
     expect(Object.keys(events).sort()).toEqual([...ENGINE_EVENT_TYPES].sort());
-    expect(ENGINE_COMMAND_TYPES).toHaveLength(22);
-    expect(ENGINE_EVENT_TYPES).toHaveLength(18);
+    expect(ENGINE_COMMAND_TYPES).toHaveLength(24);
+    expect(ENGINE_EVENT_TYPES).toHaveLength(20);
     // New messages are appended, so the index of an existing one never moves.
-    expect(ENGINE_COMMAND_TYPES.slice(-2)).toEqual(['setMarkerLayer', 'removeMarkerLayer']);
-    expect(ENGINE_EVENT_TYPES.at(-1)).toBe('camera:idle');
-    expect(ENGINE_EVENT_TYPES.at(-2)).toBe('marker:press');
+    expect(ENGINE_COMMAND_TYPES.slice(-4)).toEqual(['setMarkerLayer', 'removeMarkerLayer', 'setInfoCard', 'removeInfoCard']);
+    expect(ENGINE_EVENT_TYPES.slice(-4)).toEqual(['marker:press', 'camera:idle', 'infoCard:press', 'infoCard:dismiss']);
     expect(SUBSCRIPTION_TOPICS.at(-1)).toBe('camera:idle');
-    expect(REQUEST_METHODS.at(-1)).toBe('fitBounds');
+    expect(REQUEST_METHODS.at(-1)).toBe('focusOn');
     expect(PROTOCOL_VERSION).toBe(1);
   });
 });
@@ -440,6 +490,42 @@ describe('rejects malformed messages without throwing', () => {
         '$.msg.params.orientation',
       ],
       [{ type: 'request', requestId: 'q', method: 'fitBounds', params: {} }, '$.msg.params.bounds'],
+      // focusOn: exactly one target, and the same field types as setCamera / fitBounds.
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: {} }, '$.msg.params'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, infoCardId: 'c' } }, '$.msg.params'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { infoCardId: '' } }, '$.msg.params.infoCardId'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, distance: 0 } }, '$.msg.params.distance'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, pitch: 120 } }, '$.msg.params.pitch'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, heightMeters: -1 } }, '$.msg.params.heightMeters'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, inset: 'yes' } }, '$.msg.params.inset'],
+      [{ type: 'request', requestId: 'q', method: 'focusOn', params: { coordinate: here, animate: 'slow' } }, '$.msg.params.animate'],
+      [{ type: 'setInfoCard', card: { coordinate: here, content: { title: 't' } } }, '$.msg.card.id'],
+      [{ type: 'setInfoCard', card: { id: 'c', coordinate: here } }, '$.msg.card.content'],
+      [{ type: 'setInfoCard', card: { id: 'c', coordinate: here, content: {} } }, '$.msg.card.content.title'],
+      [{ type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't' }, anchor: 'sky' } }, '$.msg.card.anchor'],
+      [{ type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't' }, heightMeters: 0 } }, '$.msg.card.heightMeters'],
+      [
+        { type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't', icon: 'teapot' } } },
+        '$.msg.card.content.icon',
+      ],
+      [
+        { type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't', badges: [{ text: 'x', tone: 'loud' }] } } },
+        '$.msg.card.content.badges[0].tone',
+      ],
+      [
+        { type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't', rows: [{ text: 'x', icon: 'wifi' }] } } },
+        '$.msg.card.content.rows[0].icon',
+      ],
+      [
+        { type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't', rating: { value: 4, count: -1 } } } },
+        '$.msg.card.content.rating.count',
+      ],
+      [
+        { type: 'setInfoCard', card: { id: 'c', coordinate: here, content: { title: 't', actions: [{ label: 'go' }] } } },
+        '$.msg.card.content.actions[0].id',
+      ],
+      [{ type: 'removeInfoCard' }, '$.msg.id'],
+      [{ type: 'removeInfoCard', id: '' }, '$.msg.id'],
       [{ type: 'setGeofences', geofences: [{ id: 'g', center: here, radiusMeters: 0 }] }, '$.msg.geofences[0].radiusMeters'],
       [{ type: 'removeCharacters', ids: 'me' }, '$.msg.ids'],
     ];
@@ -512,6 +598,9 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'overlay:positions', positions: [{ id: 'o', x: 1, y: 2 }] }, '$.msg.positions[0].visible'],
       [{ type: 'labelsIndex', labels: [{ id: 'l', kind: 'shop', name: 'x', lngLat: here }] }, '$.msg.labels[0].kind'],
       [{ type: 'marker:press', layerId: 'poi', markerId: 'm', coordinate: here }, '$.msg.point'],
+      [{ type: 'infoCard:press' }, '$.msg.id'],
+      [{ type: 'infoCard:press', id: 'c', actionId: '' }, '$.msg.actionId'],
+      [{ type: 'infoCard:dismiss', id: 7 }, '$.msg.id'],
       [{ type: 'marker:press', layerId: 'poi', markerId: 'm', coordinate: here, point: { x: 1 } }, '$.msg.point.y'],
       [{ type: 'marker:press', layerId: 'poi', markerId: '', coordinate: here, point: { x: 1, y: 2 } }, '$.msg.markerId'],
       [{ type: 'response', requestId: 'q', ok: true }, '$.msg.result'],
