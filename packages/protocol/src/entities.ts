@@ -278,6 +278,25 @@ export interface CameraSpec {
   maxDistanceMeters?: number;
 }
 
+/**
+ * Space along the edges of the map view that app chrome covers, in
+ * density-independent pixels. Every side defaults to 0.
+ *
+ * The map keeps rendering across the whole view — only the *visible area*
+ * (the view minus the inset) changes, and with it everything that means "where
+ * the user is looking": the camera centre, `follow` centring, the engine
+ * ornaments, label / marker placement, `overlay:positions` visibility and the
+ * `bounds` / `radiusMeters` of `camera:idle`.
+ *
+ * @see {@link MapUiSpec.contentInset}
+ */
+export interface ContentInset {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
 /** Map UI elements drawn by the engine. */
 export interface MapUiSpec {
   /** Location puck with accuracy ring. */
@@ -286,6 +305,30 @@ export interface MapUiSpec {
   zoomButtons?: boolean;
   /** Data attribution text (required by data licenses when shipping real data). */
   attribution?: boolean;
+  /**
+   * Space app chrome (a bottom sheet, a top bar…) covers along the edges of the
+   * map view, in dp. Unset sides are 0.
+   *
+   * The engine keeps drawing the whole view; the inset moves what the user is
+   * meant to see and touch into the remaining rectangle:
+   *
+   * - a `setCamera` `center` lands at the centre of the **visible** area, and
+   *   the camera state the engine reports (`camera:change`, `camera:idle`,
+   *   `fitBounds`) is that same point;
+   * - a followed character stays centred in the visible area;
+   * - the ornaments (`scaleBar`, `zoomButtons`, `attribution`) move inside it,
+   *   so a sheet can never cover the attribution while `attribution` is on;
+   * - labels and markers are placed and clamped inside it;
+   * - `ScreenPoint.visible` (`project`, `overlay:positions`) means "inside the
+   *   visible area";
+   * - `camera:idle` reports the ground `bounds` and `radiusMeters` of the
+   *   visible area.
+   *
+   * It does **not** change the screen coordinate frame: `project` and
+   * `unproject` keep working in full-view pixels with the origin at the top
+   * left of the whole map view (see {@link ScreenPoint}).
+   */
+  contentInset?: ContentInset;
 }
 
 /** @internal */
@@ -391,7 +434,19 @@ export const checkCameraSpec: Check = object(
 );
 
 /** @internal */
+export const checkContentInset: Check = object(
+  {},
+  { top: nonNegativeNumber, right: nonNegativeNumber, bottom: nonNegativeNumber, left: nonNegativeNumber },
+);
+
+/** @internal */
 export const checkMapUiSpec: Check = object(
   {},
-  { locationPuck: boolean, scaleBar: boolean, zoomButtons: boolean, attribution: boolean },
+  {
+    locationPuck: boolean,
+    scaleBar: boolean,
+    zoomButtons: boolean,
+    attribution: boolean,
+    contentInset: checkContentInset,
+  },
 );

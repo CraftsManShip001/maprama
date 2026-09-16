@@ -111,6 +111,7 @@ export type {
   BuildingStyle,
   CameraSpec,
   CharacterSpec,
+  ContentInset,
   DropSpec,
   DropType,
   GeofenceSpec,
@@ -130,6 +131,9 @@ export type {
 } from './entities.js';
 
 export {
+  CAMERA_IDLE_DELAY_MS,
+  CAMERA_IDLE_HORIZON_FACTOR,
+  CAMERA_IDLE_REASONS,
   ENGINE_COMMAND_TYPES,
   ENGINE_EVENT_TYPES,
   ENGINE_KINDS,
@@ -147,6 +151,8 @@ export {
 export type {
   BuildingPressEvent,
   CameraChangeEvent,
+  CameraIdleEvent,
+  CameraIdleReason,
   CameraState,
   CancelTravelCommand,
   CharacterPositionEvent,
