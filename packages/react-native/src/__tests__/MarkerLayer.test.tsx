@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render } from '@testing-library/react-native';
 import type { LngLat } from '@maprama/protocol';
 import { MapramaView, MarkerLayer, resolveMarkerIcon } from '../index';
-import { READY, clearPosted, commands, commandTypes, commandsOf, emit, nextFrame, webViewInstances } from './helpers';
+import { READY, clearPosted, commands, commandTypes, commandsOf, emit, nextFrame, pendingFrames, webViewInstances } from './helpers';
 
 const WORLD = { kind: 'procedural', layout: 'town' } as const;
 const A: LngLat = { lng: 127.056, lat: 37.544 };
@@ -115,6 +115,29 @@ describe('MarkerLayer', () => {
     expect(commandTypes()).toEqual(['setMarkerLayer']);
     expect(commandsOf('setMarkerLayer')[0]!.selectedId).toBe('p2');
     expect(commandsOf('setMarkerLayer')[0]!.markers).toEqual(after.markers);
+    await unmount();
+  });
+
+  it('does no per-frame work: 60 markers cost one command and nothing while the map keeps rendering', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: `m${i}`,
+      coord: { lng: 127.05 + i * 0.0002, lat: 37.54 + (i % 7) * 0.0002 },
+      faction: (i % 2 === 0 ? 'blue' : 'red') as Poi['faction'],
+      title: `POI ${i}`,
+      rank: 60 - i,
+    }));
+    const { unmount } = await render(tree(many, 'm0'));
+    await emit(READY);
+    await nextFrame();
+    expect(commandTypes().filter((t) => t === 'setMarkerLayer')).toHaveLength(1);
+    expect(commandsOf('setMarkerLayer')[0]!.markers).toHaveLength(60);
+
+    // Panning and zooming happen inside the engine. Nothing schedules a flush here,
+    // so further frames post nothing at all.
+    clearPosted();
+    for (let i = 0; i < 10; i++) await nextFrame();
+    expect(commands()).toEqual([]);
+    expect(pendingFrames()).toBe(0);
     await unmount();
   });
 
