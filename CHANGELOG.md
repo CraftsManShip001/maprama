@@ -66,6 +66,24 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Fixed
 
+- engine-web: a `WorldData` world no longer gets a building that is not in the
+  data. When such a world had a `plaza` with no footprint over or near it, the
+  engine synthesised an 8-unit glass landmark tower at that point — a building
+  that does not exist on the ground, invisible in the building count (it was
+  added after the count), and animated, so its spinning top also kept the
+  on-demand render loop awake forever. The `plaza` itself is unchanged: it
+  still draws the plaza ground and benches and still frames the default
+  camera. Maps that relied on that decoration should add a real building to
+  `buildings[]`, or place their own overlay, model or character at the plaza
+  coordinates. The procedural `town` and `grid` layouts are untouched and keep
+  their landmark — those worlds are generated, not real-world data.
+- `@maprama/osm`: `build` now warns on stderr when the `plaza` it emits is more
+  than 15 m from every building footprint (and inside none), reporting the
+  distance to the nearest one. The output is unchanged — a square in open space
+  is correct data — but anything anchored at `world.plaza` will have nothing
+  under it, and that is now visible at build time instead of being papered over
+  by a fake tower. `buildWorld()` gained an optional `warn` sink for the same
+  messages; without it nothing is logged.
 - Walk / run animation cadence now follows the ground a character actually
   covers (metres per second) instead of its speed in world units, so the walk
   clip plays at 1× at the natural walking speed (4.8 km/h) at every world scale
