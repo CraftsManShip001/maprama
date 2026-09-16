@@ -159,6 +159,21 @@ Station nodes with the same name within 500 m are merged into one station at
 their mean position. `plaza` is the named square closest to the origin, if
 there is one.
 
+A square is often a genuinely open space, so `build` writes a warning to stderr
+when the emitted `plaza` is more than 15 m from every building footprint (and is
+not inside one):
+
+```
+warning: plaza "성수광장" at (0.25, 0.38) stands in open space — the nearest building footprint is 21.6 m away.
+  That is fine, and the plaza is emitted as-is; but a renderer that anchors something at world.plaza will have nothing under it.
+```
+
+Nothing changes in the output — the plaza is real data and is written either
+way. The warning exists because `plaza` is an anchor point, and a map that puts
+a marker, a model or a geofence there should know there is no building under it.
+Renderers must not invent one: Maprama's engine draws the plaza ground and
+nothing else.
+
 **Other layers:**
 
 - **Districts:** `place=neighbourhood|quarter|suburb` nodes, plus one label per named water body (`water: true`).

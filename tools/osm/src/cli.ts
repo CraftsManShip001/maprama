@@ -122,7 +122,7 @@ async function toBuildOptions(flags: BuildFlags, name: string): Promise<BuildWor
 }
 
 async function runBuild(raw: OverpassResponse, out: string, options: BuildWorldOptions, io: CliIO): Promise<void> {
-  const { world, stats } = buildWorldWithStats(raw, options);
+  const { world, stats } = buildWorldWithStats(raw, { ...options, warn: io.stderr });
   const text = stringifyWorld(world);
   await writeText(out, text);
   const bytes = Buffer.byteLength(text);

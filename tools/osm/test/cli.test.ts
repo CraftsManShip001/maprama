@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,32 @@ describe('maprama-osm CLI', () => {
     const stats = JSON.parse(c.out[0]!) as { valid: boolean; buildings: number };
     expect(stats.valid).toBe(true);
     expect(stats.buildings).toBe(world.buildings.length);
+  });
+
+  it('build warns on stderr when the plaza stands in open space, and still writes it', async () => {
+    const raw = JSON.parse(readFileSync(fixture('basic.overpass.json'), 'utf8')) as {
+      elements: { type: string; id: number; lat?: number; lon?: number }[];
+    };
+    const plazaNode = raw.elements.find((e) => e.type === 'node' && e.id === 108)!;
+    plazaNode.lat = 37.543425; // empty ground south of every building
+    plazaNode.lon = 127.056;
+    const rawPath = join(dir, 'open-plaza.overpass.json');
+    writeFileSync(rawPath, JSON.stringify(raw));
+
+    const out = join(dir, 'world-open-plaza.json');
+    const c = capture();
+    expect(await main(['build', '--raw', rawPath, '--out', out, '--name', 'CLI plaza'], c.io)).toBe(0);
+    expect(c.err.join('\n')).toContain('stands in open space');
+    expect(c.err.join('\n')).toContain('will have nothing under it');
+    // the plaza is legitimate data and is written either way
+    expect((JSON.parse(readFileSync(out, 'utf8')) as WorldData).plaza).toBeDefined();
+
+    // the unmoved fixture plaza sits a few metres from a footprint: silence
+    const quiet = capture();
+    const quietOut = join(dir, 'world-covered-plaza.json');
+    expect(await main(['build', '--raw', fixture('basic.overpass.json'), '--out', quietOut, '--name', 'CLI plaza'], quiet.io)).toBe(0);
+    expect(quiet.err).toEqual([]);
+    expect((JSON.parse(readFileSync(quietOut, 'utf8')) as WorldData).plaza).toBeDefined();
   });
 
   it('build accepts --origin lat,lng and --unit-meters', async () => {

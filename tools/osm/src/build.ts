@@ -1,6 +1,7 @@
 /**
  * `buildWorld`: turns an Overpass JSON payload into `WorldData` v1. Pure (no
- * I/O), deterministic for a given input and options.
+ * I/O of its own — warnings go to the caller's `warn` sink), deterministic for
+ * a given input and options.
  *
  * @module
  */
@@ -42,6 +43,7 @@ import {
   interiorPoint,
   openRing,
   pointInRect,
+  pointInRing,
   rectsOverlap,
   removeCollinear,
   ringArea,
@@ -93,6 +95,12 @@ export interface BuildWorldOptions {
   minAreaM2?: number;
   /** Extra attribution lines appended after the OSM (and KR) lines. */
   attribution?: string[];
+  /**
+   * Sink for non-fatal build warnings; the CLI passes its stderr writer. The
+   * build stays pure and deterministic — a warning never changes what is
+   * emitted, and without this option nothing is logged.
+   */
+  warn?: (message: string) => void;
 }
 
 /** Build statistics. */
@@ -124,6 +132,27 @@ export interface BuildWorldResult {
 }
 
 const STATION_MERGE_METERS = 500;
+
+/**
+ * A plaza further than this from every building footprint is reported as
+ * standing in open space (see {@link BuildWorldOptions.warn}).
+ */
+export const PLAZA_CLEAR_METERS = 15;
+
+/** Distance from `p` to a ring, in the ring's units; 0 when `p` is inside it. */
+function distanceToRing(p: Vec2, ring: readonly Vec2[]): number {
+  if (pointInRing(p, ring)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, az] = ring[i]!;
+    const [bx, bz] = ring[(i + 1) % ring.length]!;
+    const dx = bx - ax, dz = bz - az;
+    const len2 = dx * dx + dz * dz;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / len2)) : 0;
+    best = Math.min(best, Math.hypot(p[0] - (ax + t * dx), p[1] - (az + t * dz)));
+  }
+  return best;
+}
 
 /** Extent of every coordinate in the payload. Throws when there is none. */
 export function inferBBox(raw: OverpassResponse): BBox {
@@ -468,6 +497,22 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
 
   // Plaza: the named square closest to the origin.
   const squares = pois.filter((p) => p.cat === 'plaza').sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+  const plazaPoi = squares[0];
+  if (plazaPoi && options.warn) {
+    const gaps = buildings.map((b) => distanceToRing([plazaPoi.x, plazaPoi.z], b.footprint));
+    const gap = gaps.length > 0 ? Math.min(...gaps) * unitMeters : Infinity;
+    if (gap > PLAZA_CLEAR_METERS) {
+      const near = Number.isFinite(gap)
+        ? `the nearest building footprint is ${gap.toFixed(1)} m away`
+        : 'this world has no building footprints at all';
+      options.warn(
+        `warning: plaza "${plazaPoi.name}" at (${plazaPoi.x}, ${plazaPoi.z}) stands in open space — ${near}.`,
+      );
+      options.warn(
+        '  That is fine, and the plaza is emitted as-is; but a renderer that anchors something at world.plaza will have nothing under it.',
+      );
+    }
+  }
 
   const attribution = [OSM_ATTRIBUTION, ...(kr ? [KR_ATTRIBUTION] : []), ...(options.attribution ?? [])].filter(
     (line, i, all) => all.indexOf(line) === i,

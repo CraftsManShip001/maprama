@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { validateWorldData, type WorldData } from '@maprama/protocol';
 import { OSM_ATTRIBUTION, KR_ATTRIBUTION, buildWorld, buildWorldWithStats, stringifyWorld } from '../src/build.js';
 import { signedArea } from '../src/geometry.js';
-import type { OverpassResponse } from '../src/types.js';
+import type { OverpassNode, OverpassResponse } from '../src/types.js';
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as unknown;
@@ -154,6 +154,70 @@ describe('buildWorld (fixture)', () => {
     expect(() =>
       buildWorld(raw, { name: 'x', bbox: { south: 1, west: 1, north: 0, east: 2 } }),
     ).toThrow(RangeError);
+  });
+});
+
+describe('plaza warning', () => {
+  const run = (payload: OverpassResponse): { warnings: string[]; world: WorldData } => {
+    const warnings: string[] = [];
+    const world = buildWorld(payload, { name: 'Fixture', warn: (m) => warnings.push(m) });
+    return { warnings, world };
+  };
+  // the emitted document must be byte-identical with and without the warn sink
+  const emitted = (payload: OverpassResponse): string => stringifyWorld(buildWorld(payload, { name: 'Fixture' }));
+
+  const moveplaza = (lat: number, lon: number): OverpassResponse => {
+    const clone = structuredClone(raw);
+    const node = clone.elements.find((e): e is OverpassNode => e.type === 'node' && e.id === 108)!;
+    node.lat = lat;
+    node.lon = lon;
+    return clone;
+  };
+
+  it('warns that a plaza standing in open space has nothing under it, with the gap in metres', () => {
+    // empty ground south of the fixture buildings (~8 world units / 64 m below the origin)
+    const payload = moveplaza(37.543425, 127.056);
+    const { warnings, world } = run(payload);
+    expect(warnings).toHaveLength(2);
+    const m = /^warning: plaza "성수광장" at \(-?\d+(\.\d+)?, -?\d+(\.\d+)?\) stands in open space — the nearest building footprint is (\d+(\.\d)?) m away\.$/.exec(warnings[0]!);
+    expect(m, warnings[0]).not.toBeNull();
+    expect(Number(m![3])).toBeGreaterThan(15);
+    expect(warnings[1]).toBe(
+      '  That is fine, and the plaza is emitted as-is; but a renderer that anchors something at world.plaza will have nothing under it.',
+    );
+    // the plaza is legitimate data: still emitted, and the document is unchanged
+    expect(world.plaza).toBeDefined();
+    expect(stringifyWorld(world)).toBe(emitted(payload));
+  });
+
+  it('stays quiet when a footprint covers the plaza, and emits the same world', () => {
+    // centre of building w2
+    const payload = moveplaza(37.5442714, 127.0557734);
+    const { warnings, world } = run(payload);
+    expect(warnings).toEqual([]);
+    expect(world.plaza).toBeDefined();
+    expect(stringifyWorld(world)).toBe(emitted(payload));
+  });
+
+  it('stays quiet for the fixture plaza, which is a few metres from w3', () => {
+    expect(run(raw).warnings).toEqual([]);
+  });
+
+  it('says so when the world has no building footprints at all', () => {
+    const payload = structuredClone(raw);
+    payload.elements = payload.elements.filter((e) => !e.tags?.building);
+    const { warnings, world } = run(payload);
+    expect(world.buildings).toEqual([]);
+    expect(warnings[0]).toContain('this world has no building footprints at all');
+  });
+
+  it('logs nothing without a warn sink, and nothing when there is no plaza', () => {
+    expect(() => buildWorld(raw, { name: 'Fixture' })).not.toThrow();
+    const payload = structuredClone(raw);
+    payload.elements = payload.elements.filter((e) => e.tags?.place !== 'square');
+    const { warnings, world } = run(payload);
+    expect(world.plaza).toBeUndefined();
+    expect(warnings).toEqual([]);
   });
 });
 
