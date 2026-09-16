@@ -5,8 +5,7 @@
  * @module
  */
 
-import { DIST_MAX, DIST_MIN, type CameraController } from '../core/camera.js';
-import { clamp } from '../util/math.js';
+import type { CameraController } from '../core/camera.js';
 
 export const ZOOM_STEP = 1.45;
 
@@ -25,7 +24,7 @@ export class ZoomButtons {
       b.textContent = text;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.cam.set({ distance: clamp(this.cam.orbit.distance * factor, DIST_MIN, DIST_MAX) }, 250);
+        this.cam.set({ distance: this.cam.clampDistance(this.cam.orbit.distance * factor) }, 250);
       });
       b.addEventListener('pointerdown', (e) => e.stopPropagation());
       return b;

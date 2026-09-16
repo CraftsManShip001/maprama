@@ -38,6 +38,29 @@ export function zoomOutTarget(behavior: ZoomOutBehavior, distance: number): numb
   return smooth01(clamp((distance - 55) / 55, 0, 1));
 }
 
+/**
+ * Camera distance (world units) the fog and shadow ranges below are calibrated
+ * for — the default `DIST_MAX`. The zoom-out factor is already 1 from 110
+ * units, so past this point nothing else would grow with the camera.
+ */
+export const RANGE_REF = 150;
+
+/**
+ * How far the fog and shadow ranges are stretched at a camera distance.
+ *
+ * 1 at and below {@link RANGE_REF}, so every view an app could reach before
+ * `maxDistanceMeters` existed looks exactly as it did; `distance / RANGE_REF`
+ * beyond it, which keeps the fog fading at the same place on screen at 3 km as
+ * it does at 1.2 km. Without it, a camera 416 units out sits *behind* a fog far
+ * plane of 410 units and the screen is a flat wall of fog.
+ */
+export function rangeScale(distance: number): number {
+  return Math.max(1, distance / RANGE_REF);
+}
+
+/** Change in {@link rangeScale} below which the look is not re-applied. */
+const SCALE_EPS = 1e-3;
+
 export class ZoomOutController {
   readonly mapGroup = new Group();
   /** Smoothed 0..1 zoom-out factor. */
@@ -47,6 +70,7 @@ export class ZoomOutController {
   /** True while `t` is still easing toward its target (see the on-demand render loop). */
   animating = false;
   private applied = -1;
+  private appliedScale = -1;
   private mode: ZoomOutBehavior | null = null;
   private mapMats: MeshBasicMaterial[] = [];
 
@@ -104,6 +128,7 @@ export class ZoomOutController {
   /** Forces re-application on the next update (after a theme change). */
   invalidate(): void {
     this.applied = -1;
+    this.appliedScale = -1;
   }
 
   update(dt: number, distance: number, params: RenderParams, targets: ZoomOutTargets, reduceMotion: boolean): void {
@@ -116,18 +141,22 @@ export class ZoomOutController {
     // engine reproduces this trajectory step for step (engine-native conformance suite).
     this.animating = Math.abs(target - this.t) > APPLY_EPS;
     const t = this.t, mt = behavior === 'mapColors' ? t : 0;
-    if (Math.abs(t - this.applied) > APPLY_EPS || this.applied < 0 || this.mode !== behavior) {
+    // Beyond the reference distance the fog and shadow ranges are stretched with the camera, so the
+    // look at 3 km is the look at 1.2 km. `k` is 1 below it, and the applied-value guard tracks it too.
+    const k = rangeScale(distance);
+    if (Math.abs(t - this.applied) > APPLY_EPS || Math.abs(k - this.appliedScale) > SCALE_EPS || this.applied < 0 || this.mode !== behavior) {
       this.applied = t;
+      this.appliedScale = k;
       this.mode = behavior;
       for (const m of this.mapMats) {
         m.opacity = mt * 0.92;
         m.visible = mt > 0.01;
       }
       this.scaleY = 1 - mt * 0.6;
-      targets.fog.near = params.fog.near + t * 110;
-      targets.fog.far = params.fog.far + t * 260;
-      const ext = 48 + t * 95, sc = targets.shadowCamera;
-      sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.far = 160 + t * 200;
+      targets.fog.near = (params.fog.near + t * 110) * k;
+      targets.fog.far = (params.fog.far + t * 260) * k;
+      const ext = (48 + t * 95) * k, sc = targets.shadowCamera;
+      sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.far = (160 + t * 200) * k;
       sc.updateProjectionMatrix();
       targets.clutter.visible = t < 0.5;
       targets.setHazeFade(t, mt > 0);

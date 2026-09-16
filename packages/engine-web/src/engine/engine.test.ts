@@ -74,6 +74,12 @@ const requests: RequestCommand[] = [
   { type: 'request', requestId: 'u', method: 'unproject', params: { x: 10, y: 10 } },
   { type: 'request', requestId: 's', method: 'snapToRoad', params: { coordinate: c } },
   { type: 'request', requestId: 'r', method: 'route', params: { from: c, to: c, modes: ['subway'] } },
+  {
+    type: 'request',
+    requestId: 'f',
+    method: 'fitBounds',
+    params: { bounds: { sw: c, ne: { lng: c.lng + 0.01, lat: c.lat + 0.01 } }, padding: 24 },
+  },
 ];
 
 describe('engine handler coverage', () => {
@@ -103,7 +109,7 @@ describe('engine handler coverage', () => {
     expect(codes).not.toContain(UNSUPPORTED);
     expect(codes).not.toContain(NOT_IMPLEMENTED);
     const responses = events.filter((e) => e.type === 'response');
-    expect(responses.map((r) => (r as { requestId: string }).requestId).sort()).toEqual(['p', 'r', 's', 'u']);
+    expect(responses.map((r) => (r as { requestId: string }).requestId).sort()).toEqual(['f', 'p', 'r', 's', 'u']);
     engine.destroy();
   });
 });

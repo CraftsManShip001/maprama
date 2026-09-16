@@ -6,9 +6,12 @@
  */
 
 import {
+  CAMERA_FOV_DEG,
   encodeEvent,
   type CameraSpec,
   type CameraState,
+  type FitBoundsParams,
+  type FitBoundsResult,
   type EngineCommand,
   type EngineEvent,
   type EngineEventType,
@@ -24,7 +27,8 @@ import { Group, type Fog } from 'three';
 import { Dispatcher, EngineError, UNSUPPORTED } from '../bridge/dispatcher.js';
 import { EventEmitter, type EventListener } from '../bridge/emitter.js';
 import type { Transport } from '../bridge/transport.js';
-import { CameraController, type FollowTarget } from '../core/camera.js';
+import { CameraController, limitsInUnits, type FollowTarget } from '../core/camera.js';
+import { fitBounds, type FitPadding } from '../core/fit-bounds.js';
 import { GestureController } from '../core/gestures.js';
 import { RenderCore } from '../core/renderer.js';
 import { BuildingRenderer } from '../render/buildings.js';
@@ -65,6 +69,15 @@ export interface EngineHandle {
 const DEFAULT_ORBIT = { distance: 36, pitch: 50, bearing: 28 };
 const DEFAULT_ANIMATION_MS = 600;
 
+/** Error code of the non-fatal event emitted when a requested distance range had to be narrowed. */
+export const CAMERA_LIMITS_CLAMPED = 'camera_limits_clamped';
+
+/** Normalises `FitBoundsParams.padding` (dp) to four sides. */
+function fitPadding(padding: FitBoundsParams['padding']): FitPadding {
+  if (typeof padding === 'number') return { top: padding, right: padding, bottom: padding, left: padding };
+  return { top: padding?.top ?? 0, right: padding?.right ?? 0, bottom: padding?.bottom ?? 0, left: padding?.left ?? 0 };
+}
+
 export class Engine implements EngineHandle {
   readonly emitter = new EventEmitter();
   readonly dispatcher: Dispatcher;
@@ -93,6 +106,10 @@ export class Engine implements EngineHandle {
   private followResolver: ((id: string) => FollowTarget | null) | null = null;
   private features: Features | null = null;
   private cameraSub: { throttleMs: number; last: number; pending: boolean } | null = null;
+  /** Camera distance limits the app asked for, in meters (converted to world units per world). */
+  private limitMeters: { min?: number; max?: number } = {};
+  /** The `camera_limits_clamped` warning is emitted once per distinct requested range. */
+  private warnedLimits = '';
   /** Active render sources currently held, by tag (see {@link hold}). */
   private readonly holds = new Map<string, () => void>();
   private readonly reduceMotion: boolean;
@@ -266,6 +283,7 @@ export class Engine implements EngineHandle {
       if (!this.worldModel) throw new EngineError('not_ready', 'no world loaded (send init first)');
       return routeResult(this.worldModel, this.proj, from, to, modes);
     });
+    d.registerRequest('fitBounds', (params) => this.fitBounds(params));
   }
 
   private requireScene(): RenderCore {
@@ -285,6 +303,8 @@ export class Engine implements EngineHandle {
     if (this.destroyed) return;
     this.worldModel = world;
     this.proj = projectionFor(world);
+    // The limits are meters: a new world's `unitMeters` changes what they are in world units.
+    this.applyDistanceLimits();
     this.cam.set({ x: world.start.x, z: world.start.z, ...DEFAULT_ORBIT });
     this.applyTheme();
     for (const h of [...this.worldHooks]) h(world);
@@ -317,6 +337,13 @@ export class Engine implements EngineHandle {
   }
 
   private setCamera(spec: CameraSpec): void {
+    // Limits first: a spec that widens the range and moves out in one command must not be
+    // clamped by the range it is replacing.
+    if (spec.minDistanceMeters !== undefined || spec.maxDistanceMeters !== undefined) {
+      if (spec.minDistanceMeters !== undefined) this.limitMeters.min = spec.minDistanceMeters;
+      if (spec.maxDistanceMeters !== undefined) this.limitMeters.max = spec.maxDistanceMeters;
+      this.applyDistanceLimits();
+    }
     const o: { x?: number; z?: number; distance?: number; pitch?: number; bearing?: number } = {};
     if (spec.center) {
       const w = this.proj.toWorld(spec.center);
@@ -340,11 +367,78 @@ export class Engine implements EngineHandle {
     this.cam.set(o, ms);
   }
 
+  /**
+   * Puts {@link limitMeters} in force for the current world, converting meters
+   * to world units with the world's `unitMeters`. A range the renderer cannot
+   * serve is narrowed to what it can and reported once as a non-fatal error.
+   */
+  private applyDistanceLimits(): void {
+    const u = this.proj.unitMeters;
+    const { min: wantMin, max: wantMax } = limitsInUnits(this.limitMeters, u);
+    const eff = this.cam.setDistanceLimits(wantMin, wantMax);
+    const key = `${wantMin}/${wantMax}/${u}`;
+    if (!eff.clamped || this.warnedLimits === key) {
+      if (!eff.clamped) this.warnedLimits = '';
+      return;
+    }
+    this.warnedLimits = key;
+    const m = (units: number): string => `${Math.round(units * u)} m`;
+    this.emit({
+      type: 'error',
+      code: CAMERA_LIMITS_CLAMPED,
+      message:
+        `camera distance range ${m(wantMin)}–${m(wantMax)} is outside what this engine can render at ` +
+        `${u} m per world unit; using ${m(eff.min)}–${m(eff.max)}`,
+      fatal: false,
+    });
+  }
+
+  /** `request{fitBounds}`: frames a geographic box and moves the camera there. */
+  private fitBounds(params: FitBoundsParams): FitBoundsResult {
+    if (!this.worldModel) throw new EngineError('not_ready', 'no world loaded (send init first)');
+    const { ne, sw } = params.bounds;
+    const corners = [
+      this.proj.toWorld({ lng: sw.lng, lat: sw.lat }),
+      this.proj.toWorld({ lng: ne.lng, lat: sw.lat }),
+      this.proj.toWorld({ lng: ne.lng, lat: ne.lat }),
+      this.proj.toWorld({ lng: sw.lng, lat: ne.lat }),
+    ];
+    // An explicit pitch / bearing is an instruction, so it turns `auto`'s fallback off.
+    const explicit = params.pitch !== undefined || params.bearing !== undefined;
+    const limits = this.cam.distanceLimits;
+    const out = fitBounds({
+      corners,
+      width: this.cam.width,
+      height: this.cam.height,
+      padding: fitPadding(params.padding),
+      fovDeg: CAMERA_FOV_DEG,
+      pitch: params.pitch ?? this.cam.orbit.pitch,
+      bearing: params.bearing ?? this.cam.orbit.bearing,
+      orientation: params.orientation ?? (explicit ? 'keep' : 'auto'),
+      minDistance: limits.min,
+      maxDistance: limits.max,
+      startDistance: this.cam.orbit.distance,
+    });
+    const ms = params.animate === true ? DEFAULT_ANIMATION_MS : typeof params.animate === 'object' ? params.animate.durationMs : 0;
+    this.cam.follow(null);
+    this.cam.set({ x: out.x, z: out.z, distance: out.distance, pitch: out.pitch, bearing: out.bearing }, ms);
+    return {
+      camera: {
+        center: this.proj.toLngLat({ x: out.x, z: out.z }),
+        distance: this.proj.unitsToMeters(out.distance),
+        pitch: out.pitch,
+        bearing: ((out.bearing % 360) + 360) % 360,
+      },
+      fitted: out.fitted,
+      distanceLimited: out.distanceLimited,
+    };
+  }
+
   /** Web-map zoom → camera distance in meters (vertical view span at the target). */
   private zoomToMeters(zoom: number, lat: number): number {
     const mpp = (156543.03392 * Math.cos(lat * DEG)) / Math.pow(2, zoom);
     const spanMeters = mpp * this.cam.height;
-    return spanMeters / 2 / Math.tan((this.cam.camera.fov * DEG) / 2);
+    return spanMeters / 2 / Math.tan((CAMERA_FOV_DEG * DEG) / 2);
   }
 
   private cameraState(): CameraState {
