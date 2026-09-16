@@ -15,6 +15,27 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- Camera distance limits in **metres**: `minDistanceMeters` / `maxDistanceMeters`
+  on `CameraSpec` — the `camera` prop of `<MapramaView>` and `ref.setCamera` —
+  bound the camera independently of the world's `unitMeters`, on every path that
+  changes the distance (`setCamera`, `zoom`, pinch, wheel, the zoom buttons,
+  `follow` and the zoom-out behaviour). The defaults are unchanged (14 / 150
+  world units, 112 m – 1,200 m at 8 m per unit), so a map that sets neither looks
+  exactly as it did. Widening the range also widens the fog, shadow and frustum
+  ranges with the camera — at and below 150 world units every number is
+  unchanged, above it they scale with `distance / 150`, so a 3 km view fades out
+  at the same place on screen as a 1.2 km one instead of drowning in fog. A range
+  the renderer cannot serve (outside 2 – 1,000 world units) is narrowed and
+  reported once as a non-fatal `error` with code `camera_limits_clamped`.
+- `ref.fitBounds(bounds, options?)` frames a `{ ne, sw }` box: padding in dp per
+  side, the current pitch / bearing kept (or dropped to straight-down-to-north
+  when that is the only way the box fits, `orientation`), optional `animate`, and
+  a result that says where the camera went, whether the box really `fitted`, and
+  whether the distance limits decided the distance. Protocol: the optional
+  `fitBounds` request method and `LngLatBounds` (`PROTOCOL_VERSION` unchanged).
+- `CAMERA_FOV_DEG` (40) and `visibleSpanMeters(distanceMeters)` are public, so
+  apps no longer hard-code the field of view to turn a camera distance into the
+  ground span it shows.
 - Markers: `<MarkerLayer>` draws app-owned map pins in the engine — fixed
   screen size, pin tip on the coordinate, custom SVG or built-in `pin` / `dot`
   shapes tinted per marker, priority-based collision shared with the map labels

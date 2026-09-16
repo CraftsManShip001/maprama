@@ -22,6 +22,7 @@
 - 테마: [`ThemeSpec`](/api/reference/protocol/interfaces/ThemeSpec), [`resolveTheme`](/api/reference/protocol/functions/resolveTheme), [`PRESETS`](/api/reference/protocol/variables/PRESETS)
 - 월드: [`WorldData`](/api/reference/protocol/interfaces/WorldData), [`WorldSource`](/api/reference/protocol/type-aliases/WorldSource), [`validateWorldData`](/api/reference/protocol/functions/validateWorldData)
 - 마커: [`MarkerSpec`](/api/reference/protocol/interfaces/MarkerSpec), [`SetMarkerLayerCommand`](/api/reference/protocol/interfaces/SetMarkerLayerCommand), [`MarkerPressEvent`](/api/reference/protocol/interfaces/MarkerPressEvent)
+- 카메라: [`CameraSpec`](/api/reference/protocol/interfaces/CameraSpec), [`CAMERA_FOV_DEG`](/api/reference/protocol/variables/CAMERA_FOV_DEG), [`visibleSpanMeters`](/api/reference/protocol/functions/visibleSpanMeters), [`LngLatBounds`](/api/reference/protocol/interfaces/LngLatBounds), [`FitBoundsParams`](/api/reference/protocol/interfaces/FitBoundsParams), [`FitBoundsResult`](/api/reference/protocol/interfaces/FitBoundsResult)
 - 좌표: [`createProjection`](/api/reference/protocol/functions/createProjection), [`haversineMeters`](/api/reference/protocol/functions/haversineMeters)
 - 메시지: [`EngineCommand`](/api/reference/protocol/type-aliases/EngineCommand), [`EngineEvent`](/api/reference/protocol/type-aliases/EngineEvent), [`encodeCommand`](/api/reference/protocol/functions/encodeCommand), [`decodeEvent`](/api/reference/protocol/functions/decodeEvent)
 
