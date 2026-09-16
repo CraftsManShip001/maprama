@@ -24,19 +24,20 @@ inline constexpr int kWorldDataVersion = 1;
 inline constexpr std::uint64_t kMaxSafeInteger = 9007199254740991ULL;
 
 /// `ENGINE_COMMAND_TYPES`, in declaration order (new commands are appended, so indices are stable).
-inline constexpr std::array<std::string_view, 22> kEngineCommandTypes{
+inline constexpr std::array<std::string_view, 24> kEngineCommandTypes{
     "init",         "setTheme",         "setLabels",         "setLabelContent", "setUi",
     "setCamera",    "upsertCharacters", "removeCharacters",  "setLocationSource", "pushLocation",
     "travel",       "cancelTravel",     "setDropLayer",      "removeDropLayer", "setGeofences",
     "setBuildingStyle", "setOverlayAnchors", "subscribe",    "unsubscribe",     "request",
-    "setMarkerLayer", "removeMarkerLayer",
+    "setMarkerLayer", "removeMarkerLayer", "setInfoCard", "removeInfoCard",
 };
 
 /// `ENGINE_EVENT_TYPES`, in declaration order (new events are appended, so indices are stable).
-inline constexpr std::array<std::string_view, 18> kEngineEventTypes{
+inline constexpr std::array<std::string_view, 20> kEngineEventTypes{
     "ready",          "error",         "labelsIndex",    "map:press",      "building:press", "drop:collect",
     "travel:start",   "travel:progress", "travel:arrive", "travel:cancel", "geofence:enter", "geofence:exit",
     "character:position", "camera:change", "overlay:positions", "response", "marker:press", "camera:idle",
+    "infoCard:press", "infoCard:dismiss",
 };
 
 struct ValidationResult {

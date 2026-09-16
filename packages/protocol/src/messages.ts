@@ -63,6 +63,7 @@ import {
   type LabelInfo,
   type LabelsSpec,
 } from './labels.js';
+import { checkInfoCardSpec, type InfoCardSpec } from './info-card.js';
 import { checkThemeSpec, type ThemeSpec } from './theme.js';
 import { checkWorldSource, type WorldSource } from './world.js';
 
@@ -217,6 +218,28 @@ export interface RemoveMarkerLayerCommand {
   layerId: string;
 }
 
+/**
+ * Creates or replaces one holographic info card, keyed by `card.id`.
+ *
+ * One card per command (unlike `setMarkerLayer`, which carries a whole layer):
+ * a card is a single rich object an app shows a handful of at a time, so
+ * changing one must not resend the others.
+ *
+ * The engine only draws it. It does not open it on a press, and it does not
+ * move the camera — the app decides when to send this, and whether to call
+ * `focusOn` with it.
+ */
+export interface SetInfoCardCommand {
+  type: 'setInfoCard';
+  card: InfoCardSpec;
+}
+
+/** Removes one info card. Unknown ids are ignored. */
+export interface RemoveInfoCardCommand {
+  type: 'removeInfoCard';
+  id: string;
+}
+
 /** Replaces all geofences. */
 export interface SetGeofencesCommand {
   type: 'setGeofences';
@@ -297,6 +320,8 @@ export interface RequestParamsMap {
   route: { from: LngLat; to: LngLat; modes: TravelMode[] };
   /** Frames a geographic box and moves the camera there. */
   fitBounds: FitBoundsParams;
+  /** Frames one point, and the space above it, and moves the camera there. */
+  focusOn: FocusOnParams;
 }
 
 /** Padding kept free around a fitted box, in density-independent pixels. */
@@ -337,6 +362,59 @@ export interface FitBoundsResult {
   distanceLimited: boolean;
 }
 
+/**
+ * Parameters of the `focusOn` request: put one point — and the column of air
+ * above it, where an info card floats — in the visible area.
+ *
+ * It is the same kind of **request** as `fitBounds`, not an order: the distance
+ * it needs is clamped into `minDistanceMeters` / `maxDistanceMeters`, and the
+ * result says whether the target really fits and whether a limit decided the
+ * distance. Exactly one of `coordinate` / `infoCardId` must be present.
+ */
+export interface FocusOnParams {
+  /** The point to focus on. Mutually exclusive with `infoCardId`. */
+  coordinate?: LngLat;
+  /**
+   * Focus on an info card sent with `setInfoCard`: its coordinate, its resolved
+   * anchor (roof or ground) and its height are used, so the card ends up in
+   * frame whatever it is attached to. Unknown ids fail with `unknown_info_card`.
+   */
+  infoCardId?: string;
+  /**
+   * Camera distance in meters. When absent the engine picks the distance at
+   * which the target and `heightMeters` above it fit the visible area.
+   */
+  distance?: number;
+  /** Pitch in degrees. Default: the current pitch. */
+  pitch?: number;
+  /** Bearing in degrees. Default: the current bearing (the map does not spin unasked). */
+  bearing?: number;
+  /**
+   * Height above the target to keep in frame, in meters — the height an info
+   * card floats at. Default: the card's own height with `infoCardId`, otherwise
+   * {@link INFO_CARD_GROUND_HEIGHT_METERS}.
+   */
+  heightMeters?: number;
+  /** Animate the move (`true` = engine default duration). Default: no animation. */
+  animate?: boolean | { durationMs: number };
+  /**
+   * Keep the target inside the visible area (the view minus `ui.contentInset`)
+   * rather than the whole view. Default true — a focused card must not end up
+   * under a bottom sheet.
+   */
+  inset?: boolean;
+}
+
+/** Result of `focusOn`: the camera the engine moved to, and how well it worked. */
+export interface FocusOnResult {
+  /** The camera the engine moved to (the end of the animation when one was requested). */
+  camera: CameraState;
+  /** True when the target and the requested height are inside the visible area at `camera`. */
+  fitted: boolean;
+  /** True when the distance limits (`minDistanceMeters` / `maxDistanceMeters`) decided the distance. */
+  distanceLimited: boolean;
+}
+
 /** Result of `snapToRoad`. */
 export interface SnapToRoadResult {
   coordinate: LngLat;
@@ -371,13 +449,14 @@ export interface RequestResultMap {
   snapToRoad: SnapToRoadResult | null;
   route: RouteResult;
   fitBounds: FitBoundsResult;
+  focusOn: FocusOnResult;
 }
 
 /**
  * Request methods. Methods added after the first release are appended, so the
  * index an engine derives from this list stays stable.
  */
-export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route', 'fitBounds'] as const;
+export const REQUEST_METHODS = ['project', 'unproject', 'snapToRoad', 'route', 'fitBounds', 'focusOn'] as const;
 /** A request method name. */
 export type RequestMethod = keyof RequestParamsMap;
 
@@ -415,7 +494,9 @@ export type EngineCommand =
   | SetOverlayAnchorsCommand
   | SubscribeCommand
   | UnsubscribeCommand
-  | RequestCommand;
+  | RequestCommand
+  | SetInfoCardCommand
+  | RemoveInfoCardCommand;
 
 /** Command `type` tag. */
 export type EngineCommandType = EngineCommand['type'];
@@ -695,6 +776,32 @@ export interface CameraIdleEvent {
   reason: CameraIdleReason;
 }
 
+/**
+ * An info card was pressed: one of its action buttons when `actionId` is
+ * present, the card body otherwise.
+ *
+ * Info cards capture their own touches, so a press on a card never also
+ * produces {@link BuildingPressEvent} or {@link MapPressEvent}.
+ */
+export interface InfoCardPressEvent {
+  type: 'infoCard:press';
+  id: string;
+  /** The `content.actions` entry that was pressed; absent for the card body. */
+  actionId?: string;
+}
+
+/**
+ * An info card's close button was pressed (`dismissible: true`).
+ *
+ * The engine does **not** remove the card: the app decides, by sending
+ * `removeInfoCard` (or unmounting `<InfoCard>`). Keeping the decision on the
+ * app side is what lets a card ask "discard your edits?" first.
+ */
+export interface InfoCardDismissEvent {
+  type: 'infoCard:dismiss';
+  id: string;
+}
+
 /** Screen position of an overlay anchor. */
 export interface OverlayPosition extends ScreenPoint {
   id: string;
@@ -750,7 +857,9 @@ export type EngineEvent =
   | CameraChangeEvent
   | OverlayPositionsEvent
   | ResponseEvent
-  | CameraIdleEvent;
+  | CameraIdleEvent
+  | InfoCardPressEvent
+  | InfoCardDismissEvent;
 
 /** Event `type` tag. */
 export type EngineEventType = EngineEvent['type'];
@@ -801,6 +910,26 @@ const requestChecks: { [M in RequestMethod]: Check } = {
       animate: anyOf(boolean, object({ durationMs: nonNegativeNumber })),
     },
   ),
+  // Appended after `fitBounds`, so the index engines derive from REQUEST_METHODS stays stable.
+  focusOn: (v, p) => {
+    const err = object(
+      {},
+      {
+        coordinate: checkLngLat,
+        infoCardId: nonEmptyString,
+        distance: positiveNumber,
+        pitch: range(0, 90),
+        bearing: number,
+        heightMeters: nonNegativeNumber,
+        animate: anyOf(boolean, object({ durationMs: nonNegativeNumber })),
+        inset: boolean,
+      },
+    )(v, p);
+    if (err) return err;
+    const t = v as { coordinate?: unknown; infoCardId?: unknown };
+    const given = (t.coordinate !== undefined ? 1 : 0) + (t.infoCardId !== undefined ? 1 : 0);
+    return given === 1 ? null : `${p}: exactly one of "coordinate" / "infoCardId" is required`;
+  },
 };
 
 const subscriptionTopic = oneOf(SUBSCRIPTION_TOPICS);
@@ -863,6 +992,8 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
     },
   ),
   removeMarkerLayer: object({ layerId: id }),
+  setInfoCard: object({ card: checkInfoCardSpec }),
+  removeInfoCard: object({ id }),
 };
 
 const cameraState: Check = object({
@@ -922,6 +1053,8 @@ const eventChecks: { [K in EngineEventType]: Check } = {
     radiusMeters: nonNegativeNumber,
     reason: oneOf(CAMERA_IDLE_REASONS),
   }),
+  'infoCard:press': object({ id }, { actionId: nonEmptyString }),
+  'infoCard:dismiss': object({ id }),
 };
 
 /** Every command `type`, in declaration order. */

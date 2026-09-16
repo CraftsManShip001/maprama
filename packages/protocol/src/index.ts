@@ -93,6 +93,25 @@ export type {
 } from './labels.js';
 
 export {
+  INFO_BADGE_TONES,
+  INFO_CARD_ANCHORS,
+  INFO_CARD_GROUND_HEIGHT_METERS,
+  INFO_CARD_ROOF_HEIGHT_METERS,
+  INFO_ROW_ICONS,
+} from './info-card.js';
+export type {
+  InfoBadgeTone,
+  InfoCardAction,
+  InfoCardAnchor,
+  InfoCardBadge,
+  InfoCardContent,
+  InfoCardRating,
+  InfoCardRow,
+  InfoCardSpec,
+  InfoRowIcon,
+} from './info-card.js';
+
+export {
   ANIMATION_NAMES,
   BUILDING_DECORATIONS,
   CAMERA_FOV_DEG,
@@ -172,9 +191,13 @@ export type {
   FitBoundsPadding,
   FitBoundsParams,
   FitBoundsResult,
+  FocusOnParams,
+  FocusOnResult,
   EventEnvelope,
   GeofenceEnterEvent,
   GeofenceExitEvent,
+  InfoCardDismissEvent,
+  InfoCardPressEvent,
   InitCommand,
   LabelsIndexEvent,
   MapPressEvent,
@@ -188,6 +211,7 @@ export type {
   ReadyEvent,
   RemoveCharactersCommand,
   RemoveDropLayerCommand,
+  RemoveInfoCardCommand,
   RemoveMarkerLayerCommand,
   RequestCommand,
   RequestCommandOf,
@@ -204,6 +228,7 @@ export type {
   SetCameraCommand,
   SetDropLayerCommand,
   SetGeofencesCommand,
+  SetInfoCardCommand,
   SetLabelContentCommand,
   SetLabelsCommand,
   SetLocationSourceCommand,

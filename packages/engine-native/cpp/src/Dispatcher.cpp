@@ -229,6 +229,8 @@ void Dispatcher::route(const protocol::CommandEnvelope& envelope) {
       return;
     case 20:  // setMarkerLayer -> marker layers (engine-web v1; the native views are a follow-up)
     case 21:  // removeMarkerLayer
+    case 22:  // setInfoCard -> holographic info cards (engine-web v1; the native views are a follow-up)
+    case 23:  // removeInfoCard
       ignoreNotImplemented(envelope);
       return;
     default:  // unreachable: decodeCommand rejects unknown types

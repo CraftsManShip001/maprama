@@ -90,7 +90,10 @@ enum class LabelKind : std::uint8_t { Road, District, Poi };
 enum class LabelIcon : std::uint8_t { Subway, Cafe, Store, Music, School, Book, Plaza, Park, Avenue, Street, District, Water };
 enum class SubscriptionTopic : std::uint8_t { CharacterPosition, CameraChange, TravelProgress, CameraIdle };
 enum class CameraIdleReason : std::uint8_t { Gesture, Api, Follow };
-enum class RequestMethod : std::uint8_t { Project, Unproject, SnapToRoad, Route, FitBounds };
+enum class RequestMethod : std::uint8_t { Project, Unproject, SnapToRoad, Route, FitBounds, FocusOn };
+enum class InfoCardAnchor : std::uint8_t { Ground, Roof, Auto };
+enum class InfoBadgeTone : std::uint8_t { Neutral, Good, Warn, Bad };
+enum class InfoRowIcon : std::uint8_t { Hours, Location, Phone, Link, Info, Price };
 
 /// Specialised per enum: `values` lists protocol strings in enum order.
 template <class E>
@@ -123,7 +126,10 @@ template <> struct EnumNames<LabelKind> { static constexpr std::array<std::strin
 template <> struct EnumNames<LabelIcon> { static constexpr std::array<std::string_view, 12> values{"subway", "cafe", "store", "music", "school", "book", "plaza", "park", "avenue", "street", "district", "water"}; };
 template <> struct EnumNames<SubscriptionTopic> { static constexpr std::array<std::string_view, 4> values{"character:position", "camera:change", "travel:progress", "camera:idle"}; };
 template <> struct EnumNames<CameraIdleReason> { static constexpr std::array<std::string_view, 3> values{"gesture", "api", "follow"}; };
-template <> struct EnumNames<RequestMethod> { static constexpr std::array<std::string_view, 5> values{"project", "unproject", "snapToRoad", "route", "fitBounds"}; };
+template <> struct EnumNames<RequestMethod> { static constexpr std::array<std::string_view, 6> values{"project", "unproject", "snapToRoad", "route", "fitBounds", "focusOn"}; };
+template <> struct EnumNames<InfoCardAnchor> { static constexpr std::array<std::string_view, 3> values{"ground", "roof", "auto"}; };
+template <> struct EnumNames<InfoBadgeTone> { static constexpr std::array<std::string_view, 4> values{"neutral", "good", "warn", "bad"}; };
+template <> struct EnumNames<InfoRowIcon> { static constexpr std::array<std::string_view, 6> values{"hours", "location", "phone", "link", "info", "price"}; };
 // clang-format on
 
 template <class E>
