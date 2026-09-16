@@ -379,7 +379,9 @@ export class Engine implements EngineHandle {
     this.hold('camera', this.cam.animating);
     this.hold('zoomOut', this.zoomOut.animating);
     this.hold('buildings', this.buildingsR.animating);
-    this.hold('camera:change', !!sub?.pending);
+    // Only while a world is loaded: without one the emit above never runs and `pending` would
+    // stay true forever, keeping the loop awake for nothing.
+    this.hold('camera:change', !!sub?.pending && !!this.worldModel);
   }
 
   /** Acquires / releases the active render source `tag` so it is held exactly while `want` is true. */
