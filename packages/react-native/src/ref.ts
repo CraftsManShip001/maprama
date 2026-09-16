@@ -14,8 +14,10 @@ import type {
   EngineEvent,
   EngineEventType,
   EngineInfo,
+  FitBoundsResult,
   InitCommand,
   LngLat,
+  LngLatBounds,
   LocationFix,
   RequestCommand,
   RequestMethod,
@@ -29,6 +31,7 @@ import { throttle } from './batching';
 import { MapramaError, normalizeErrorCode, type MapramaErrorCode } from './errors';
 import type { EngineHost } from './host/EngineHost';
 import type {
+  FitBoundsOptions,
   MapramaErrorEvent,
   MapramaViewRef,
   EngineEventOf,
@@ -393,6 +396,11 @@ export class MapController implements MapramaViewRef {
 
   route(from: LngLat, to: LngLat, modes: TravelMode[] = ['walk'], options?: RequestOptions) {
     return this.request('route', { from, to, modes }, options);
+  }
+
+  fitBounds(bounds: LngLatBounds, options: FitBoundsOptions = {}): Promise<FitBoundsResult> {
+    const { timeoutMs, ...params } = options;
+    return this.request('fitBounds', { ...params, bounds }, timeoutMs === undefined ? {} : { timeoutMs });
   }
 
   subscribe<T extends SubscriptionTopic>(

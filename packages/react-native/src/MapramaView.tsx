@@ -26,7 +26,7 @@ export function diffCamera(prev: CameraSpec | undefined, next: CameraSpec | unde
   const a = prev ?? {};
   const b = next ?? {};
   const diff: Record<string, unknown> = {};
-  const keys = ['center', 'distance', 'zoom', 'pitch', 'bearing', 'follow'] as const;
+  const keys = ['center', 'distance', 'zoom', 'pitch', 'bearing', 'follow', 'minDistanceMeters', 'maxDistanceMeters'] as const;
   for (const key of keys) {
     if (JSON.stringify(a[key]) === JSON.stringify(b[key])) continue;
     if (b[key] === undefined) {

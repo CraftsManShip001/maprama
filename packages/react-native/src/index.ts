@@ -84,6 +84,7 @@ export type {
   DropLayerBaseProps,
   DropLayerProps,
   EngineEventOf,
+  FitBoundsOptions,
   GeofenceEventInfo,
   GeofenceProps,
   LabelContentFunction,
@@ -101,6 +102,7 @@ export type {
   TravelResult,
 } from './types';
 
+export { CAMERA_FOV_DEG, visibleSpanMeters } from '@maprama/protocol';
 export type {
   BuildingStyle,
   CameraSpec,
@@ -108,9 +110,14 @@ export type {
   CharacterSpec,
   DropSpec,
   EngineInfo,
+  FitBoundsOrientation,
+  FitBoundsPadding,
+  FitBoundsParams,
+  FitBoundsResult,
   LabelContent,
   LabelInfo,
   LngLat,
+  LngLatBounds,
   LocationFix,
   LocationSourceKind,
   MapUiSpec,
