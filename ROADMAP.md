@@ -143,6 +143,12 @@ Each of these is a real gap found while answering an integrator's questions agai
   `WorldLoadReport` with warnings internally; the web engine has no equivalent and neither reaches the host.
   Suggested by the first integrator after that bug: expose a load report (counts + reasons + anything the
   engine synthesised) so a mismatch between data and drawing is visible from the app side.
+- **HUD exclusion boxes ignore the WebView's safe-area insets.** The attribution's reserved box is computed as
+  `vh - bottom - 24`, but the text itself is drawn `env(safe-area-inset-bottom)` higher, so a marker or label can
+  overlap the `© OpenStreetMap contributors` line on a device with a home indicator (seen with
+  `ui.contentInset` on, but it predates that work). Attribution must stay legible, so this is a licensing-adjacent
+  bug, not cosmetic. Fixing it means changing the exclusion geometry in both engines and the `labels.json`
+  fixtures together.
 - **Docs to add.** Serving world files from your own static hosting (R2 / S3 / CDN — plain unauthenticated
   GET, no user identifiers, CORS needed for the WebView engine), and an explicit statement that a plain
   `<MapramaView world theme />` never starts demo behaviour (the default location source is `external`;
