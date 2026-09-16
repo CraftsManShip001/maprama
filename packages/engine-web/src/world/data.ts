@@ -10,7 +10,7 @@ import { mulberry32 } from '../util/math.js';
 import { buildGraph, type GraphRoad } from './graph.js';
 import { buildGridWorld } from './grid.js';
 import type { BuildingModel, WorldModel } from './model.js';
-import { asRectangle, bbox, centroid, normalizeRing, pointInPolygon, signedArea } from './polygon.js';
+import { asRectangle, bbox, centroid, normalizeRing, signedArea } from './polygon.js';
 import { autoShapeFor } from './shapes.js';
 import { buildTownWorld } from './town.js';
 
@@ -66,7 +66,13 @@ function convertBuilding(src: BuildingFootprint, idx: number): BuildingModel | n
  * Converts validated `WorldData` into the internal model: roads → planar
  * graph, footprints → buildings (near-rectangles get oriented-rect massing),
  * water/parks/POIs/stations/districts are kept for rendering and part-2
- * labels. The plaza gets the landmark tower only when no footprint is near.
+ * labels.
+ *
+ * Only what the document contains is rendered: a `plaza` becomes the plaza
+ * disc and the default camera target, and never a building. (Earlier versions
+ * synthesised a landmark tower over a plaza with nothing under it — a building
+ * that does not exist in the source data. The procedural `town`/`grid` worlds
+ * still generate their own landmark; those are not real-world data.)
  */
 export function loadWorldData(world: WorldData): WorldModel {
   const roads: GraphRoad[] = world.roads.map((r) => {
@@ -81,19 +87,7 @@ export function loadWorldData(world: WorldData): WorldModel {
     const b = convertBuilding(src, buildings.length);
     if (b) buildings.push(b);
   }
-  let plaza: WorldModel['plaza'] = null;
-  if (world.plaza) {
-    const { x, z } = world.plaza;
-    const blocked = buildings.some((b) => pointInPolygon(x, z, b.footprint) || Math.hypot(b.x - x, b.z - z) < 5);
-    plaza = { x, z, radius: 6.4 };
-    if (!blocked) {
-      buildings.push({
-        id: 'landmark', idx: buildings.length, x, z, yaw: 0, rect: { w: 5, d: 5 },
-        footprint: normalizeRing([[x - 2.5, z - 2.5], [x + 2.5, z - 2.5], [x + 2.5, z + 2.5], [x - 2.5, z + 2.5]]),
-        h: 8, kind: 'glass', roof: 'flat', ci: 0, decos: { sign: false, antenna: false, garden: false }, autoShape: 'box', landmark: true,
-      });
-    }
-  }
+  const plaza: WorldModel['plaza'] = world.plaza ? { x: world.plaza.x, z: world.plaza.z, radius: 6.4 } : null;
   const { minX, minZ, maxX, maxZ } = world.bounds;
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
   return {

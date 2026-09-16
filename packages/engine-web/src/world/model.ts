@@ -47,7 +47,12 @@ export interface BuildingModel {
   decos: { sign: boolean; antenna: boolean; garden: boolean };
   /** Massing used when the theme's massing is `varied`. */
   autoShape: MassShape;
-  /** The central landmark tower. */
+  /**
+   * The central landmark tower: a stylised spire drawn instead of the normal
+   * massing, with a spinning star on top. Only the procedural `town` and
+   * `grid` worlds set this — `WorldData` worlds render exactly the buildings
+   * the document lists, so a data world has no landmark.
+   */
   landmark: boolean;
 }
 

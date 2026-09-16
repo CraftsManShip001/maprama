@@ -47,9 +47,9 @@ describe('loadWorldData', () => {
     expect(proj.toLngLat({ x: 0, z: 10 }).lat).toBeLessThan(src.origin.lat);
   });
 
-  it('converts footprints (skipping degenerate ones) and adds the plaza landmark when free', () => {
+  it('converts footprints (skipping degenerate ones) and invents no extra building', () => {
     const ids = w.buildings.map((b) => b.id);
-    expect(ids).toEqual(['b1', 'b2', 'b3', 'landmark']);
+    expect(ids).toEqual(['b1', 'b2', 'b3']);
     const b1 = w.buildings[0]!;
     expect(b1.rect).not.toBeNull();
     expect(b1.rect!.w).toBeCloseTo(4);
@@ -58,6 +58,31 @@ describe('loadWorldData', () => {
     expect(b3.rect).toBeNull();
     expect(b3.footprint).toHaveLength(6);
     for (const b of w.buildings) expect(signedArea(b.footprint)).toBeGreaterThan(0);
+  });
+
+  it('never synthesises a building at the plaza, wherever the plaza sits', () => {
+    // real footprints, minus the degenerate one that is dropped on purpose
+    const real = src.buildings.length - 1;
+
+    // (a) open plaza, far from every footprint (the old behaviour added a tower here)
+    const open = loadWorldData(src);
+    expect(open.buildings).toHaveLength(real);
+    expect(open.buildings.some((b) => b.landmark)).toBe(false);
+    expect(open.buildings.some((b) => b.id === 'landmark')).toBe(false);
+    expect(open.plaza).toEqual({ x: -35, z: -35, radius: 6.4 });
+    expect(open.start).toEqual({ x: -35, z: -35 });
+
+    // (b) plaza inside a real footprint (b1 spans 3..7 on both axes)
+    const covered = loadWorldData({ ...src, plaza: { x: 5, z: 5 } });
+    expect(covered.buildings).toHaveLength(real);
+    expect(covered.buildings.some((b) => b.landmark)).toBe(false);
+    expect(covered.plaza).toEqual({ x: 5, z: 5, radius: 6.4 });
+
+    // (c) no plaza at all: the world is framed on the centre of its bounds
+    const none = loadWorldData({ ...src, plaza: undefined });
+    expect(none.buildings).toHaveLength(real);
+    expect(none.plaza).toBeNull();
+    expect(none.start).toEqual({ x: 0, z: 0 });
   });
 
   it('builds the road graph with classes and bridges', () => {
@@ -89,9 +114,16 @@ describe('resolveWorldSource', () => {
     await expect(resolveWorldSource({ kind: 'url', url: 'x' }, async () => ({ ok: true, status: 200, json: async () => ({ version: 2 }) }))).rejects.toBeInstanceOf(WorldLoadError);
     await expect(resolveWorldSource({ kind: 'url', url: 'x' }, async () => ({ ok: false, status: 404, json: async () => null }))).rejects.toThrow(/404/);
   });
-  it('builds procedural layouts', async () => {
-    expect((await resolveWorldSource({ kind: 'procedural', layout: 'grid' })).kind).toBe('grid');
-    expect((await resolveWorldSource({ kind: 'procedural', layout: 'town' })).kind).toBe('town');
+  it('builds procedural layouts, which keep their own landmark', async () => {
+    const grid = await resolveWorldSource({ kind: 'procedural', layout: 'grid' });
+    const town = await resolveWorldSource({ kind: 'procedural', layout: 'town' });
+    expect(grid.kind).toBe('grid');
+    expect(town.kind).toBe('town');
+    // the landmark is part of the generated (clearly fictional) worlds, not of real data
+    expect(grid.buildings.filter((b) => b.landmark)).toHaveLength(1);
+    expect(town.buildings.filter((b) => b.landmark)).toHaveLength(1);
+    const data = await resolveWorldSource({ kind: 'data', world: sampleWorld() });
+    expect(data.buildings.some((b) => b.landmark)).toBe(false);
   });
 });
 
