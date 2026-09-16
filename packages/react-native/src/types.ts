@@ -26,6 +26,10 @@ import type {
   LocationFix,
   LocationSourceKind,
   MapUiSpec,
+  MarkerAnchor,
+  MarkerIcon,
+  MarkerShape,
+  MarkerSpec,
   ModelSource,
   Rarity,
   RequestMethod,
@@ -189,7 +193,7 @@ export interface MapramaViewProps {
   style?: StyleProp<ViewStyle>;
   /** Test id of the container view. */
   testID?: string;
-  /** `Character`, `CharacterLayer`, `DropLayer`, `Geofence` and `MapOverlay` elements (other views render on top of the map). */
+  /** `Character`, `CharacterLayer`, `DropLayer`, `MarkerLayer`, `Geofence` and `MapOverlay` elements (other views render on top of the map). */
   children?: ReactNode;
 }
 
@@ -466,6 +470,63 @@ export interface ServiceDropLayerProps extends DropLayerBaseProps {
 /** Props of `DropLayer`. */
 export type DropLayerProps<T = unknown> = DataDropLayerProps<T> | ServiceDropLayerProps;
 
+// ---------------------------------------------------------------------------
+// MarkerLayer
+// ---------------------------------------------------------------------------
+
+/**
+ * A marker icon: the built-in base shape `'pin'` / `'dot'`, a URI string
+ * (`data:image/svg+xml;…` or `https://…`), a bundled asset (`require('./pin.svg')`)
+ * or a protocol {@link MarkerIcon}.
+ */
+export type MarkerIconInput = MarkerIcon | MarkerShape | string | number;
+
+/** Payload of `MarkerLayer` `onPress`. */
+export interface MarkerPressInfo {
+  layerId: string;
+  markerId: string;
+  /** The marker's coordinate. */
+  coordinate: LngLat;
+  /** Screen position of the marker's anchor in dp — where to open a sheet or popover. */
+  point: { x: number; y: number };
+}
+
+/**
+ * Props of `MarkerLayer`: app-owned pins drawn by the engine at a fixed screen
+ * size, with collision, z-ordering and accessibility.
+ */
+export interface MarkerLayerProps<T> {
+  /** Layer id, unique per map. */
+  id: string;
+  data: readonly T[];
+  /** Stable marker id per item. */
+  getId: (item: T) => string;
+  getCoordinate: (item: T) => LngLat;
+  /** Base shape or custom icon. Default `'pin'`. */
+  getIcon?: (item: T) => MarkerIconInput | undefined;
+  /** Tint of the base shape as CSS hex (`'#2F5BEA'`). Changing it never reloads the icon. */
+  getColor?: (item: T) => string | undefined;
+  /** Collision priority; higher wins. Default 0. */
+  getPriority?: (item: T) => number | undefined;
+  /** Never hidden by collision. Default false. */
+  getAlwaysVisible?: (item: T) => boolean | undefined;
+  /** Text a screen reader announces, e.g. `` `${title}, ${faction}` ``. */
+  getAccessibilityLabel?: (item: T) => string | undefined;
+  /** Marker drawn selected: scaled by `selectedScale` and never hidden. */
+  selectedId?: string | null;
+  /** Scale of the selected marker. Default 1.25. */
+  selectedScale?: number;
+  /** Marker height in dp. Default 36. */
+  size?: number;
+  /** Which point of the marker sits on the coordinate. Default `'bottom'` (the pin tip). */
+  anchor?: MarkerAnchor;
+  /**
+   * A marker of this layer was pressed. The press emits `marker:press` only:
+   * the map's `onPress` / `onBuildingPress` do not fire for it.
+   */
+  onPress?: (event: MarkerPressInfo) => void;
+}
+
 /** Payload of `Geofence` `onEnter` / `onExit`. */
 export interface GeofenceEventInfo {
   geofenceId: string;
@@ -514,4 +575,4 @@ export interface MapOverlayProps {
 }
 
 /** Re-exported for convenience in prop types. */
-export type { CameraState, DropSpec };
+export type { CameraState, DropSpec, MarkerSpec };

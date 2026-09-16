@@ -5,7 +5,8 @@
  * once per animation frame the batcher diffs the merged state against what was
  * last sent and emits at most one command per kind: `removeCharacters`,
  * `upsertCharacters`, `setDropLayer`/`removeDropLayer` (per changed layer),
- * `setGeofences`, `setOverlayAnchors` and `setLabelContent`.
+ * `setMarkerLayer`/`removeMarkerLayer` (per changed layer), `setGeofences`,
+ * `setOverlayAnchors` and `setLabelContent`.
  *
  * @module
  */
@@ -16,6 +17,8 @@ import type {
   EngineCommand,
   GeofenceSpec,
   LabelContent,
+  MarkerAnchor,
+  MarkerSpec,
   OverlayAnchor,
 } from '@maprama/protocol';
 
@@ -51,6 +54,15 @@ export interface DropLayerState {
   collectorIds?: string[];
 }
 
+/** Marker layer state as sent with `setMarkerLayer`. */
+export interface MarkerLayerState {
+  markers: MarkerSpec[];
+  selectedId?: string | null;
+  selectedScale?: number;
+  size?: number;
+  anchor?: MarkerAnchor;
+}
+
 interface BatcherOptions {
   /** Receives the batched commands. */
   sink: (command: EngineCommand) => void;
@@ -82,6 +94,7 @@ export class CommandBatcher {
 
   private readonly characterSources = new Map<string, { specs: CharacterSpec[]; json: string }>();
   private readonly dropLayers = new Map<string, { state: DropLayerState; json: string }>();
+  private readonly markerLayers = new Map<string, { state: MarkerLayerState; json: string }>();
   private readonly geofences = new Map<string, GeofenceSpec>();
   private readonly overlays = new Map<string, OverlayAnchor>();
   private labelContent: Record<string, LabelContent> | null = null;
@@ -93,6 +106,7 @@ export class CommandBatcher {
    */
   private sentFields = new Map<string, Set<ClearableCharacterKey>>();
   private sentDropLayers = new Map<string, string>();
+  private sentMarkerLayers = new Map<string, string>();
   private sentGeofences = '[]';
   private sentOverlays = '[]';
   private sentLabelContent: string | null = null;
@@ -155,6 +169,28 @@ export class CommandBatcher {
     this.markDirty();
   }
 
+  // -- markers -------------------------------------------------------------
+
+  /**
+   * Creates or replaces a marker layer. The layer is sent only when its state
+   * differs from the last one sent, so a re-render with the same data costs
+   * nothing; a change to a single marker's `color` sends one `setMarkerLayer`
+   * for that layer and nothing else (the engine then updates only that
+   * marker's view).
+   */
+  setMarkerLayer(layerId: string, state: MarkerLayerState): void {
+    const next = json(state);
+    if (this.markerLayers.get(layerId)?.json === next) return;
+    this.markerLayers.set(layerId, { state, json: next });
+    this.markDirty();
+  }
+
+  /** Removes a marker layer. */
+  removeMarkerLayer(layerId: string): void {
+    if (!this.markerLayers.delete(layerId)) return;
+    this.markDirty();
+  }
+
   // -- geofences / overlays / labels --------------------------------------
 
   setGeofence(spec: GeofenceSpec): void {
@@ -194,6 +230,7 @@ export class CommandBatcher {
     this.sentCharacters = new Map();
     this.sentFields = new Map();
     this.sentDropLayers = new Map();
+    this.sentMarkerLayers = new Map();
     this.sentGeofences = '[]';
     this.sentOverlays = '[]';
     this.sentLabelContent = null;
@@ -206,6 +243,7 @@ export class CommandBatcher {
     this.dirty = false;
     this.flushCharacters();
     this.flushDropLayers();
+    this.flushMarkerLayers();
     this.flushGeofences();
     this.flushOverlays();
     this.flushLabelContent();
@@ -289,6 +327,27 @@ export class CommandBatcher {
         drops: state.drops,
         collectRadiusMeters: state.collectRadiusMeters,
         ...(state.collectorIds ? { collectorIds: state.collectorIds } : {}),
+      });
+    }
+  }
+
+  private flushMarkerLayers(): void {
+    for (const layerId of [...this.sentMarkerLayers.keys()]) {
+      if (this.markerLayers.has(layerId)) continue;
+      this.sentMarkerLayers.delete(layerId);
+      this.sink({ type: 'removeMarkerLayer', layerId });
+    }
+    for (const [layerId, { state, json: next }] of this.markerLayers) {
+      if (this.sentMarkerLayers.get(layerId) === next) continue;
+      this.sentMarkerLayers.set(layerId, next);
+      this.sink({
+        type: 'setMarkerLayer',
+        layerId,
+        markers: state.markers,
+        ...(state.selectedId !== undefined ? { selectedId: state.selectedId } : {}),
+        ...(state.selectedScale !== undefined ? { selectedScale: state.selectedScale } : {}),
+        ...(state.size !== undefined ? { size: state.size } : {}),
+        ...(state.anchor !== undefined ? { anchor: state.anchor } : {}),
       });
     }
   }
