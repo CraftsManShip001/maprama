@@ -74,6 +74,27 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   code using the internal `scene` API must call `scene.requestRender()` after
   changing the scene outside a frame hook, and hold
   `scene.addActiveSource(tag)` while animating something itself.
+- engine-web: the **shadow map is only redrawn when something that casts or
+  receives a shadow changed.** Before, three re-rendered the whole 2048² PCF
+  depth pass on every drawn frame, including frames drawn only to rotate or
+  zoom the camera (which does not move the sun), to fade a DOM label out, or to
+  move host overlays. A frame now keeps the previous shadow map unless the sun
+  or the shadow frustum moved, a subsystem that touches the 3D scene is still
+  animating, or something changed the scene from outside a frame. On a quiet
+  town (`street.traffic: false`, reduced motion) rotating the camera spends
+  0.02 ms per frame on shadows instead of 1.05 ms, and the whole frame drops
+  from 2.46 ms to 1.71 ms. Scenes that really move — characters, ambient
+  traffic, a spinning landmark — redraw the map exactly as before. The
+  resolution is also halved to 1024² on phones and tablets, where that depth
+  pass is pure fill; desktop browsers keep 2048².
+- engine-web: `overlay:positions` no longer projects anchors on frames that
+  cannot send them. The 33 ms throttle is now checked before any projection
+  work, anchor world positions are cached until the anchor set or the world
+  changes, and the per-frame batch is built in a reused buffer, so tracking 40
+  host overlays allocates ~6× less and does ~55% fewer projections while
+  panning. The event still carries **every** anchor, unchanged: hosts may read
+  it as the complete current state, and an off-screen anchor's `x`/`y` is used
+  by `<MapOverlay hideWhenOffscreen={false}>`.
 
 ### Fixed
 

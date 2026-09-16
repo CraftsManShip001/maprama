@@ -38,6 +38,13 @@ export interface CameraTransition {
 /** A follow target provider; return `null` to hold position. */
 export type FollowTarget = () => { x: number; z: number } | null;
 
+/** Result of {@link CameraController.worldToScreen}: CSS pixels plus "inside the viewport". */
+export interface ScreenProjection {
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
 const ease = (x: number): number => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
 /** Distance (world units, ≈8 mm at 8 m per unit) below which the follow easing snaps onto its target. */
@@ -226,13 +233,24 @@ export class CameraController {
     this.camera.updateMatrixWorld();
   }
 
-  /** Projects a world point to CSS pixels (origin top-left). */
-  worldToScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+  /**
+   * Projects a world point to CSS pixels (origin top-left). Pass `out` to
+   * write into an existing object instead of allocating one — used by the
+   * per-frame batches (overlay anchors, name tags), which would otherwise
+   * allocate one short-lived object per item per frame.
+   */
+  worldToScreen<T extends ScreenProjection>(x: number, y: number, z: number, out: T): T;
+  worldToScreen(x: number, y: number, z: number): ScreenProjection;
+  worldToScreen(x: number, y: number, z: number, out?: ScreenProjection): ScreenProjection {
     const v = this.tmp.set(x, y, z).project(this.camera);
     const sx = (v.x * 0.5 + 0.5) * this.width, sy = (-v.y * 0.5 + 0.5) * this.height;
     const inFront = v.z >= -1 && v.z <= 1;
     const visible = inFront && sx >= 0 && sx <= this.width && sy >= 0 && sy <= this.height;
-    return { x: sx, y: sy, visible };
+    if (!out) return { x: sx, y: sy, visible };
+    out.x = sx;
+    out.y = sy;
+    out.visible = visible;
+    return out;
   }
 
   /** Ray from CSS pixel coordinates (relative to the viewport). */
