@@ -296,12 +296,17 @@ describe('rendering', () => {
     const close = find(card, 'mpr-ic-close')!;
     expect(close.hidden).toBe(false);
     expect(close.getAttribute('aria-label')).toContain(SPEC.content.title);
+    // The close button floats over the corner, so the heading reserves that space:
+    // a title long enough to wrap must not run underneath it.
+    expect(card.classes.has('mpr-ic-closable')).toBe(true);
   });
 
   it('hides the close button unless the card is dismissible', () => {
     const h = harness();
     h.cards.setCard(SPEC, 0);
-    expect(find(cardEls(h.root)[0]!, 'mpr-ic-close')!.hidden).toBe(true);
+    const card = find(cardEls(h.root)[0]!, 'mpr-ic-card')!;
+    expect(find(card, 'mpr-ic-close')!.hidden).toBe(true);
+    expect(card.classes.has('mpr-ic-closable')).toBe(false);
   });
 
   it('does not rebuild a card whose content did not change', () => {

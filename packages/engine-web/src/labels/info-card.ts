@@ -395,6 +395,9 @@ export class InfoCards {
       return e;
     };
     view.card.setAttribute('aria-label', cardAccessibilityLabel(c));
+    // The close button floats over the top-right corner, so a dismissible card reserves that
+    // space in the heading — a title long enough to wrap used to run underneath it.
+    view.card.classList.toggle('mpr-ic-closable', view.spec.dismissible === true);
     view.close.hidden = view.spec.dismissible !== true;
     view.close.setAttribute('aria-label', `${c.title} 닫기`);
 

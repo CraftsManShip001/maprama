@@ -104,6 +104,7 @@ const CSS = `
 .mpr-ic-ico{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:var(--c,#3E7BFA);color:#fff;box-shadow:0 0 14px -2px var(--c,#3E7BFA)}
 .mpr-ic-ico svg{width:19px;height:19px}
 .mpr-ic-heading{display:grid;gap:2px;min-width:0}
+.mpr-ic-closable .mpr-ic-heading{padding-right:24px}
 .mpr-ic-heading b{font-size:13px;font-weight:700;line-height:1.3;color:#18202E;overflow-wrap:anywhere;word-break:keep-all}
 .mpr-ic-heading small{font-size:10px;font-weight:600;letter-spacing:.04em;color:#5C6B80;overflow-wrap:anywhere;word-break:keep-all}
 .mpr-ic-meta{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:8px}
