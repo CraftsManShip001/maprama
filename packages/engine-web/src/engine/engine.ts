@@ -338,10 +338,16 @@ export class Engine implements EngineHandle {
       if (!h) throw new EngineError(UNSUPPORTED, `subscription topic "${cmd.topic}" is not implemented`);
       h.unsubscribe(cmd.id);
     });
-    const handlers = createRequestHandlers({ world: () => this.worldModel, view: this.cam });
+    const handlers = createRequestHandlers({
+      world: () => this.worldModel,
+      view: this.cam,
+      roofY: (id) => this.buildingsR.info(id)?.top.y ?? null,
+      groundY: () => groundYFor(this.worldModel?.kind),
+    });
     d.registerRequest('project', handlers.project);
     d.registerRequest('unproject', handlers.unproject);
     d.registerRequest('snapToRoad', handlers.snapToRoad);
+    d.registerRequest('snapToBuilding', handlers.snapToBuilding);
     d.registerRequest('route', ({ from, to, modes }) => {
       if (!this.worldModel) throw new EngineError('not_ready', 'no world loaded (send init first)');
       return routeResult(this.worldModel, this.proj, from, to, modes);

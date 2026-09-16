@@ -16,7 +16,7 @@ const world: WorldData = {
     { id: 'main', cls: 'arterial', pts: [[-50, 0], [50, 0]] },
     { id: 'cross', cls: 'local', pts: [[0, -50], [0, 50]] },
   ],
-  buildings: [],
+  buildings: [{ id: 'tower', footprint: [[10, 10], [30, 10], [30, 30], [10, 30]], height: 6 }],
   water: [],
   parks: [],
   pois: [],
@@ -118,7 +118,13 @@ describe('request handlers through the direct transport', () => {
 
   const transport = createDirectTransport();
   const d = new Dispatcher((e) => transport.send(JSON.stringify({ v: 1, seq: 0, kind: 'evt', msg: e })));
-  const h = createRequestHandlers({ world: () => model, view: cam });
+  const h = createRequestHandlers({
+    world: () => model,
+    view: cam,
+    // 6 world units of building on a ground at 0 = 48 m at 8 m/unit.
+    roofY: (id) => (id === 'tower' ? 6 : null),
+    groundY: () => 0,
+  });
   d.registerRequest('project', h.project);
   d.registerRequest('unproject', h.unproject);
   d.registerRequest('snapToRoad', h.snapToRoad);
@@ -176,5 +182,45 @@ describe('request handlers through the direct transport', () => {
     expect(r.etaSeconds).toBeCloseTo(r.meters / (4.8 / 3.6), 6);
     const sub = await h.route({ from: proj.toLngLat({ x: -38, z: 5 }), to: proj.toLngLat({ x: 38, z: -5 }), modes: ['subway'] });
     expect(sub.legs.map((l) => l.mode)).toEqual(['walk', 'subway', 'walk']);
+  });
+});
+
+describe('snapToBuilding', () => {
+  const model = loadWorldData(world);
+  const proj = projectionFor(model);
+  const services = { world: () => model, view: new CameraController(), roofY: (id: string) => (id === 'tower' ? 6 : null), groundY: () => 0 };
+  const h = createRequestHandlers(services);
+
+  it('reports a coordinate already inside the footprint, with the drawn roof height', async () => {
+    const r = await h.snapToBuilding({ coordinate: proj.toLngLat({ x: 20, z: 20 }) });
+    expect(r).toMatchObject({ buildingId: 'tower', inside: true, distanceMeters: 0 });
+    expect(r!.heightMeters).toBeCloseTo(48);
+    // `roofCoordinate` is the same ground point: a roof pin stands over it.
+    expect(r!.roofCoordinate).toEqual(r!.coordinate);
+  });
+
+  it('snaps a coordinate outside the footprint and reports how far it moved', async () => {
+    const r = await h.snapToBuilding({ coordinate: proj.toLngLat({ x: 8, z: 20 }) });
+    expect(r).toMatchObject({ buildingId: 'tower', inside: false });
+    expect(r!.distanceMeters).toBeCloseTo(16, 3); // 2 units at 8 m/unit
+    // The answer is inside the building, not on its edge.
+    const back = proj.toWorld(r!.coordinate);
+    expect(back.x).toBeGreaterThan(10);
+  });
+
+  it('honours maxDistanceMeters and answers null beyond it', async () => {
+    const far = proj.toLngLat({ x: -20, z: 20 });
+    expect(await h.snapToBuilding({ coordinate: far })).toBeNull();
+    expect(await h.snapToBuilding({ coordinate: proj.toLngLat({ x: 8, z: 20 }), maxDistanceMeters: 5 })).toBeNull();
+  });
+
+  it('answers null for a building the renderer does not draw', async () => {
+    const blind = createRequestHandlers({ ...services, roofY: () => null });
+    expect(await blind.snapToBuilding({ coordinate: proj.toLngLat({ x: 20, z: 20 }) })).toBeNull();
+  });
+
+  it('fails with not_ready before a world is loaded', async () => {
+    const empty = createRequestHandlers({ world: () => null, view: new CameraController(), roofY: () => null });
+    await expect(async () => empty.snapToBuilding({ coordinate: { lng: 127, lat: 37.5 } })).rejects.toThrow(EngineError);
   });
 });

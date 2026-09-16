@@ -31,8 +31,9 @@
  * @module
  */
 
-import type { LngLat, MarkerAnchor, MarkerIcon, MarkerShape, MarkerSpec, Projection, SetMarkerLayerCommand } from '@maprama/protocol';
+import { DEFAULT_SNAP_TO_BUILDING_METERS, type LngLat, type MarkerAnchor, type MarkerIcon, type MarkerShape, type MarkerSpec, type Projection, type SetMarkerLayerCommand } from '@maprama/protocol';
 import type { CameraController } from '../core/camera.js';
+import { snapToBuilding, type AnchorContext } from './anchor.js';
 import { inFront } from './dom-styles.js';
 import { overlaps, type Box } from './index.js';
 
@@ -44,6 +45,63 @@ export const DEFAULT_SELECTED_SCALE = 1.25;
 export const DEFAULT_MARKER_COLOR = '#2F5BEA';
 /** Which point of the marker sits on the coordinate when the layer sets no `anchor`. */
 export const DEFAULT_MARKER_ANCHOR: MarkerAnchor = 'bottom';
+/**
+ * How far past a footprint's outline a snapped marker is pulled, in meters, so
+ * it lands inside the building instead of exactly on its edge.
+ */
+export const MARKER_SNAP_INSET_METERS = 1.5;
+
+/** A marker's resolved position in world units, plus what carries it. */
+export interface MarkerPoint {
+  x: number;
+  z: number;
+  /**
+   * The building the marker stands on (`anchorHeight: 'roof'`, or a snap). Its
+   * roof Y is re-read every frame: the zoom-out view squashes the buildings.
+   */
+  buildingId?: string;
+  /** Extra height above the foot, in world units (a numeric `anchorHeight`). */
+  lift: number;
+  /** How far the marker moved onto its building, in meters. Absent when it did not move. */
+  snapDistanceMeters?: number;
+}
+
+/** Snap radius of one marker in meters; 0 when it does not opt in. */
+export function markerSnapMeters(spec: MarkerSpec): number {
+  const s = spec.snapToBuilding;
+  if (s === undefined || s === false) return 0;
+  if (s === true) return DEFAULT_SNAP_TO_BUILDING_METERS;
+  return s.maxDistanceMeters ?? DEFAULT_SNAP_TO_BUILDING_METERS;
+}
+
+/**
+ * Resolves one marker's world position. `anchorHeight: 'roof'` looks for the
+ * building under the coordinate; `snapToBuilding` widens that lookup to the
+ * nearest footprint within range and moves `x`/`z` onto it. Both go through
+ * `labels/anchor.ts`, the same lookup the info cards use.
+ */
+export function resolveMarkerPoint(spec: MarkerSpec, proj: Projection, ctx: AnchorContext | null): MarkerPoint {
+  const p = proj.toWorld(spec.coordinate);
+  const h = spec.anchorHeight;
+  const lift = typeof h === 'number' ? proj.metersToUnits(h) : 0;
+  const wantsRoof = h === 'roof';
+  const snapMeters = markerSnapMeters(spec);
+  if (!ctx || (!wantsRoof && snapMeters === 0)) return { x: p.x, z: p.z, lift };
+  const hit = snapToBuilding(
+    ctx.buildings,
+    p.x,
+    p.z,
+    proj.metersToUnits(snapMeters),
+    proj.metersToUnits(MARKER_SNAP_INSET_METERS),
+  );
+  if (!hit) return { x: p.x, z: p.z, lift };
+  const point: MarkerPoint = { x: hit.x, z: hit.z, lift };
+  // Only a roof anchor needs the building at draw time; a ground marker that
+  // snapped keeps its foot on the ground, inside the footprint.
+  if (wantsRoof) point.buildingId = hit.building.id;
+  if (!hit.inside) point.snapDistanceMeters = proj.unitsToMeters(hit.distance);
+  return point;
+}
 
 /** Separator of the `layerId` / `markerId` pair in a view key (`\u0000`, as in the drop visuals: ids never contain it). */
 const SEP = '\u0000';
@@ -142,7 +200,7 @@ interface LayerState {
   size: number;
   anchor: MarkerAnchor;
   /** Anchor in world units per marker id. */
-  points: Map<string, { x: number; z: number }>;
+  points: Map<string, MarkerPoint>;
 }
 
 interface MarkerView {
@@ -198,7 +256,7 @@ export class MarkerLayers {
    * Creates or replaces a layer. Markers that stay are updated field by field:
    * only a new id creates a view, only a changed icon loads an image.
    */
-  setLayer(cmd: SetMarkerLayerCommand, proj: Projection | null): void {
+  setLayer(cmd: SetMarkerLayerCommand, proj: Projection | null, ctx: AnchorContext | null = null): void {
     const previous = this.layers.get(cmd.layerId);
     const state: LayerState = {
       layerId: cmd.layerId,
@@ -210,7 +268,7 @@ export class MarkerLayers {
       points: new Map(),
     };
     this.layers.set(cmd.layerId, state);
-    if (proj) this.project(state, proj);
+    if (proj) this.project(state, proj, ctx);
     else if (previous) for (const m of state.markers) {
       const p = previous.points.get(m.id);
       if (p) state.points.set(m.id, p);
@@ -228,8 +286,8 @@ export class MarkerLayers {
   }
 
   /** Re-projects every layer after a world (and therefore projection) change. */
-  reproject(proj: Projection): void {
-    for (const state of this.layers.values()) this.project(state, proj);
+  reproject(proj: Projection, ctx: AnchorContext | null = null): void {
+    for (const state of this.layers.values()) this.project(state, proj, ctx);
   }
 
   /**
@@ -237,7 +295,7 @@ export class MarkerLayers {
    * Returns the boxes of the shown markers, which the label pass takes as
    * extra exclusions.
    */
-  update(cam: CameraController, exclusions: readonly Box[], groundY: number): Box[] {
+  update(cam: CameraController, exclusions: readonly Box[], groundY: number, roofY: (id: string) => number | null = () => null): Box[] {
     if (this.layers.size === 0) {
       if (this.hits.length) this.hits = [];
       return [];
@@ -250,7 +308,10 @@ export class MarkerLayers {
         const p = state.points.get(m.id);
         if (!p) continue;
         const key = markerKey(state.layerId, m.id);
-        const s = cam.worldToScreen(p.x, groundY, p.z);
+        // A roof anchor is re-read every frame: the zoom-out view squashes the
+        // buildings, and the pin has to stay on the roof while it moves.
+        const baseY = p.buildingId === undefined ? groundY : (roofY(p.buildingId) ?? groundY);
+        const s = cam.worldToScreen(p.x, baseY + p.lift, p.z);
         const selected = state.selectedId === m.id;
         const height = state.size * (selected ? state.selectedScale : 1);
         const width = height * SHAPES[baseShape(m.icon)].aspect;
@@ -315,9 +376,9 @@ export class MarkerLayers {
 
   // ---------------------------------------------------------------------------
 
-  private project(state: LayerState, proj: Projection): void {
+  private project(state: LayerState, proj: Projection, ctx: AnchorContext | null): void {
     state.points.clear();
-    for (const m of state.markers) state.points.set(m.id, proj.toWorld(m.coordinate));
+    for (const m of state.markers) state.points.set(m.id, resolveMarkerPoint(m, proj, ctx));
   }
 
   private pressFor(key: string): Omit<MarkerPress, 'point'> | null {

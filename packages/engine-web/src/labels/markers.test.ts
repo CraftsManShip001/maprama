@@ -1,6 +1,7 @@
-import type { Projection, SetMarkerLayerCommand } from '@maprama/protocol';
+import { DEFAULT_SNAP_TO_BUILDING_METERS, type MarkerSpec, type Projection, type SetMarkerLayerCommand } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import type { CameraController } from '../core/camera.js';
+import type { AnchorContext } from './anchor.js';
 import type { Box } from './index.js';
 import {
   DEFAULT_MARKER_COLOR,
@@ -8,7 +9,9 @@ import {
   baseShape,
   compareMarkers,
   markerKey,
+  markerSnapMeters,
   placeMarkers,
+  resolveMarkerPoint,
   type MarkerCandidate,
   type MarkerPress,
 } from './markers.js';
@@ -384,5 +387,106 @@ describe('helpers', () => {
     expect(baseShape({ uri: 'x' })).toBe('pin');
     expect(markerKey('poi', 'a')).not.toBe(markerKey('poi', 'b'));
     expect(markerKey('a', 'b')).not.toBe(markerKey('a b', ''));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Anchor height and building snapping (brief T). `fakeCamera.worldToScreen`
+// maps (x, y, z) to (x, z), so the screen position alone cannot show the
+// height — the assertions read the resolved `MarkerPoint` instead, and one
+// end-to-end case checks that a roof anchor changes what `update` draws.
+// ---------------------------------------------------------------------------
+
+const metricProj = {
+  toWorld: (ll: { lng: number; lat: number }) => ({ x: ll.lng, z: ll.lat }),
+  metersToUnits: (m: number) => m / 8,
+  unitsToMeters: (u: number) => u * 8,
+} as unknown as Projection;
+
+/** One 10×10-unit building at the origin, 12 units tall. */
+const anchorCtx: AnchorContext = {
+  buildings: [{ id: 'b1', footprint: [[0, 0], [10, 0], [10, 10], [0, 10]] }],
+  roofY: (id) => (id === 'b1' ? 12 : null),
+  groundY: 0,
+};
+
+const spec = (over: Partial<MarkerSpec> & { coordinate: MarkerSpec['coordinate'] }): MarkerSpec => ({ id: 'm', ...over });
+
+describe('marker anchor height and snapping', () => {
+  it('defaults to the ground: no building lookup, no move', () => {
+    const p = resolveMarkerPoint(spec({ coordinate: at(5, 5) }), metricProj, anchorCtx);
+    expect(p).toEqual({ x: 5, z: 5, lift: 0 });
+  });
+
+  it('anchorHeight "roof" attaches the containing building without snapping', () => {
+    const p = resolveMarkerPoint(spec({ coordinate: at(5, 5), anchorHeight: 'roof' }), metricProj, anchorCtx);
+    expect(p).toMatchObject({ x: 5, z: 5, buildingId: 'b1', lift: 0 });
+    // Outside every footprint and not opted into snapping: stays where it is.
+    expect(resolveMarkerPoint(spec({ coordinate: at(-3, 5), anchorHeight: 'roof' }), metricProj, anchorCtx))
+      .toEqual({ x: -3, z: 5, lift: 0 });
+  });
+
+  it('a numeric anchorHeight lifts the marker in meters, without a building', () => {
+    const p = resolveMarkerPoint(spec({ coordinate: at(5, 5), anchorHeight: 24 }), metricProj, anchorCtx);
+    expect(p).toEqual({ x: 5, z: 5, lift: 3 }); // 24 m at 8 m/unit
+  });
+
+  it('snapToBuilding moves the coordinate onto the nearest footprint and reports the distance', () => {
+    const p = resolveMarkerPoint(spec({ coordinate: at(-2, 5), snapToBuilding: true }), metricProj, anchorCtx);
+    expect(p.snapDistanceMeters).toBeCloseTo(16); // 2 units at 8 m/unit
+    expect(p.x).toBeGreaterThan(0);
+    // Ground anchor: snapping alone does not attach the building for drawing.
+    expect(p.buildingId).toBeUndefined();
+  });
+
+  it('honours an explicit radius and gives up beyond it', () => {
+    const near = resolveMarkerPoint(spec({ coordinate: at(-2, 5), snapToBuilding: { maxDistanceMeters: 20 } }), metricProj, anchorCtx);
+    expect(near.snapDistanceMeters).toBeCloseTo(16);
+    const far = resolveMarkerPoint(spec({ coordinate: at(-2, 5), snapToBuilding: { maxDistanceMeters: 10 } }), metricProj, anchorCtx);
+    expect(far).toEqual({ x: -2, z: 5, lift: 0 });
+  });
+
+  it('markerSnapMeters reads the three shapes of the option', () => {
+    expect(markerSnapMeters(spec({ coordinate: at(0, 0) }))).toBe(0);
+    expect(markerSnapMeters(spec({ coordinate: at(0, 0), snapToBuilding: false }))).toBe(0);
+    expect(markerSnapMeters(spec({ coordinate: at(0, 0), snapToBuilding: true }))).toBe(DEFAULT_SNAP_TO_BUILDING_METERS);
+    expect(markerSnapMeters(spec({ coordinate: at(0, 0), snapToBuilding: {} }))).toBe(DEFAULT_SNAP_TO_BUILDING_METERS);
+    expect(markerSnapMeters(spec({ coordinate: at(0, 0), snapToBuilding: { maxDistanceMeters: 5 } }))).toBe(5);
+  });
+
+  it('without a world (no anchor context) every marker stays on its own coordinate', () => {
+    expect(resolveMarkerPoint(spec({ coordinate: at(-2, 5), snapToBuilding: true, anchorHeight: 'roof' }), metricProj, null))
+      .toEqual({ x: -2, z: 5, lift: 0 });
+  });
+
+  it('a roof-anchored marker follows the roof, and falls back to the ground when the building is gone', () => {
+    const { markers } = layers();
+    markers.setLayer(
+      { type: 'setMarkerLayer', layerId: 'poi', markers: [{ id: 'a', coordinate: at(5, 5), anchorHeight: 'roof' }] },
+      metricProj,
+      anchorCtx,
+    );
+    // `worldToScreen` here is (x, y, z) -> (x, z), so record what Y it was given.
+    const seen: number[] = [];
+    const cam = fakeCamera();
+    const spy = { ...cam, worldToScreen: (x: number, y: number, z: number) => { seen.push(y); return { x, y: z, visible: true }; } } as unknown as CameraController;
+    markers.update(spy, [], 0, (id) => (id === 'b1' ? 12 : null));
+    expect(seen).toEqual([12]);
+    seen.length = 0;
+    markers.update(spy, [], 0, () => null); // building no longer drawn
+    expect(seen).toEqual([0]);
+  });
+
+  it('marker:press keeps reporting the original coordinate after a snap', () => {
+    const presses: MarkerPress[] = [];
+    const { markers, root } = layers((p) => presses.push(p));
+    markers.setLayer(
+      { type: 'setMarkerLayer', layerId: 'poi', markers: [{ id: 'a', coordinate: at(-2, 5), snapToBuilding: true }] },
+      metricProj,
+      anchorCtx,
+    );
+    markers.update(fakeCamera(), [], 0);
+    cards(root)[0]!.click();
+    expect(presses[0]!.coordinate).toEqual({ lng: -2, lat: 5 });
   });
 });

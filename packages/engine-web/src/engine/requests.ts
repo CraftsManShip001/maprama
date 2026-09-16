@@ -1,11 +1,13 @@
 /**
- * Request handlers (`project`, `unproject`, `snapToRoad`, `route`) built on
- * small service interfaces so they can be tested without WebGL.
+ * Request handlers (`project`, `unproject`, `snapToRoad`, `snapToBuilding`,
+ * `route`) built on small service interfaces so they can be tested without
+ * WebGL.
  *
  * @module
  */
 
 import {
+  DEFAULT_SNAP_TO_BUILDING_METERS,
   createProjection,
   type LngLat,
   type Projection,
@@ -16,6 +18,8 @@ import {
 } from '@maprama/protocol';
 import type { RequestHandler } from '../bridge/dispatcher.js';
 import { EngineError } from '../bridge/dispatcher.js';
+import { snapToBuilding as snapBuilding } from '../labels/anchor.js';
+import { MARKER_SNAP_INSET_METERS as SNAP_INSET_METERS } from '../labels/markers.js';
 import { polylineLength, route, snap } from '../world/graph.js';
 import { PROCEDURAL_ORIGIN, type WorldModel } from '../world/model.js';
 
@@ -34,6 +38,14 @@ export interface ViewService {
 export interface RequestServices {
   world(): WorldModel | null;
   view: ViewService;
+  /**
+   * Current roof Y of a building in world units, `null` when it is not drawn
+   * (filtered out, or a world that has no geometry yet). Required by
+   * `snapToBuilding`; without it the request answers `null`.
+   */
+  roofY?(id: string): number | null;
+  /** Y of the ground in world units. Defaults to 0. */
+  groundY?(): number;
 }
 
 /** Projection for a world (procedural worlds use {@link PROCEDURAL_ORIGIN}). */
@@ -107,6 +119,27 @@ export function createRequestHandlers(s: RequestServices): RequestHandlers {
       const meters = proj.unitsToMeters(sn.dist);
       if (maxDistanceMeters !== undefined && meters > maxDistanceMeters) return null;
       return { coordinate: proj.toLngLat({ x: sn.x, z: sn.z }), roadId: w.graph.edges[sn.e]!.roadId, distanceMeters: meters };
+    },
+    snapToBuilding: ({ coordinate, maxDistanceMeters }) => {
+      const w = requireWorld(s);
+      if (!s.roofY) return null;
+      const proj = projectionFor(w);
+      const p = proj.toWorld(coordinate);
+      const ground = s.groundY?.() ?? 0;
+      const max = maxDistanceMeters ?? DEFAULT_SNAP_TO_BUILDING_METERS;
+      const hit = snapBuilding(w.buildings, p.x, p.z, proj.metersToUnits(max), proj.metersToUnits(SNAP_INSET_METERS));
+      if (!hit) return null;
+      const roof = s.roofY(hit.building.id);
+      if (roof === null) return null;
+      const coord = proj.toLngLat({ x: hit.x, z: hit.z });
+      return {
+        coordinate: coord,
+        buildingId: hit.building.id,
+        heightMeters: Math.max(0, proj.unitsToMeters(roof - ground)),
+        roofCoordinate: { ...coord },
+        distanceMeters: proj.unitsToMeters(hit.distance),
+        inside: hit.inside,
+      };
     },
     route: ({ from, to, modes }) => {
       const w = requireWorld(s);
