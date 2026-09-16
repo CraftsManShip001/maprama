@@ -21,7 +21,8 @@ using json::Value;
 namespace cm = camera_math;
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
-constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr double kPiConst = 3.14159265358979323846;
+constexpr double kDegToRad = kPiConst / 180.0;
 
 const Value* member(const Value& object, std::string_view key) { return object.isObject() ? object.find(key) : nullptr; }
 
@@ -107,7 +108,11 @@ bool sameLabelFrame(const LabelFrame& a, const LabelFrame& b) {
   for (std::size_t i = 0; i < a.cards.size(); ++i) {
     const LabelCard& p = a.cards[i];
     const LabelCard& q = b.cards[i];
-    if (p.id != q.id || p.content.key != q.content.key || p.opacity != q.opacity || !near(p.x, q.x) || !near(p.y, q.y) ||
+    // Markers keep their content key across a recolour / reselection (that is the point of the design), so
+    // the tint and the selected flag are compared too: they still have to reach the platform.
+    if (p.id != q.id || p.content.key != q.content.key || p.content.color != q.content.color ||
+        p.content.selected != q.content.selected || p.content.accessibilityLabel != q.content.accessibilityLabel ||
+        p.opacity != q.opacity || !near(p.x, q.x) || !near(p.y, q.y) ||
         !near(p.width, q.width) || !near(p.height, q.height) || !near(p.angle * 100, q.angle * 100) ||
         !near(p.dotX, q.dotX) || !near(p.dotY, q.dotY) || !near(p.lineX, q.lineX) || !near(p.lineY, q.lineY)) {
       return false;
@@ -234,6 +239,7 @@ void MapSession::detachAdapter() {
   pendingMeasures_.clear();
   labels_.resetRequests();
   labelFrameSent_ = false;
+  markers_.clearPlacement();  // nothing is on screen any more, so nothing is pressable
   overlayToken_ = 0;
   adapter_.reset();
   scheduledFrameAtMs_ = kInf;
@@ -265,6 +271,9 @@ void MapSession::onCameraChanged(const MapCameraPose& pose) {
   next.distance = cm::mapLibreZoomToDistance(pose.zoom, pose.center.lat, viewport_.height);
   next.pitch = pose.pitch;
   next.bearing = pose.bearing;
+  // The map reports the pose it was given, i.e. the *shifted* centre: undo `poseFor`'s content-inset shift so
+  // `CameraState.center` keeps meaning "under the middle of the visible area".
+  next.center = offsetByMeters(next.center, insetShiftFor(next).x, insetShiftFor(next).z);
   if (sameState(next, state_)) return;
   state_ = next;
   cameraChanged();
@@ -276,7 +285,8 @@ void MapSession::onProjected(std::uint64_t token, double x, double y) {
   const PendingRequest request = std::move(it->second);
   pendingRequests_.erase(it);
   const bool finite = std::isfinite(x) && std::isfinite(y);
-  const bool visible = finite && x >= 0 && y >= 0 && x <= viewport_.width && y <= viewport_.height;
+  const cm::VisibleRect vr = cm::visibleRect(viewport_.width, viewport_.height, contentPadding());
+  const bool visible = finite && x >= vr.x && y >= vr.y && x <= vr.x + vr.width && y <= vr.y + vr.height;
   respondOk(request.requestId,
             Value::object({{"x", finite ? x : 0.0}, {"y", finite ? y : 0.0}, {"visible", visible}}));
 }
@@ -292,12 +302,14 @@ void MapSession::onPointsProjected(std::uint64_t token, const std::vector<Screen
   }
   std::vector<ScreenPoint> positions;
   positions.reserve(points.size());
+  // `visible` is "inside the visible area", i.e. content-inset aware (engine-web `worldToScreen`).
+  const cm::VisibleRect vr = cm::visibleRect(viewport_.width, viewport_.height, contentPadding());
   for (const ScreenPoint& p : points) {
     const bool finite = std::isfinite(p.x) && std::isfinite(p.y);
     ScreenPoint s;
     s.x = finite ? p.x : 0.0;
     s.y = finite ? p.y : 0.0;
-    s.visible = finite && p.x >= 0 && p.y >= 0 && p.x <= viewport_.width && p.y <= viewport_.height;
+    s.visible = finite && p.x >= vr.x && p.y >= vr.y && p.x <= vr.x + vr.width && p.y <= vr.y + vr.height;
     positions.push_back(s);
   }
   if ((overlayDirty_ || positionsChanged(lastPositions_, positions)) && events_ != nullptr) {
@@ -376,6 +388,19 @@ void MapSession::frame() {
 void MapSession::tap(double x, double y) {
   if (!worldReady_ || !viewReady()) {
     log(LogLevel::Debug, "engine-native: tap ignored (no world or no laid-out map view)");
+    return;
+  }
+  // Markers come first: a press that hits one emits `marker:press` **only** (engine-web `Engine.tap`).
+  // Label cards are not pressable on either engine, and a shown marker always reserves its box against the
+  // labels, so a marker under an overlapping label still wins.
+  if (const std::optional<MarkerPress> press = markers_.hitTest(x, y)) {
+    if (events_ != nullptr) {
+      events_->emit(Value::object({{"type", "marker:press"},
+                                   {"layerId", press->layerId},
+                                   {"markerId", press->markerId},
+                                   {"coordinate", lngLatValue(press->coordinate)},
+                                   {"point", Value::object({{"x", press->x}, {"y", press->y}})}}));
+    }
     return;
   }
   const std::uint64_t token = nextToken_++;
@@ -508,6 +533,7 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   // engine-web: `labelsIndex` after every world load (same ids, same shape), emitted by the world hooks, i.e.
   // before `init.camera` (whose `follow` may fail with `unknown_character`).
   labels_.setWorld(world, projection);
+  markers_.reproject(projection);  // a new world means a new projection (engine-web `MarkerLayers.reproject`)
   labelGroundY_ = groundYFor(extras.generated != nullptr ? std::optional<ProceduralLayout>(extras.generated->layout) : std::nullopt);
   if (events_ != nullptr) {
     events_->emit(Value::object({{"type", "labelsIndex"}, {"labels", labelsIndexValue(labels_.entries())}}));
@@ -595,6 +621,12 @@ void MapSession::fitBounds(const std::string& requestId, const Value& params) {
   in.width = viewport_.width;
   in.height = viewport_.height;
   in.padding = fitPadding(params);
+  // `ui.contentInset` is app chrome over the map, so it is padding on top of what the request asked for
+  // (engine-web frames into the visible area the same way).
+  in.padding.top += ui_.contentInset.top;
+  in.padding.right += ui_.contentInset.right;
+  in.padding.bottom += ui_.contentInset.bottom;
+  in.padding.left += ui_.contentInset.left;
   in.fovDeg = cm::kReferenceFovDeg;
   const std::optional<double> pitch = numberMember(params, "pitch");
   const std::optional<double> bearing = numberMember(params, "bearing");
@@ -710,8 +742,21 @@ void MapSession::setNameTags(std::vector<NameTag> tags) {
   pumpLabels();
 }
 
+void MapSession::setMarkerLayer(const Value& msg) {
+  markers_.setLayer(msg, worldReady_ ? world_.projection() : nullptr);
+  labelsDirty_ = true;  // the marker boxes are exclusions of the label pass
+  pumpLabels();
+}
+
+void MapSession::removeMarkerLayer(const std::string& layerId) {
+  if (!markers_.removeLayer(layerId)) return;
+  labelsDirty_ = true;
+  pumpLabels();
+}
+
 void MapSession::setUiState(const Value& uiSpec) {
   // engine-web replaces the whole ui object (`this.ui = {...cmd.ui}`): absent fields are off.
+  const ContentInset previousInset = ui_.contentInset;
   ui_ = MapUiSpec{};
   ui_.locationPuck = boolMember(uiSpec, "locationPuck");
   ui_.scaleBar = boolMember(uiSpec, "scaleBar");
@@ -723,14 +768,16 @@ void MapSession::setUiState(const Value& uiSpec) {
     ui_.contentInset.bottom = numberMember(*inset, "bottom").value_or(0.0);
     ui_.contentInset.left = numberMember(*inset, "left").value_or(0.0);
   }
-  if (!ui_.contentInset.empty()) {
-    // What the core does honour is listed in DESIGN.md §5.1 (`camera:idle` bounds / radius and the label
-    // placement). Moving the MapLibre camera and the platform ornaments is not wired up yet, so an app
-    // that needs the attribution out from under a sheet has to use the web engine for now.
-    warnOnce("contentInset",
-             "setUi: ui.contentInset is only partly implemented by the native engine — camera:idle bounds "
-             "and label placement honour it, but the camera centre, follow centring and the map ornaments "
-             "(scale bar, zoom buttons, attribution) do not move yet");
+  const bool insetChanged = !(ui_.contentInset == previousInset);
+  // `contentInset` is applied in full since M5: the camera centre and `follow` centring move with it
+  // (`insetShiftFor`), the ornaments are laid out inside the visible area by both platform views
+  // (`MapUiState::inset`), labels and markers are placed inside it, `camera:idle` measures it and
+  // `ScreenPoint.visible` means "inside the visible area".
+  if (insetChanged) {
+    labelsDirty_ = true;
+    overlayDirty_ = true;
+    overlayWanted_ = !anchors_.empty();
+    sendState();
   }
 }
 
@@ -840,6 +887,7 @@ void MapSession::shutdown() {
   subscriptions_.clear();
   anchors_.clear();
   pendingMeasures_.clear();
+  markers_.clear();
   overlayToken_ = 0;
 }
 
@@ -943,6 +991,8 @@ void MapSession::pushUi() {
     if (s.attribution) s.attributionText = text;
     s.logo = ui_.attribution.value_or(false);
   }
+  // The inset reaches the platform even without a world: the ornaments must never sit under app chrome.
+  s.inset = ui_.contentInset;
   if (uiSentValid_ && s == uiSent_) return;
   uiSent_ = s;
   uiSentValid_ = true;
@@ -953,9 +1003,39 @@ void MapSession::pushUi() {
 // Camera helpers
 // ---------------------------------------------------------------------------------------------------
 
+camera_math::FitPadding MapSession::contentPadding() const {
+  cm::FitPadding pad;
+  pad.top = ui_.contentInset.top;
+  pad.right = ui_.contentInset.right;
+  pad.bottom = ui_.contentInset.bottom;
+  pad.left = ui_.contentInset.left;
+  return pad;
+}
+
+camera_math::FitPoint MapSession::insetShiftFor(const CameraState& state) const {
+  if (ui_.contentInset.empty() || !(viewport_.width > 0) || !(viewport_.height > 0)) return cm::FitPoint{};
+  // The shift is computed in the *MapLibre* frustum (36.87°), because it is the MapLibre camera that moves;
+  // the core's own projector (`MapProjector`) uses the same pose and keeps the view centre, so labels,
+  // markers and name tags stay exactly where the map draws.
+  const double metersPerPixel = cm::mapLibreMetersPerPixel(
+      cm::distanceToMapLibreZoom(state.distance, state.center.lat, viewport_.height), state.center.lat);
+  const double cameraDistanceMeters = 0.5 * viewport_.height / std::tan(kMapLibreFovRad / 2.0) * metersPerPixel;
+  return cm::insetShift(viewport_.width, viewport_.height, contentPadding(), cameraDistanceMeters, state.pitch,
+                        state.bearing, kMapLibreFovRad * 180.0 / kPiConst);
+}
+
+LngLat MapSession::offsetByMeters(const LngLat& center, double east, double south) const {
+  if (east == 0.0 && south == 0.0) return center;
+  const double metersPerDegLng = kMetersPerDegreeLng * std::max(std::cos(center.lat * kDegToRad), 1e-12);
+  return LngLat{center.lng + east / metersPerDegLng, center.lat - south / kMetersPerDegreeLat};
+}
+
 MapCameraPose MapSession::poseFor(const CameraState& state) const {
   MapCameraPose pose;
-  pose.center = state.center;
+  // `ui.contentInset`: the protocol centre belongs under the middle of the *visible* area, so the map looks
+  // at `centre - shift` (engine-web `CameraController.apply`).
+  const cm::FitPoint shift = insetShiftFor(state);
+  pose.center = offsetByMeters(state.center, -shift.x, -shift.z);
   pose.zoom = cm::distanceToMapLibreZoom(state.distance, state.center.lat, viewport_.height);
   pose.pitch = state.pitch;
   pose.bearing = state.bearing;
@@ -1025,15 +1105,22 @@ Value MapSession::cameraIdleEvent() const {
                                state_.bearing, kCameraIdleHorizonFactor * state_.distance);
   const double metersPerDegLng =
       kMetersPerDegreeLng * std::max(std::cos(state_.center.lat * kDegToRad), 1e-12);
+  // `visibleGroundCorners` measures from the point the optical axis hits, which under `ui.contentInset` is
+  // the *pose* centre (`poseFor`: protocol centre − shift), not the protocol centre this event reports.
+  // Undo the shift so `bounds` and `radiusMeters` are both anchored on the centre in the payload — otherwise
+  // a bottom sheet pushes the box a shift north of its own centre and a radius query drops the POIs just
+  // above the sheet.
+  const cm::FitPoint shift = insetShiftFor(state_);
   double minLng = kInf, minLat = kInf, maxLng = -kInf, maxLat = -kInf, maxMeters = 0.0;
   for (const cm::FitPoint& c : corners) {
-    const double lng = state_.center.lng + c.x / metersPerDegLng;
-    const double lat = state_.center.lat - c.z / kMetersPerDegreeLat;
+    const double east = c.x - shift.x, south = c.z - shift.z;
+    const double lng = state_.center.lng + east / metersPerDegLng;
+    const double lat = state_.center.lat - south / kMetersPerDegreeLat;
     minLng = std::min(minLng, lng);
     maxLng = std::max(maxLng, lng);
     minLat = std::min(minLat, lat);
     maxLat = std::max(maxLat, lat);
-    maxMeters = std::max(maxMeters, std::sqrt(c.x * c.x + c.z * c.z));
+    maxMeters = std::max(maxMeters, std::sqrt(east * east + south * south));
   }
   return Value::object({
       {"type", "camera:idle"},
@@ -1160,7 +1247,10 @@ void MapSession::requestLabelSizes() {
 void MapSession::pumpLabels() {
   // Synchronous on every change (camera reports arrive once per rendered frame), so the cards follow the
   // map without a projection round trip; the frame is only sent when it differs from the last one.
-  if (!(labelsDirty_ || tagsDirty_) || !viewReady()) return;
+  if (!(labelsDirty_ || tagsDirty_) || !viewReady()) {
+    if (!viewReady()) markers_.clearPlacement();
+    return;
+  }
   const auto started = std::chrono::steady_clock::now();
   const bool full = labelsDirty_ || !worldReady_;
   labelsDirty_ = false;
@@ -1179,12 +1269,22 @@ void MapSession::pumpLabels() {
     in.night = theme_.time.lights > 0.8;  // engine-web `params.lights > 0.8`
     in.groundY = labelGroundY_;
     in.zoomOut = zoomOutFactor(theme_.zoomOut, in.distanceUnits);
-    if (full) labelOnly_ = labels_.layout(in);
+    if (full) {
+      // engine-web `Features.project`: the markers are placed first, and their boxes reserve space in the
+      // label pass, so a label never covers a marker and a marker never yields to a label.
+      const std::vector<LabelBox> hud = nativeHudExclusions(in.width, in.height, in.ui);
+      MarkerFrame placedMarkers = markers_.layout(in, hud);
+      labelOnly_ = labels_.layout(in, placedMarkers.boxes);
+      // Markers are drawn above the labels (engine-web `.mpr-mk { z-index: 2 }`) and below the name tags.
+      labelOnly_.cards.insert(labelOnly_.cards.end(), std::make_move_iterator(placedMarkers.cards.begin()),
+                              std::make_move_iterator(placedMarkers.cards.end()));
+    }
     frame = labelOnly_;
     std::vector<LabelCard> tags = labels_.layoutTags(in);  // after the labels: drawn on top (engine-web DOM order)
     frame.cards.insert(frame.cards.end(), std::make_move_iterator(tags.begin()), std::make_move_iterator(tags.end()));
   } else {
     labelOnly_ = LabelFrame();
+    markers_.clearPlacement();
   }
   recordLabelPass(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(), !full);
   // Diagnostic: labels on, entries known, but nothing placed (usually card sizes that were never measured).

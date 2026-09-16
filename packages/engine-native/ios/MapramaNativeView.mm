@@ -595,6 +595,15 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
     // Label cards (core-placed) above the map, below the map UI; touches pass through to the map.
     _labels = [[MapramaLabelLayer alloc] initWithFrame:_container.bounds];
     _labels.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    {
+      // VoiceOver activating a marker card reports a press at its screen point, which the core hit-tests
+      // into `marker:press` — the same path a finger takes (engine-web dispatches a click on the card).
+      __weak MapramaNativeView *weakSelf = self;
+      _labels.onMarkerActivate = ^(double x, double y) {
+        MapramaNativeView *strong = weakSelf;
+        if (strong != nil && strong->_engine) strong->_engine->tap(x, y);
+      };
+    }
     [_container addSubview:_labels];
     _ornaments = [[MapramaPassthroughView alloc] initWithFrame:_container.bounds];
     _ornaments.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -909,25 +918,40 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 
 - (void)layoutOrnaments {
   const CGSize size = _ornaments.bounds.size;
+  // `ui.contentInset`: the app's chrome covers these bands, so every ornament is laid out against the
+  // *visible area* instead of the whole view. The OSM attribution ending up under a bottom sheet is a
+  // licence problem, not a cosmetic one (DESIGN.md §5.1 `setUi`).
+  const CGFloat insetTop = std::max<CGFloat>(0, _ui.inset.top), insetBottom = std::max<CGFloat>(0, _ui.inset.bottom);
+  const CGFloat insetLeft = std::max<CGFloat>(0, _ui.inset.left), insetRight = std::max<CGFloat>(0, _ui.inset.right);
+  const CGFloat bottom = size.height - insetBottom;
   // Scale bar: bottom-left, above the MapLibre logo when it is shown.
   const CGFloat scaleBottom = _ui.logo ? 40 : 12;
   const CGFloat width = std::max<CGFloat>(1, _ui.scaleBarWidth);
   [_scaleLabel sizeToFit];
   const CGFloat labelHeight = _scaleLabel.bounds.size.height;
-  _scaleBar.frame = CGRectMake(12, size.height - scaleBottom - labelHeight - 6, std::max(width, _scaleLabel.bounds.size.width), labelHeight + 6);
+  _scaleBar.frame = CGRectMake(insetLeft + 12, bottom - scaleBottom - labelHeight - 6,
+                               std::max(width, _scaleLabel.bounds.size.width), labelHeight + 6);
   _scaleLabel.frame = CGRectMake(0, 0, _scaleLabel.bounds.size.width, labelHeight);
   _scaleLine.frame = CGRectMake(0, labelHeight + 2, width, 4);
-  // Zoom buttons: right edge, vertically centred.
-  _zoomButtons.frame = CGRectMake(size.width - 44 - 12, (size.height - 96) / 2, 44, 96);
+  // Zoom buttons: right edge, vertically centred in the visible area.
+  _zoomButtons.frame = CGRectMake(size.width - insetRight - 44 - 12, insetTop + (bottom - insetTop - 96) / 2, 44, 96);
   // Attribution text: bottom-right, left of MapLibre's attribution button.
-  const CGFloat maxWidth = std::max<CGFloat>(40, size.width - 120);
+  const CGFloat maxWidth = std::max<CGFloat>(40, size.width - insetLeft - insetRight - 120);
   CGSize text = [_attributionLabel sizeThatFits:CGSizeMake(maxWidth, 20)];
   text.width = std::min(text.width + 10, maxWidth);
-  _attributionLabel.frame = CGRectMake(size.width - text.width - (_ui.attribution ? 38 : 8), size.height - 8 - 18, text.width, 18);
+  _attributionLabel.frame =
+      CGRectMake(size.width - insetRight - text.width - (_ui.attribution ? 38 : 8), bottom - 8 - 18, text.width, 18);
 }
 
 - (void)maprama_setUi:(const maprama::MapUiState &)ui {
   _ui = ui;
+  // MapLibre's own ornaments are positioned by corner margins; the content inset is added to them so the
+  // logo, the attribution button and the compass stay inside the visible area too.
+  const CGFloat insetTop = std::max<CGFloat>(0, ui.inset.top), insetBottom = std::max<CGFloat>(0, ui.inset.bottom);
+  const CGFloat insetLeft = std::max<CGFloat>(0, ui.inset.left), insetRight = std::max<CGFloat>(0, ui.inset.right);
+  _mapView.logoViewMargins = CGPointMake(8 + insetLeft, 8 + insetBottom);
+  _mapView.attributionButtonMargins = CGPointMake(8 + insetRight, 8 + insetBottom);
+  _mapView.compassViewMargins = CGPointMake(8 + insetRight, 8 + insetTop);
   _mapView.logoView.hidden = !ui.logo;
   _mapView.attributionButton.hidden = !ui.attribution;
   _mapView.compassView.compassVisibility = ui.compass ? MLNOrnamentVisibilityAdaptive : MLNOrnamentVisibilityHidden;

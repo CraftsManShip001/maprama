@@ -134,4 +134,19 @@ std::vector<FitPoint> visibleGroundCorners(double width, double height, const Fi
                                            double pitch, double bearing, double maxDistance,
                                            double fovDeg = kReferenceFovDeg);
 
+// ---- content inset (port of engine-web `CameraController.insetShift`) ------------------------------
+
+/// Ground offset from the point under the centre of the **whole** viewport to the point under the centre of
+/// the **visible area** (the viewport minus `inset`), in the same length unit as `distance`.
+///
+/// `ui.contentInset` means "the app's chrome covers these bands": the protocol camera centre must end up
+/// under the centre of what is left. The camera pose is a pure translation in x / z, so looking at
+/// `centre − shift` puts `centre` under the visible centre exactly, with no iteration — which is how
+/// engine-web does it, and why the native engine moves the MapLibre camera instead of setting MapLibre's own
+/// edge insets (the core's own projection then needs no off-axis frustum).
+///
+/// `{0, 0}` without an inset.
+FitPoint insetShift(double width, double height, const FitPadding& inset, double distance, double pitch,
+                    double bearing, double fovDeg = kReferenceFovDeg);
+
 }  // namespace maprama::camera_math

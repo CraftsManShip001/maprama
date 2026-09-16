@@ -256,6 +256,20 @@ std::vector<FitPoint> visibleGroundCorners(double width, double height, const Fi
   };
 }
 
+FitPoint insetShift(double width, double height, const FitPadding& inset, double distance, double pitch,
+                    double bearing, double fovDeg) {
+  if (inset.top <= 0.0 && inset.right <= 0.0 && inset.bottom <= 0.0 && inset.left <= 0.0) return FitPoint{};
+  const double w = std::max(1.0, width), h = std::max(1.0, height);
+  const VisibleRect r = visibleRect(w, h, inset);
+  const Basis basis = basisFor(0.0, 0.0, distance, pitch, bearing);
+  FitPoint hit;
+  if (groundAt(basis, r.x + r.width / 2.0, r.y + r.height / 2.0, w, h, std::tan((fovDeg * kDeg) / 2.0), &hit)) {
+    return hit;
+  }
+  // The visible centre looks past the horizon (a very pitched camera with a large top inset): no shift.
+  return FitPoint{};
+}
+
 double normalizeBearing(double degrees) {
   if (!std::isfinite(degrees)) return 0.0;
   double b = std::fmod(degrees, 360.0);

@@ -198,6 +198,11 @@ class CoreEngine final : public Engine {
     return session_.cameraState();
   }
 
+  MarkerStats markerStats() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return session_.markers().stats();
+  }
+
   std::string styleJson() const override {
     std::lock_guard<std::mutex> lock(mutex_);
     return session_.styleJson();

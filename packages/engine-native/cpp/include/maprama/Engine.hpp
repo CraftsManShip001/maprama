@@ -104,6 +104,8 @@ class Engine {
 
   /// Current protocol camera (diagnostics / tests).
   virtual CameraState cameraState() const = 0;
+  /// Marker view churn (diagnostics / tests, M5): see `MarkerStats`.
+  virtual MarkerStats markerStats() const = 0;
   /// MapLibre style JSON currently sent to the adapter (diagnostics / tests).
   virtual std::string styleJson() const = 0;
 

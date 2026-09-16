@@ -87,6 +87,11 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
   private val zoomButtons = LinearLayout(reactContext)
   private val attributionLabel = TextView(reactContext)
   private var logoShown = false
+  /** `ui.contentInset` in dp (the ornaments are laid out inside the visible area). */
+  private var insetTopDp = 0.0
+  private var insetRightDp = 0.0
+  private var insetBottomDp = 0.0
+  private var insetLeftDp = 0.0
 
   /** Label cards placed by the core (M2b): above the map, below the map UI; touches pass through. */
   private val labelLayer = MapramaLabelLayer(reactContext, density)
@@ -97,6 +102,9 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     mapView = MapView(reactContext, options)
     addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     addView(labelLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    // TalkBack activating a marker card reports a press at its screen point, which the core hit-tests into
+    // `marker:press` — the same path a finger takes (engine-web dispatches a click on the card).
+    labelLayer.onMarkerActivate = { x, y -> if (handle != 0L) MapramaJni.tap(handle, x, y) }
     createOrnaments()
     mapView.onCreate(null)
     mapView.onStart()
@@ -323,11 +331,29 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
     attribution: Boolean,
     attributionText: String,
     logo: Boolean,
+    insetTop: Double,
+    insetRight: Double,
+    insetBottom: Double,
+    insetLeft: Double,
   ) = onMap { m ->
     m.uiSettings.isLogoEnabled = logo
     m.uiSettings.isAttributionEnabled = attribution
     m.uiSettings.isCompassEnabled = compass
     logoShown = logo
+    // `ui.contentInset` (dp): the app's chrome covers these bands, so MapLibre's own ornaments move inside
+    // the visible area with the engine's. The OSM attribution disappearing under a bottom sheet is a licence
+    // problem, not a cosmetic one (DESIGN.md §5.1 `setUi`).
+    insetTopDp = insetTop.coerceAtLeast(0.0)
+    insetRightDp = insetRight.coerceAtLeast(0.0)
+    insetBottomDp = insetBottom.coerceAtLeast(0.0)
+    insetLeftDp = insetLeft.coerceAtLeast(0.0)
+    val marginTop = dp(8) + px(insetTopDp)
+    val marginRight = dp(8) + px(insetRightDp)
+    val marginBottom = dp(8) + px(insetBottomDp)
+    val marginLeft = dp(8) + px(insetLeftDp)
+    m.uiSettings.setLogoMargins(marginLeft, marginTop, marginRight, marginBottom)
+    m.uiSettings.setAttributionMargins(marginLeft, marginTop, marginRight, marginBottom)
+    m.uiSettings.setCompassMargins(marginLeft, marginTop, marginRight, marginBottom)
     this.scaleBar.visibility = if (scaleBar) View.VISIBLE else View.GONE
     this.scaleBar.update((scaleBarWidth * density).toInt(), scaleBarLabel)
     this.zoomButtons.visibility = if (zoomButtons) View.VISIBLE else View.GONE
@@ -665,21 +691,32 @@ class MapramaNativeView(private val reactContext: ThemedReactContext) :
 
   private fun layoutOrnaments(w: Int, h: Int) {
     val unspecified = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+    // Every ornament is laid out against the visible area (`ui.contentInset`), not the whole view.
+    val top = px(insetTopDp)
+    val right = px(insetRightDp)
+    val bottom = h - px(insetBottomDp)
+    val left = px(insetLeftDp)
     // Scale bar: bottom-left, above the MapLibre logo when it is shown.
     scaleBar.measure(unspecified, unspecified)
-    val scaleBottom = h - dp(if (logoShown) 40 else 12)
-    scaleBar.layout(dp(12), scaleBottom - scaleBar.measuredHeight, dp(12) + scaleBar.measuredWidth, scaleBottom)
-    // Zoom buttons: right edge, vertically centred.
+    val scaleBottom = bottom - dp(if (logoShown) 40 else 12)
+    scaleBar.layout(left + dp(12), scaleBottom - scaleBar.measuredHeight, left + dp(12) + scaleBar.measuredWidth, scaleBottom)
+    // Zoom buttons: right edge, vertically centred in the visible area.
     zoomButtons.measure(unspecified, unspecified)
-    val zx = w - dp(12) - zoomButtons.measuredWidth
-    val zy = (h - zoomButtons.measuredHeight) / 2
+    val zx = w - right - dp(12) - zoomButtons.measuredWidth
+    val zy = top + (bottom - top - zoomButtons.measuredHeight) / 2
     zoomButtons.layout(zx, zy, zx + zoomButtons.measuredWidth, zy + zoomButtons.measuredHeight)
     // Attribution text: bottom-right (MapLibre's logo and attribution button sit bottom-left on Android).
-    attributionLabel.measure(MeasureSpec.makeMeasureSpec((w - dp(120)).coerceAtLeast(dp(40)), MeasureSpec.AT_MOST), unspecified)
-    val ax = w - dp(8) - attributionLabel.measuredWidth
-    val ay = h - dp(8) - attributionLabel.measuredHeight
+    attributionLabel.measure(
+      MeasureSpec.makeMeasureSpec((w - left - right - dp(120)).coerceAtLeast(dp(40)), MeasureSpec.AT_MOST),
+      unspecified,
+    )
+    val ax = w - right - dp(8) - attributionLabel.measuredWidth
+    val ay = bottom - dp(8) - attributionLabel.measuredHeight
     attributionLabel.layout(ax, ay, ax + attributionLabel.measuredWidth, ay + attributionLabel.measuredHeight)
   }
+
+  /** dp (a `ui.contentInset` value) as device pixels. */
+  private fun px(dpValue: Double): Int = (dpValue * density).toInt()
 
   /** Label over a bar of a given pixel width (the core computes both, engine-web `scaleBarFor`). */
   private class ScaleBarView(context: Context, private val density: Float) : LinearLayout(context) {

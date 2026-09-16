@@ -133,6 +133,10 @@ bool overlaps(const LabelBox& a, const LabelBox& b);
 std::vector<LabelBox> hudExclusions(double vw, double vh, const MapUiSpec& ui, double top = 0.0, double bottom = 0.0);
 /// The same zones for the native map views' ornaments (`MapUiState`, laid out by both platform views:
 /// zoom buttons right-centred, scale bar bottom-left above the logo, attribution bottom-right).
+///
+/// `ui.inset` is `ui.contentInset`: the whole inset band is excluded (app chrome covers it) and the
+/// ornaments — which both platform views move inside the visible area with the inset — are excluded where
+/// they now sit (engine-web `hudExclusions(vw, vh, ui, insets)`).
 std::vector<LabelBox> nativeHudExclusions(double vw, double vh, const MapUiState& ui);
 
 /// Holo label height above the ground in world units per kind (prototype `H`).
@@ -173,9 +177,10 @@ std::vector<std::pair<std::string, LabelBox>> placeHolo(const std::vector<HoloCa
 
 /// Visibility of an app-style label by kind and camera distance (`style`: app / minimal / clean / sticker).
 bool domLabelVisible(LabelStyle style, LabelKind kind, int pri, double dist, double zoomOut);
-/// Horizontal centre for a box of half width `hw` wanted at `x`, kept inside `[margin, vw - margin]`
-/// (a box wider than that is centred in the viewport).
-double clampLabelX(double x, double hw, double vw, double margin = kLabelEdgeMargin);
+/// Horizontal centre for a box of half width `hw` wanted at `x`, kept inside
+/// `[x0 + margin, x0 + vw - margin]` (a box wider than that is centred in the band). `x0` is the left edge of
+/// the visible area, so a left content inset slides the cards out from under the app chrome.
+double clampLabelX(double x, double hw, double vw, double margin = kLabelEdgeMargin, double x0 = 0.0);
 /// Collision box of a rotated label of size `w`×`h` at `(x, y)`.
 LabelBox rotatedBox(double x, double y, double w, double h, double angle);
 /// Keeps road label text upright: folds a screen angle into (−π/2, π/2].
@@ -313,8 +318,9 @@ class LabelSystem {
   std::size_t unansweredRequests() const { return requested_.size(); }
 
   /// Placement for one camera: the label cards to show (none while disabled, or before sizes are known). Name
-  /// tags are not included (`layoutTags`).
-  LabelFrame layout(const LabelLayoutInput& input) const;
+  /// tags are not included (`layoutTags`). `markerBoxes` are the boxes of the markers placed for the same
+  /// frame (M5): the label pass treats them as exclusions, so a label never covers a marker.
+  LabelFrame layout(const LabelLayoutInput& input, const std::vector<LabelBox>& markerBoxes = {}) const;
 
   /// Replaces the tagged characters; returns true when a tag needs a card size that is not known yet.
   bool setNameTags(std::vector<NameTag> tags);

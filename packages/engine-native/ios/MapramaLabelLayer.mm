@@ -8,6 +8,8 @@
 #include <unordered_map>
 
 #include "maprama/LabelIcons.hpp"
+#include "maprama/MarkerIcons.hpp"
+#include "maprama/MarkerSystem.hpp"
 
 using maprama::LabelCard;
 using maprama::LabelCardContent;
@@ -15,6 +17,9 @@ using maprama::LabelFrame;
 using maprama::LabelKind;
 using maprama::LabelTile;
 using maprama::LabelVisual;
+using maprama::MarkerShape;
+using maprama::VectorImage;
+using maprama::VectorPath;
 
 namespace {
 
@@ -237,6 +242,148 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   return k;
 }
 
+/// A `VectorPath` as a CGPath in its own viewBox coordinates.
+CGPathRef createVectorPath(const VectorPath &path) CF_RETURNS_RETAINED {
+  CGMutablePathRef cg = CGPathCreateMutable();
+  const float *c = path.coords.data();
+  const float *end = c + path.coords.size();
+  for (char op : path.ops) {
+    switch (op) {
+      case 'M':
+        if (end - c < 2) break;
+        CGPathMoveToPoint(cg, nullptr, c[0], c[1]);
+        c += 2;
+        break;
+      case 'L':
+        if (end - c < 2) break;
+        CGPathAddLineToPoint(cg, nullptr, c[0], c[1]);
+        c += 2;
+        break;
+      case 'C':
+        if (end - c < 6) break;
+        CGPathAddCurveToPoint(cg, nullptr, c[0], c[1], c[2], c[3], c[4], c[5]);
+        c += 6;
+        break;
+      default:
+        CGPathCloseSubpath(cg);
+        break;
+    }
+  }
+  return cg;
+}
+
+/// Builds the shape layers of one `VectorImage` under `host` (its sublayers are replaced). `tint` fills the
+/// paths that use `currentColor`.
+void buildVectorLayers(CALayer *host, const VectorImage &image, UIColor *tint) {
+  for (CALayer *l in [host.sublayers copy]) [l removeFromSuperlayer];
+  host.bounds = CGRectMake(image.x, image.y, image.width, image.height);
+  for (const VectorPath &path : image.paths) {
+    CAShapeLayer *layer = [CAShapeLayer layer];
+    CGPathRef cg = createVectorPath(path);
+    layer.path = cg;
+    CGPathRelease(cg);
+    layer.frame = host.bounds;
+    layer.contentsScale = UIScreen.mainScreen.scale;
+    layer.fillColor = path.hasFill ? (path.fillCurrent ? tint : rgba(path.fill, path.fillOpacity)).CGColor : nil;
+    layer.strokeColor = path.hasStroke ? (path.strokeCurrent ? tint : rgba(path.stroke, path.strokeOpacity)).CGColor : nil;
+    // Marked so a later tint change is one property write instead of a rebuild (`applyMarker:size:`).
+    layer.name = path.fillCurrent ? (path.strokeCurrent ? @"current-both" : @"current-fill")
+                                  : (path.strokeCurrent ? @"current-stroke" : nil);
+    layer.lineWidth = path.hasStroke ? path.strokeWidth : 0;
+    layer.lineJoin = path.roundJoin ? kCALineJoinRound : kCALineJoinMiter;
+    layer.lineCap = path.roundCap ? kCALineCapRound : kCALineCapButt;
+    [host addSublayer:layer];
+  }
+}
+
+/// Decoded custom marker icons, keyed by uri (plus the tint when the SVG uses `currentColor`). A decode
+/// happens once per key: a marker that only changes colour or selection never reaches this.
+NSMutableDictionary<NSString *, id> *iconCache(void) {
+  static NSMutableDictionary<NSString *, id> *cache = nil;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    cache = [NSMutableDictionary dictionary];
+  });
+  return cache;
+}
+
+/// Rasterises a parsed SVG icon once (replaying its paths every frame would cost more than the 46 % box is
+/// worth). `tint` fills the paths that use `currentColor`.
+UIImage *renderVectorImage(const VectorImage &v, UIColor *tint) {
+  const CGFloat side = 96;
+  UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+  format.opaque = NO;
+  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side) format:format];
+  return [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull rendererContext) {
+    CGContextRef ctx = rendererContext.CGContext;
+    const CGFloat scale = std::min(side / v.width, side / v.height);
+    CGContextTranslateCTM(ctx, (side - v.width * scale) / 2, (side - v.height * scale) / 2);
+    CGContextScaleCTM(ctx, scale, scale);
+    CGContextTranslateCTM(ctx, -v.x, -v.y);
+    for (const VectorPath &path : v.paths) {
+      CGPathRef cg = createVectorPath(path);
+      if (path.hasFill) {
+        CGContextAddPath(ctx, cg);
+        CGContextSetFillColorWithColor(ctx, (path.fillCurrent ? tint : rgba(path.fill, path.fillOpacity)).CGColor);
+        CGContextFillPath(ctx);
+      }
+      if (path.hasStroke) {
+        CGContextAddPath(ctx, cg);
+        CGContextSetStrokeColorWithColor(ctx, (path.strokeCurrent ? tint : rgba(path.stroke, path.strokeOpacity)).CGColor);
+        CGContextSetLineWidth(ctx, path.strokeWidth);
+        CGContextSetLineJoin(ctx, path.roundJoin ? kCGLineJoinRound : kCGLineJoinMiter);
+        CGContextSetLineCap(ctx, path.roundCap ? kCGLineCapRound : kCGLineCapButt);
+        CGContextStrokePath(ctx);
+      }
+      CGPathRelease(cg);
+    }
+  }];
+}
+
+/// Icon bytes -> image: the SVG subset the core understands first (neither UIImage nor ImageIO can read
+/// SVG), then ImageIO for the raster formats.
+UIImage *imageFromIconBytes(const std::string &bytes, UIColor *tint) {
+  if (const std::optional<VectorImage> vector = maprama::parseSvg(bytes)) return renderVectorImage(*vector, tint);
+  NSData *data = [NSData dataWithBytes:bytes.data() length:bytes.size()];
+  return [UIImage imageWithData:data];
+}
+
+/// The icon of a marker, decoded once per uri. `data:` URIs are decoded inline (they are local and the
+/// example app ships its pins that way); `http(s):` / `file:` / bundled URIs are read on a background queue
+/// and `onReady` runs on the main thread once they land. Returns nil while a load is still in flight or the
+/// icon could not be decoded — the marker then shows its plain base shape.
+UIImage *loadMarkerIcon(NSString *uri, UIColor *tint, void (^onReady)(void)) {
+  NSMutableDictionary<NSString *, id> *cache = iconCache();
+  if (id cached = cache[uri]) return cached == NSNull.null ? nil : (UIImage *)cached;
+  const std::string utf8 = uri.UTF8String ?: "";
+  if (utf8.rfind("data:", 0) == 0) {
+    UIImage *image = nil;
+    if (const std::optional<maprama::DataUri> data = maprama::parseDataUri(utf8)) image = imageFromIconBytes(data->bytes, tint);
+    cache[uri] = image ?: (id)NSNull.null;
+    return image;
+  }
+  static NSMutableSet<NSString *> *inFlight = nil;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    inFlight = [NSMutableSet set];
+  });
+  if ([inFlight containsObject:uri]) return nil;
+  [inFlight addObject:uri];
+  NSURL *url = [NSURL URLWithString:uri] ?: [NSURL fileURLWithPath:uri];
+  UIColor *tintCopy = tint;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    NSData *data = url != nil ? [NSData dataWithContentsOfURL:url] : nil;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [inFlight removeObject:uri];
+      UIImage *image = nil;
+      if (data.length > 0) image = imageFromIconBytes(std::string((const char *)data.bytes, data.length), tintCopy);
+      iconCache()[uri] = image ?: (id)NSNull.null;
+      if (image != nil && onReady != nil) onReady();
+    });
+  });
+  return nil;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------
@@ -245,6 +392,11 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
 
 @interface MapramaLabelCardView : UIView
 - (CGSize)configure:(const LabelCardContent &)content tile:(LabelTile)tile night:(BOOL)night;
+/// Markers only: the per-frame part (tint, selected look, screen size). Rebuilding nothing, so a changed
+/// `color` or `selectedId` costs a handful of property writes — no view recreation, no icon reload.
+- (void)applyMarker:(const LabelCardContent &)content size:(CGSize)size;
+/// Set by the layer so VoiceOver's "activate" reports a `marker:press` the way a tap does.
+@property(nonatomic, copy) void (^onActivate)(void);
 @end
 
 @implementation MapramaLabelCardView {
@@ -258,6 +410,12 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   CALayer *_iconHost;
   UILabel *_title;
   UILabel *_subtitle;
+  // Markers: the base shape (pin / dot) and the optional custom icon, drawn in the shape's own viewBox and
+  // scaled to the card. Built once per content key.
+  CALayer *_markerHost;
+  CALayer *_markerIcon;
+  CGSize _markerViewBox;
+  BOOL _markerHasIcon;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -293,6 +451,14 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
     _iconHost = [CALayer layer];
     [_tile.layer addSublayer:_iconHost];
     [self addSubview:_tile];
+    _markerHost = [CALayer layer];
+    _markerHost.hidden = YES;
+    [self.layer addSublayer:_markerHost];
+    _markerIcon = [CALayer layer];
+    _markerIcon.contentsGravity = kCAGravityResizeAspect;
+    _markerIcon.hidden = YES;
+    [self.layer addSublayer:_markerIcon];
+    _markerViewBox = CGSizeMake(24, 32);
     _title = [[UILabel alloc] init];
     _subtitle = [[UILabel alloc] init];
     for (UILabel *l in @[ _title, _subtitle ]) {
@@ -311,6 +477,7 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   self.accessibilityLabel = ns(c.accessibilityLabel);
   const CGSize size = c.visual == LabelVisual::Holo      ? [self configureHolo:c tile:tile night:night]
                       : c.visual == LabelVisual::NameTag ? [self configureTag:c]
+                      : c.visual == LabelVisual::Marker  ? [self configureMarker:c]
                                                          : [self configureApp:c night:night];
   self.bounds = CGRectMake(0, 0, size.width, size.height);
   [CATransaction commit];
@@ -318,7 +485,11 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
 }
 
 - (CGSize)configureHolo:(const LabelCardContent &)c tile:(LabelTile)tile night:(BOOL)night {
-  const bool district = c.kind == LabelKind::District;
+  _markerHost.hidden = YES;
+  _markerIcon.hidden = YES;
+  _body.hidden = NO;
+  _title.hidden = NO;
+    const bool district = c.kind == LabelKind::District;
   // engine-web .mpr-hl-card: padding 5 11 5 5 (district 7 14 7 7, text only 6 12), gap 7, radius 11.
   UIEdgeInsets pad = c.showIcon ? (district ? UIEdgeInsetsMake(7, 7, 7, 14) : UIEdgeInsetsMake(5, 5, 5, 11)) : UIEdgeInsetsMake(6, 12, 6, 12);
   UIFont *titleFont = labelFont(district ? 14 : 12, UIFontWeightSemibold);
@@ -409,7 +580,11 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
 /// Character name tag (engine-web `.mpr-tag`: 12 px display font, line-height 1, padding 4 7 3, radius 8, 1.5 px
 /// ink border; white with ink text, the player's tag filled with its colour (default #2F5BEA) and white text).
 - (CGSize)configureTag:(const LabelCardContent &)c {
-  UIFont *font = labelFont(12, UIFontWeightBold, NO, YES);
+  _markerHost.hidden = YES;
+  _markerIcon.hidden = YES;
+  _body.hidden = NO;
+  _title.hidden = NO;
+    UIFont *font = labelFont(12, UIFontWeightBold, NO, YES);
   UIColor *ink = rgba(0x2A2540);
   _title.attributedText = styled(ns(c.title), font, c.player ? UIColor.whiteColor : ink, 0);
   _title.layer.shadowOpacity = 0;
@@ -436,8 +611,85 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
   return CGSizeMake(w, h);
 }
 
+/// Builds the base shape (and decodes the custom icon) once per content key. The size is the core's, so
+/// this only prepares the layers; `applyMarker:size:` places and tints them.
+- (CGSize)configureMarker:(const LabelCardContent &)c {
+  _blur.hidden = YES;
+  _gradient.hidden = YES;
+  _innerRing.hidden = YES;
+  _accent.hidden = YES;
+  _tile.hidden = YES;
+  _title.hidden = YES;
+  _subtitle.hidden = YES;
+  _body.hidden = YES;
+  self.layer.shadowOpacity = 0;
+  self.layer.shadowPath = nil;
+  const maprama::VectorImage shape = maprama::markerBaseShape(c.shape);
+  _markerViewBox = CGSizeMake(shape.width, shape.height);
+  // The tint is written per frame (`applyMarker:`); the paths are built with a placeholder colour.
+  buildVectorLayers(_markerHost, shape, UIColor.blackColor);
+  _markerHost.hidden = NO;
+  _markerHasIcon = !c.iconUri.empty();
+  _markerIcon.hidden = !_markerHasIcon;
+  _markerIcon.contents = nil;
+  if (_markerHasIcon) {
+    NSString *uri = ns(c.iconUri);
+    __weak MapramaLabelCardView *weakSelf = self;
+    UIColor *tint = rgba(c.color);
+    UIImage *icon = loadMarkerIcon(uri, tint, ^{
+      MapramaLabelCardView *strong = weakSelf;
+      UIImage *ready = loadMarkerIcon(uri, tint, nil);
+      if (strong != nil && ready != nil) strong->_markerIcon.contents = (id)ready.CGImage;
+    });
+    _markerIcon.contents = icon != nil ? (id)icon.CGImage : nil;
+  }
+  return CGSizeMake(_markerViewBox.width, _markerViewBox.height);
+}
+
+- (void)applyMarker:(const LabelCardContent &)c size:(CGSize)size {
+  const CGFloat w = std::max<CGFloat>(1, size.width), h = std::max<CGFloat>(1, size.height);
+  UIColor *tint = rgba(c.color);
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  // The base shape is drawn in its own viewBox and scaled onto the card the core sized (`selectedScale` is
+  // already in that size), exactly like the web engine scaling its SVG.
+  _markerHost.transform = CATransform3DIdentity;
+  _markerHost.position = CGPointMake(w / 2, h / 2);
+  _markerHost.transform = CATransform3DMakeScale(w / _markerViewBox.width, h / _markerViewBox.height, 1);
+  for (CALayer *layer in _markerHost.sublayers) {
+    // Only the paths that were built from `currentColor` follow the marker tint; the pin's inner dot and the
+    // white outline keep their own colours (engine-web tints through the CSS `color` property the same way).
+    if (![layer isKindOfClass:CAShapeLayer.class] || layer.name == nil) continue;
+    CAShapeLayer *shape = (CAShapeLayer *)layer;
+    if ([layer.name hasPrefix:@"current-fill"] || [layer.name isEqualToString:@"current-both"]) shape.fillColor = tint.CGColor;
+    if ([layer.name hasPrefix:@"current-stroke"] || [layer.name isEqualToString:@"current-both"]) shape.strokeColor = tint.CGColor;
+  }
+  // engine-web `.mpr-mk-shape > svg { filter: drop-shadow(...) }`, stronger while selected.
+  self.layer.shadowColor = rgba(0x141E3C).CGColor;
+  self.layer.shadowOpacity = c.selected ? 0.5 : 0.28;
+  self.layer.shadowRadius = c.selected ? 6 : 1.5;
+  self.layer.shadowOffset = CGSizeMake(0, c.selected ? 6 : 2);
+  self.layer.shadowPath = nil;
+  _markerIcon.hidden = !_markerHasIcon || _markerIcon.contents == nil;
+  if (!_markerIcon.hidden) {
+    const CGFloat side = w * maprama::kMarkerIconSize;
+    _markerIcon.frame = CGRectMake((w - side) / 2, h * maprama::kMarkerIconTop, side, side);
+  }
+  [CATransaction commit];
+}
+
+- (BOOL)accessibilityActivate {
+  if (self.onActivate == nil) return NO;
+  self.onActivate();
+  return YES;
+}
+
 - (CGSize)configureApp:(const LabelCardContent &)c night:(BOOL)night {
-  const AppLook k = appLook(c.visual, c, night);
+  _markerHost.hidden = YES;
+  _markerIcon.hidden = YES;
+  _body.hidden = NO;
+  _title.hidden = NO;
+    const AppLook k = appLook(c.visual, c, night);
   const bool poi = c.kind == LabelKind::Poi;
   const bool badge = poi && c.showIcon;
   const bool sub = poi && c.showSubtitle;
@@ -696,7 +948,10 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
     auto it = _active.find(c.id);
     const bool fresh = it == _active.end();
     r = fresh ? [self takeRecord] : it->second;
-    if (fresh || r->key != c.content.key || r->tile != frame.tile || r->night != frame.night) {
+    const bool marker = c.content.visual == LabelVisual::Marker;
+    // Markers keep their content key across a recolour / reselection, so this branch — the one that rebuilds
+    // the shape and decodes the icon — is exactly what a colour-only update must not enter.
+    if (fresh || r->key != c.content.key || (!marker && (r->tile != frame.tile || r->night != frame.night))) {
       [r.card configure:c.content tile:frame.tile night:frame.night];
       r->key = c.content.key;
       r->tile = frame.tile;
@@ -710,7 +965,26 @@ AppLook appLook(LabelVisual visual, const LabelCardContent &c, bool night) {
     r.card.center = CGPointMake(c.x, c.y);
     r.card.transform = CGAffineTransformMakeRotation(c.angle);
     r.card.alpha = c.opacity;
-    r.card.accessibilityIdentifier = [@"maprama-label-" stringByAppendingString:ns(c.id)];
+    if (marker) {
+      [r.card applyMarker:c.content size:CGSizeMake(c.width, c.height)];
+      // A marker without an accessibility label is decorative (engine-web writes `aria-hidden`).
+      r.card.isAccessibilityElement = !c.content.accessibilityLabel.empty();
+      r.card.accessibilityLabel = ns(c.content.accessibilityLabel);
+      r.card.accessibilityTraits = c.content.selected ? (UIAccessibilityTraitButton | UIAccessibilityTraitSelected)
+                                                      : UIAccessibilityTraitButton;
+      const CGPoint at = CGPointMake(c.x, c.y);
+      __weak MapramaLabelLayer *weakSelf = self;
+      r.card.onActivate = ^{
+        MapramaLabelLayer *strong = weakSelf;
+        if (strong.onMarkerActivate != nil) strong.onMarkerActivate(at.x, at.y);
+      };
+    } else {
+      r.card.isAccessibilityElement = YES;
+      r.card.accessibilityTraits = UIAccessibilityTraitStaticText;
+      r.card.onActivate = nil;
+    }
+    r.card.accessibilityIdentifier =
+        [(marker ? @"maprama-marker-" : @"maprama-label-") stringByAppendingString:ns(c.id)];
     r.dot.hidden = !holo;
     r.line.hidden = !holo;
     if (holo) {

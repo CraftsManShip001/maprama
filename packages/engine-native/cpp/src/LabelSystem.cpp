@@ -33,6 +33,16 @@ std::optional<E> enumMember(const Value& object, std::string_view key) {
 
 LabelIcon iconOfCategory(PoiCategory c) { return static_cast<LabelIcon>(static_cast<std::size_t>(c)); }
 
+/// The visible area of the view once `ui.contentInset` is taken off (engine-web `CameraController.view`).
+camera_math::VisibleRect visibleAreaOf(double width, double height, const ContentInset& inset) {
+  camera_math::FitPadding pad;
+  pad.top = inset.top;
+  pad.right = inset.right;
+  pad.bottom = inset.bottom;
+  pad.left = inset.left;
+  return camera_math::visibleRect(width, height, pad);
+}
+
 bool anyOverlap(const std::vector<LabelBox>& placed, const LabelBox& box) {
   for (const LabelBox& p : placed) {
     if (overlaps(p, box)) return true;
@@ -255,21 +265,26 @@ std::vector<LabelBox> hudExclusions(double vw, double vh, const MapUiSpec& ui, d
 }
 
 std::vector<LabelBox> nativeHudExclusions(double vw, double vh, const MapUiState& ui) {
-  // Status strip and bottom margin as engine-web (no insets: the map view is not under the status bar
-  // in a typical layout, and the strip keeps cards off the very top edge anyway).
+  // `ui.contentInset`: the app's own chrome covers those bands, and both platform views move the ornaments
+  // inside the visible area by the same amount (engine-web `hudExclusions(vw, vh, ui, insets)`).
+  const double top = std::max(0.0, ui.inset.top), bottom = std::max(0.0, ui.inset.bottom);
+  const double left = std::max(0.0, ui.inset.left), right = std::max(0.0, ui.inset.right);
+  // Status strip and bottom margin as engine-web (the strip also keeps cards off the very top edge).
   std::vector<LabelBox> boxes{
-      LabelBox{vw / 2, 14, vw / 2, 22},
-      LabelBox{vw / 2, vh - 6, vw / 2, 14},
+      LabelBox{vw / 2, top / 2 + 14, vw / 2, top / 2 + 22},
+      LabelBox{vw / 2, vh - bottom / 2 - 6, vw / 2, bottom / 2 + 14},
   };
-  // Zoom buttons: 44 × 96 dp, 12 dp from the right edge, vertically centred (+ margins).
-  if (ui.zoomButtons) boxes.push_back(LabelBox{vw - 34, vh / 2, 34, 56});
+  if (left > 0) boxes.push_back(LabelBox{left / 2, vh / 2, left / 2, vh / 2});
+  if (right > 0) boxes.push_back(LabelBox{vw - right / 2, vh / 2, right / 2, vh / 2});
+  // Zoom buttons: 44 × 96 dp, 12 dp from the right edge of the visible area, vertically centred (+ margins).
+  if (ui.zoomButtons) boxes.push_back(LabelBox{vw - right - 34, (top + vh - bottom) / 2, 34, 56});
   // Compass (shown with the zoom buttons while the map is rotated): top-right corner.
-  if (ui.compass) boxes.push_back(LabelBox{vw - 32, 56, 32, 28});
+  if (ui.compass) boxes.push_back(LabelBox{vw - right - 32, top + 56, 32, 28});
   // Scale bar: bottom-left, above the MapLibre logo when it is shown.
-  if (ui.scaleBar) boxes.push_back(LabelBox{70, vh - (ui.logo ? 40 : 12) - 12, 70, 18});
+  if (ui.scaleBar) boxes.push_back(LabelBox{left + 70, vh - bottom - (ui.logo ? 40 : 12) - 12, 70, 18});
   // MapLibre logo (bottom-left) and the attribution text + button (bottom-right).
-  if (ui.logo) boxes.push_back(LabelBox{56, vh - 20, 56, 14});
-  if (ui.attribution) boxes.push_back(LabelBox{vw - 110, vh - 18, 110, 14});
+  if (ui.logo) boxes.push_back(LabelBox{left + 56, vh - bottom - 20, 56, 14});
+  if (ui.attribution) boxes.push_back(LabelBox{vw - right - 110, vh - bottom - 18, 110, 14});
   return boxes;
 }
 
@@ -322,9 +337,9 @@ bool domLabelVisible(LabelStyle style, LabelKind kind, int pri, double dist, dou
   return show;
 }
 
-double clampLabelX(double x, double hw, double vw, double margin) {
-  const double lo = margin + hw, hi = vw - margin - hw;
-  return lo > hi ? vw / 2 : std::min(hi, std::max(lo, x));
+double clampLabelX(double x, double hw, double vw, double margin, double x0) {
+  const double lo = x0 + margin + hw, hi = x0 + vw - margin - hw;
+  return lo > hi ? x0 + vw / 2 : std::min(hi, std::max(lo, x));
 }
 
 LabelBox rotatedBox(double x, double y, double w, double h, double angle) {
@@ -382,6 +397,7 @@ LabelStyle domStyleFor(LabelVisual visual) {
     case LabelVisual::Holo:
     case LabelVisual::App:
     case LabelVisual::NameTag:
+    case LabelVisual::Marker:  // markers are not labels: they have no visibility rule of their own
       break;
   }
   return LabelStyle::App;
@@ -551,14 +567,15 @@ std::optional<LabelSize> LabelSystem::sizeOf(const std::string& key) const {
   return it != sizes_.end() ? std::optional<LabelSize>(it->second) : std::nullopt;
 }
 
-LabelFrame LabelSystem::layout(const LabelLayoutInput& in) const {
+LabelFrame LabelSystem::layout(const LabelLayoutInput& in, const std::vector<LabelBox>& markerBoxes) const {
   LabelFrame frame;
   frame.visual = labelVisualFor(spec_.style);
   frame.tile = iconTileFor(spec_.icons, in.night);
   frame.night = in.night;
   if (!spec_.enabled || entries_.empty() || !(in.width > 0) || !(in.height > 0)) return frame;
   const MapProjector projector(in.pose, in.width, in.height);
-  const std::vector<LabelBox> exclusions = nativeHudExclusions(in.width, in.height, in.ui);
+  std::vector<LabelBox> exclusions = nativeHudExclusions(in.width, in.height, in.ui);
+  exclusions.insert(exclusions.end(), markerBoxes.begin(), markerBoxes.end());
   if (frame.visual == LabelVisual::Holo) {
     layoutHolo(in, projector, exclusions, frame);
   } else {
@@ -618,6 +635,7 @@ std::vector<LabelCard> LabelSystem::layoutTags(const LabelLayoutInput& in) const
 void LabelSystem::layoutHolo(const LabelLayoutInput& in, const MapProjector& projector,
                              const std::vector<LabelBox>& exclusions, LabelFrame& frame) const {
   const double W = in.width, H = in.height, dist = in.distanceUnits;
+  const camera_math::VisibleRect vr = visibleAreaOf(W, H, in.ui.inset);
   struct Anchor {
     double gx = 0, gy = 0, tx = 0;
   };
@@ -645,7 +663,7 @@ void LabelSystem::layoutHolo(const LabelLayoutInput& in, const MapProjector& pro
       c.h = size->height;
     }
     // The whole card stays inside the viewport horizontally (the dot and the leader line keep the true anchor).
-    c.topX = c.w > 0 ? clampLabelX(t.x, c.w / 2, W) : t.x;
+    c.topX = c.w > 0 ? clampLabelX(t.x, c.w / 2, vr.width, kLabelEdgeMargin, vr.x) : t.x;
     c.topY = t.y;
     indexOf.emplace(e.id, i);
   }
@@ -675,6 +693,7 @@ void LabelSystem::layoutHolo(const LabelLayoutInput& in, const MapProjector& pro
 void LabelSystem::layoutApp(const LabelLayoutInput& in, const MapProjector& projector,
                             const std::vector<LabelBox>& exclusions, LabelFrame& frame) const {
   const double W = in.width, H = in.height, dist = in.distanceUnits;
+  const camera_math::VisibleRect vr = visibleAreaOf(W, H, in.ui.inset);
   const LabelStyle style = domStyleFor(frame.visual);
   std::vector<LabelBox> placed(exclusions);
   for (const std::size_t i : byPriority_) {
@@ -690,7 +709,8 @@ void LabelSystem::layoutApp(const LabelLayoutInput& in, const MapProjector& proj
       angle = uprightAngle(std::atan2(s2.y - s.y, s2.x - s.x));
     }
     const double w = size->width, h = size->height;
-    const double sx = clampLabelX(s.x, (std::fabs(std::cos(angle)) * w + std::fabs(std::sin(angle)) * h) / 2, W);
+    const double sx = clampLabelX(s.x, (std::fabs(std::cos(angle)) * w + std::fabs(std::sin(angle)) * h) / 2, vr.width,
+                                  kLabelEdgeMargin, vr.x);
     const LabelBox box = rotatedBox(sx, s.y, w, h, angle);
     if (anyOverlap(placed, box)) continue;
     placed.push_back(box);
