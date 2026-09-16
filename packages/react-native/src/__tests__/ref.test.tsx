@@ -202,6 +202,48 @@ describe('travel', () => {
   });
 });
 
+describe('setView', () => {
+  it('sends the command and resolves when the transition settles', async () => {
+    const { ref } = await readyMap();
+    let settled = false;
+    const done = ref.current!.setView('2d', { durationMs: 400 }).then(() => { settled = true; });
+    expect(commands()).toEqual([{ type: 'setView', view: '2d', animate: { durationMs: 400 } }]);
+
+    // The start of the transition is not the end of it.
+    await emit({ type: 'view:change', view: '2d', animating: true });
+    expect(settled).toBe(false);
+
+    await emit({ type: 'view:change', view: '2d', animating: false });
+    await done;
+    expect(settled).toBe(true);
+  });
+
+  it('sends animate: false and still resolves on the settled event', async () => {
+    const { ref } = await readyMap();
+    const done = ref.current!.setView('2d', { animate: false });
+    expect(commands()).toEqual([{ type: 'setView', view: '2d', animate: false }]);
+    await emit({ type: 'view:change', view: '2d', animating: false });
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('resolves both callers when a second setView retargets the first', async () => {
+    const { ref } = await readyMap();
+    const first = ref.current!.setView('2d');
+    await emit({ type: 'view:change', view: '2d', animating: true });
+    const second = ref.current!.setView('2.5d');
+    await emit({ type: 'view:change', view: '2.5d', animating: true });
+    await emit({ type: 'view:change', view: '2.5d', animating: false });
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+  });
+
+  it('resolves instead of hanging when the map unmounts mid-transition', async () => {
+    const { ref, unmount } = await readyMap();
+    const done = ref.current!.setView('2d');
+    await act(async () => { unmount(); });
+    await expect(done).resolves.toBeUndefined();
+  });
+});
+
 describe('requests', () => {
   it('correlates project() responses by requestId', async () => {
     const { ref } = await readyMap();

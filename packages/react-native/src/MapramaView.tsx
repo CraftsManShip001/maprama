@@ -4,7 +4,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import type { CameraSpec, InitCommand, LabelContent, LabelInfo, LabelsSpec } from '@maprama/protocol';
+import { DEFAULT_VIEW_MODE, type CameraSpec, type InitCommand, type LabelContent, type LabelInfo, type LabelsSpec, type ViewMode } from '@maprama/protocol';
 import { CommandBatcher } from './batching';
 import { MapContext, notifyMapMountChange, type MapContextValue } from './context';
 import type { EngineHost, EngineHostError } from './host/EngineHost';
@@ -55,6 +55,7 @@ interface SentState {
   ui: string;
   camera: CameraSpec | undefined;
   locationSource: string;
+  view: ViewMode;
 }
 
 interface Internals extends MapContextValue {
@@ -85,7 +86,7 @@ export const MapramaView = forwardRef<MapramaViewRef, MapramaViewProps>(function
   planRef.current = locationPlan;
 
   const [internals] = useState<Internals>(() => {
-    const sent: SentState = { theme: '', labels: '', ui: '', camera: undefined, locationSource: '' };
+    const sent: SentState = { theme: '', labels: '', ui: '', camera: undefined, locationSource: '', view: DEFAULT_VIEW_MODE };
     const labelsIndex: { current: LabelInfo[] | null } = { current: null };
     let batcher: CommandBatcher | null = null;
     const refreshLabels = (): void => {
@@ -117,7 +118,11 @@ export const MapramaView = forwardRef<MapramaViewRef, MapramaViewProps>(function
         sent.ui = JSON.stringify(ui);
         sent.camera = p.camera;
         sent.locationSource = locationSource;
-        return { type: 'init', world: p.world, theme, labels, ui, ...(p.camera ? { camera: p.camera } : {}), locationSource };
+        const view = p.view ?? DEFAULT_VIEW_MODE;
+        sent.view = view;
+        // The view mode rides along with `init` instead of following as a `setView`, so a map that
+        // starts flat never draws one tilted frame with extruded buildings first.
+        return { type: 'init', world: p.world, theme, labels, ui, ...(p.camera ? { camera: p.camera } : {}), locationSource, ...(view === DEFAULT_VIEW_MODE ? {} : { view }) };
       },
       onReady: (engine, isReload) => {
         if (isReload) batcher?.resetSent();
@@ -198,6 +203,12 @@ export const MapramaView = forwardRef<MapramaViewRef, MapramaViewProps>(function
     if (uiJson !== sent.ui) {
       sent.ui = uiJson;
       controller.sendCommand({ type: 'setUi', ui });
+    }
+    const view = props.view ?? DEFAULT_VIEW_MODE;
+    if (view !== sent.view) {
+      sent.view = view;
+      // The prop changes on a user action (a toggle), so it animates like `ref.setView` does.
+      controller.sendCommand({ type: 'setView', view });
     }
     const cameraDiff = diffCamera(sent.camera, props.camera);
     sent.camera = props.camera;

@@ -104,6 +104,7 @@ export type {
   ModelInput,
   RequestOptions,
   ServiceDropLayerProps,
+  SetViewOptions,
   SubscribeOptions,
   SubscriptionEventMap,
   TravelOptions,
@@ -121,6 +122,9 @@ export {
   INFO_CARD_ROOF_HEIGHT_METERS,
   INFO_ROW_ICONS,
   visibleSpanMeters,
+  DEFAULT_VIEW_MODE,
+  VIEW_MODES,
+  VIEW_TRANSITION_MS,
 } from '@maprama/protocol';
 export type {
   BuildingStyle,
@@ -157,5 +161,7 @@ export type {
   ScreenPoint,
   ThemeSpec,
   TravelMode,
+  ViewChangeEvent,
+  ViewMode,
   WorldSource,
 } from '@maprama/protocol';

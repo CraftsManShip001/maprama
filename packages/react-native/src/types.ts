@@ -50,6 +50,7 @@ import type {
   ThemeSpec,
   TravelLeg,
   TravelMode,
+  ViewMode,
   WorldSource,
 } from '@maprama/protocol';
 import type { MapramaErrorCode } from './errors';
@@ -173,6 +174,27 @@ export interface MapramaViewProps {
    * (`setCamera`); removing `follow` sends `follow: null`. Use `ref.setCamera` for one-off moves.
    */
   camera?: CameraSpec;
+  /**
+   * Render view mode. Default `'2.5d'` — the tilted diorama. `'2d'` is a flat
+   * map: footprints instead of extruded buildings, no shadows, no distance fog,
+   * anchors on the ground, and the pitch locked at 0 (gestures included).
+   *
+   * Changing this prop sends `setView` with an animated transition. Nothing in
+   * the engine changes the mode on its own, so this prop and `ref.setView` can
+   * be mixed freely — the prop wins on the next render, as with every other
+   * declarative prop.
+   *
+   * ```tsx
+   * const [view, setView] = useState<ViewMode>('2.5d');
+   * <MapramaView view={view} … />
+   * <Button title="2D" onPress={() => setView('2d')} />
+   * ```
+   *
+   * 2D is also the cheap mode: no shadow pass, no extruded geometry, far less
+   * overdraw (`docs/guide/view-modes.md` has the measured numbers), so it works
+   * as a fallback on low-end devices.
+   */
+  view?: ViewMode;
   /** Player location source. Default `{ source: 'external' }`. */
   location?: MapramaLocationProps;
   /** Engine host kind (see `registerEngineHost`). Default `'web'`. Read at mount. */
@@ -262,6 +284,14 @@ export type FocusOnTarget = LngLat | { infoCardId: string };
 /** Options of {@link MapramaViewRef.focusOn}; everything but `timeoutMs` reaches the engine. */
 export interface FocusOnOptions extends RequestOptions, Omit<FocusOnParams, 'coordinate' | 'infoCardId'> {}
 
+/** Options of {@link MapramaViewRef.setView}. */
+export interface SetViewOptions {
+  /** `false` switches instantly. Default `true` (an animated transition). */
+  animate?: boolean;
+  /** Transition duration in ms; implies `animate: true`. Default `VIEW_TRANSITION_MS` (450). */
+  durationMs?: number;
+}
+
 /** Options for `subscribe`. */
 export interface SubscribeOptions {
   /** Character id for `character:position` / `travel:progress`; all characters when absent. */
@@ -306,6 +336,21 @@ export interface MapramaViewRef {
    * change `minDistanceMeters` / `maxDistanceMeters` after mount.
    */
   setCamera(camera: CameraSpec): void;
+  /**
+   * Switches the render view mode (see the `view` prop for what 2D means).
+   *
+   * Resolves when the transition has settled — so `await` it before measuring
+   * or screenshotting — or immediately for `animate: false` and for a mode the
+   * engine is already in. A second `setView` during a transition retargets it
+   * from where the map is now; both calls then resolve together when it lands.
+   * It never rejects: if the engine goes away mid-transition (unmount, reload)
+   * the promise simply resolves.
+   *
+   * ```tsx
+   * await map.current?.setView('2d', { durationMs: 400 });
+   * ```
+   */
+  setView(view: ViewMode, options?: SetViewOptions): Promise<void>;
   /** Injects a location fix (effective with `location.source: 'external'`). */
   pushLocation(fix: LocationFix): void;
   /** Sets (or clears with `null`) a per-building style override. */
