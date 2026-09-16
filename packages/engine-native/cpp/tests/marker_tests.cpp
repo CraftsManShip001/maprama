@@ -340,6 +340,29 @@ MAPRAMA_TEST(content_inset_camera_and_ornaments) {
   // ornaments do too, which is what keeps the OSM attribution out from under an app sheet.
   ctx.check(!h.sink->loggedContaining("contentInset is only partly implemented", mp::LogLevel::Warn),
             "no 'partly implemented' warning any more");
+
+  // `camera:idle` must still describe a box *around the centre it reports*. The ground corners come back
+  // measured from the pose centre (optical axis), so forgetting to undo the shift pushes the whole box a
+  // shift away from its own centre — an app querying `nearby(centre, radius)` would then silently drop the
+  // POIs just above the sheet, which is exactly the row the sheet is about to show.
+  h.send(Value::object({{"type", "subscribe"}, {"topic", "camera:idle"}, {"throttleMs", 0}}));
+  h.run(200);
+  const std::vector<Value> idle = h.sink->eventsOfType("camera:idle");
+  if (ctx.check(!idle.empty(), "camera:idle arrives with a content inset set")) {
+    const Value& ev = idle.back();
+    const Value& b = *ev.find("bounds");
+    const double neLat = b.find("ne")->find("lat")->asNumber(), swLat = b.find("sw")->find("lat")->asNumber();
+    const double neLng = b.find("ne")->find("lng")->asNumber(), swLng = b.find("sw")->find("lng")->asNumber();
+    const double lat = ev.find("camera")->find("center")->find("lat")->asNumber();
+    const double lng = ev.find("camera")->find("center")->find("lng")->asNumber();
+    ctx.check(lat <= neLat && lat >= swLat, "the reported centre is inside the reported bounds (latitude)");
+    ctx.check(lng <= neLng && lng >= swLng, "the reported centre is inside the reported bounds (longitude)");
+    // And the radius reaches the farthest of those corners, measured from that same centre.
+    const double metersPerDegLat = 111320.0;
+    const double farLat = std::max(neLat - lat, lat - swLat) * metersPerDegLat;
+    ctx.check(ev.find("radiusMeters")->asNumber() >= farLat - 1.0,
+              "radiusMeters reaches the farthest edge of its own bounds");
+  }
   appendEmitted(ctx, *h.sink);
 }
 

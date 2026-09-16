@@ -1105,15 +1105,22 @@ Value MapSession::cameraIdleEvent() const {
                                state_.bearing, kCameraIdleHorizonFactor * state_.distance);
   const double metersPerDegLng =
       kMetersPerDegreeLng * std::max(std::cos(state_.center.lat * kDegToRad), 1e-12);
+  // `visibleGroundCorners` measures from the point the optical axis hits, which under `ui.contentInset` is
+  // the *pose* centre (`poseFor`: protocol centre − shift), not the protocol centre this event reports.
+  // Undo the shift so `bounds` and `radiusMeters` are both anchored on the centre in the payload — otherwise
+  // a bottom sheet pushes the box a shift north of its own centre and a radius query drops the POIs just
+  // above the sheet.
+  const cm::FitPoint shift = insetShiftFor(state_);
   double minLng = kInf, minLat = kInf, maxLng = -kInf, maxLat = -kInf, maxMeters = 0.0;
   for (const cm::FitPoint& c : corners) {
-    const double lng = state_.center.lng + c.x / metersPerDegLng;
-    const double lat = state_.center.lat - c.z / kMetersPerDegreeLat;
+    const double east = c.x - shift.x, south = c.z - shift.z;
+    const double lng = state_.center.lng + east / metersPerDegLng;
+    const double lat = state_.center.lat - south / kMetersPerDegreeLat;
     minLng = std::min(minLng, lng);
     maxLng = std::max(maxLng, lng);
     minLat = std::min(minLat, lat);
     maxLat = std::max(maxLat, lat);
-    maxMeters = std::max(maxMeters, std::sqrt(c.x * c.x + c.z * c.z));
+    maxMeters = std::max(maxMeters, std::sqrt(east * east + south * south));
   }
   return Value::object({
       {"type", "camera:idle"},
