@@ -406,6 +406,9 @@ export class Engine implements EngineHandle {
       zoomOutFactor: () => self.zoomOut.t,
       onFrame: (hook) => core.onFrame(hook),
       onBeforeRender: (hook) => core.onBeforeRender(hook),
+      requestRender: () => core.requestRender(),
+      addActiveSource: (tag) => core.addActiveSource(tag),
+      activeSources: () => core.activeSources(),
       onThemeChange: (hook) => {
         self.themeHooks.add(hook);
         return () => { self.themeHooks.delete(hook); };

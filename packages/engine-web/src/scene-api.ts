@@ -14,7 +14,9 @@
  *   Objects outside `groups.dynamic` must call
  *   `materials.convertTree(root)` in an `onThemeChange` hook.
  * - **Frames**: `onFrame((dt, t) => …)` runs before the camera update and
- *   render every frame.
+ *   render every frame. Rendering is **on demand**: frames only happen while
+ *   something asked for them, so call `requestRender()` after a one-off change
+ *   and hold `addActiveSource(tag)` while something animates.
  * - **Camera**: `camera.follow(() => ({ x, z }), id)` to follow a character;
  *   `registerFollowResolver` lets `setCamera { follow: id }` find targets.
  * - **Silhouettes**: `silhouette.addSilhouette(mesh)` with
@@ -105,6 +107,21 @@ export interface SceneApi {
   onFrame(hook: FrameHook): () => void;
   /** Runs after the camera update, right before rendering (use for screen-space projection such as DOM labels). */
   onBeforeRender(hook: FrameHook): () => void;
+  /**
+   * Renders one more frame. Idempotent within a frame. Call it after changing
+   * anything visible from outside a frame hook (a command handler, an async
+   * asset load, a DOM event…) — the loop is idle while nothing animates.
+   */
+  requestRender(): void;
+  /**
+   * Keeps frames (and therefore the simulation) running until the returned
+   * release function is called. `tag` is informational; holders are reference
+   * counted, so every holder releases its own hold and releasing twice is a
+   * no-op. Anything that animates over time must hold a source.
+   */
+  addActiveSource(tag: string): () => void;
+  /** Tags currently holding the loop awake (diagnostics: "why does this map never go idle?"). */
+  activeSources(): string[];
   /** Called after a theme was applied and the static world rebuilt (before old materials are disposed). */
   onThemeChange(hook: (params: RenderParams) => void): () => void;
   /** Called after a world was loaded and rendered. Fires immediately when a world is already loaded. */

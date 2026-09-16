@@ -3,6 +3,15 @@
  * service (layer 0 normal render, layer 1 depth-only occluders, layer 2
  * silhouettes drawn with `GreaterDepth` behind occluders).
  *
+ * ## On-demand rendering
+ *
+ * The `requestAnimationFrame` loop keeps ticking, but its *body* is gated by a
+ * {@link FrameScheduler}: a tick that has neither a pending
+ * {@link RenderCore.requestRender} nor a held {@link RenderCore.addActiveSource}
+ * only refreshes the timestamp and returns, so a static map costs nothing.
+ * Note that the simulation only advances inside {@link RenderCore.step}:
+ * anything that has to keep moving must hold a source.
+ *
  * @module
  */
 
@@ -23,6 +32,7 @@ import {
 } from 'three';
 import type { RenderParams } from '../theme/params.js';
 import type { CameraController } from './camera.js';
+import { FrameScheduler } from './frame-scheduler.js';
 
 /** Frame hook: `dt` seconds (clamped to 0.05), `t` total seconds. */
 export type FrameHook = (dt: number, t: number) => void;
@@ -59,10 +69,16 @@ export class RenderCore {
   private last = 0;
   private time = 0;
   private running = false;
+  private contextLost = false;
+  private readonly scheduler = new FrameScheduler();
+  private readonly canvas: HTMLCanvasElement;
   private readonly depthOnly = new MeshBasicMaterial({ colorWrite: false });
 
   constructor(canvas: HTMLCanvasElement, private readonly cam: CameraController) {
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
+    this.canvas = canvas;
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
     const r = this.renderer;
     r.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
     r.autoClear = false;
@@ -87,6 +103,8 @@ export class RenderCore {
       addSilhouette(obj) {
         obj.traverse((o) => o.layers.set(LAYER_SILHOUETTE));
         self.hasSilhouettes = true;
+        // A new silhouette (and the first one, which turns the extra passes on) changes the picture.
+        self.requestRender();
       },
       createMaterial(color, opacity = 0.9) {
         return new MeshBasicMaterial({ color, depthFunc: GreaterDepth, depthWrite: false, fog: false, transparent: true, opacity });
@@ -113,12 +131,42 @@ export class RenderCore {
     this.sun.intensity = p.sun.intensity;
     this.sun.castShadow = p.shadows;
     this.sunDir = p.sun.dir;
+    this.requestRender();
   }
 
-  /** Sets the drawing buffer size (CSS pixels). */
+  /** Sets the drawing buffer size (CSS pixels). Reallocates the drawing buffer, so it always draws a frame. */
   resize(width: number, height: number): void {
     this.renderer.setSize(Math.max(1, width), Math.max(1, height), false);
     this.cam.setViewport(width, height);
+    this.requestRender();
+  }
+
+  /**
+   * Renders one more frame. Idempotent within a frame: any number of calls
+   * between two animation frames produce exactly one extra frame. Call it
+   * after changing anything visible from outside a frame hook.
+   */
+  requestRender(): void {
+    this.scheduler.request();
+  }
+
+  /**
+   * Keeps rendering (and stepping the simulation) until the returned release
+   * function is called. Releasing twice is a no-op, and holders of the same
+   * `tag` are reference counted, so each holder releases its own hold.
+   */
+  addActiveSource(tag: string): () => void {
+    return this.scheduler.addSource(tag);
+  }
+
+  /** Tags currently keeping the loop rendering (diagnostics and tests). */
+  activeSources(): string[] {
+    return this.scheduler.tags;
+  }
+
+  /** True while a frame is queued or a source is held (i.e. the engine is not idle). */
+  get busy(): boolean {
+    return this.scheduler.busy;
   }
 
   onFrame(hook: FrameHook): () => void {
@@ -140,7 +188,10 @@ export class RenderCore {
       if (!this.running) return;
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(0.05, Math.max(0, (now - this.last) / 1000));
+      // `last` is refreshed even on a skipped frame, so `dt` never accumulates across an idle stretch.
       this.last = now;
+      if (this.contextLost) return; // keep the pending request for the restore
+      if (!this.scheduler.take()) return;
       this.step(dt);
     };
     this.raf = requestAnimationFrame(loop);
@@ -150,6 +201,18 @@ export class RenderCore {
     this.running = false;
     cancelAnimationFrame(this.raf);
   }
+
+  private readonly onContextLost = (e: Event): void => {
+    // Without preventDefault the browser never fires `webglcontextrestored`.
+    e.preventDefault();
+    this.contextLost = true;
+  };
+
+  private readonly onContextRestored = (): void => {
+    this.contextLost = false;
+    // Full recovery (rebuilding GPU resources) is not implemented yet; at least draw again.
+    this.requestRender();
+  };
 
   /** Runs hooks, updates the camera / sun and renders one frame. */
   step(dt: number): void {
@@ -184,6 +247,8 @@ export class RenderCore {
 
   dispose(): void {
     this.stop();
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.hooks.clear();
     this.renderHooks.clear();
     this.depthOnly.dispose();

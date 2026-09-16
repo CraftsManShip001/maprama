@@ -107,6 +107,9 @@ export class Features {
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
 
     this.offs.push(
+      // M1: the part-2 features keep the loop running unconditionally, exactly like the old
+      // always-on render loop. Later milestones replace this with per-subsystem sources.
+      scene.addActiveSource('features'),
       scene.onWorldLoad((w) => this.worldLoaded(w)),
       scene.onThemeChange((p) => {
         this.chars.applyOutline(p.outline);
