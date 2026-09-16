@@ -158,4 +158,11 @@ Measured by an app team porting their map onto v0.1.0, useful as a support-matri
 - End-to-end flows live in `example/.maestro/` and run with Maestro 2.10 on a simulator/emulator. The native
   flows are 05 (M1 + procedural + remount), 06 (M2a), 07 (M2c), 08 (M3a + M3b), 10 (M4).
 - CocoaPods needs `LANG=en_US.UTF-8`; Android builds need `JAVA_HOME` on JDK 17 and `ANDROID_HOME`.
+- `node packages/engine-web/scripts/idle-frames.mjs --repeats 2 --seconds 10 --settle 8000` answers "does a
+  static map actually stop rendering?" — it drives headless Chrome, loads the dev sample world as a `data`
+  source and reports rendered frames plus `scene.activeSources()` per configuration. Measured on
+  2026-09-17: a `data` world with a traffic-free theme draws **0 frames** when static, with or without
+  `prefers-reduced-motion`, labels on or off; a theme with ambient traffic (`urban`, `modern`, `soft`) never
+  idles, and reduced motion does **not** release that holder. Non-zero counts from this harness are host-limited
+  (software GL) — only the zero / non-zero distinction is meaningful.
 - Expo iOS builds break on paths containing spaces — keep the checkout on a space-free path.
