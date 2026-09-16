@@ -4,7 +4,7 @@ import { MarkerLayer, type MapramaViewRef, type MarkerPressInfo } from '@maprama
 import type { LngLat } from '@maprama/protocol';
 import { DemoMap } from '../src/components/DemoMap';
 import { Button, ButtonRow, Chips, EventLog, Readout, ScreenLayout, Section, Toggle, useEventLog } from '../src/components/ui';
-import { SEONGSU_WORLD, STATION, STATION_NAME, worldToLngLat } from '../src/data/seongsu';
+import { SEONGSU_WORLD, STATION, STATION_NAME, offsetMeters, worldToLngLat } from '../src/data/seongsu';
 
 const WORLD = { kind: 'data', world: SEONGSU_WORLD } as const;
 
@@ -38,6 +38,9 @@ const HERO: Poi = {
   partner: true,
   priority: 100,
 };
+
+/** The camera looks 14 m north of the station, so the hero pin straddles the centre of the map view. */
+const CAMERA_TARGET: LngLat = offsetMeters(STATION, 0, 14);
 
 /** Enough anchors for 60 pins: the sample's POIs, topped up with building centroids. */
 const ANCHORS: { id: string; title: string; coordinate: LngLat }[] = [
@@ -106,8 +109,9 @@ export default function MarkersScreen() {
             world={WORLD}
             theme={{ base: 'toy', timeOfDay: 'day' }}
             labels={{ style: 'app' }}
-            // Straight down on the station: the hero pin's tip lands on the centre of the map view.
-            camera={{ center: STATION, pitch: 0, bearing: 0, distance: 320 }}
+            // Straight down, framed 14 m north of the station so the hero pin's body — not just
+            // its tip — sits over the centre of the map view (the point the Maestro flow taps).
+            camera={{ center: CAMERA_TARGET, pitch: 0, bearing: 0, distance: 320 }}
             location={{ source: 'external' }}
             onPress={(e) => pushLog(`map:press ${e.coordinate.lng.toFixed(5)},${e.coordinate.lat.toFixed(5)}`)}
             onBuildingPress={(e) => pushLog(`building:press ${e.buildingId}`)}
