@@ -40,6 +40,13 @@ for (const preset of ['realistic', 'urban']) {
     }
   }
 }
+// info cards: a card that is simply on screen must hold no active source, so a static map with
+// cards up still draws 0 frames (the entrance transition releases its hold when it ends).
+for (const cards of [1, 5]) {
+  CONFIGS.push({ name: `realistic / ${cards} info card${cards > 1 ? 's' : ''} / no-reduce-motion`, preset: 'realistic', labels: { enabled: false }, cam: LABEL_CAM, rm: false, pan: false, cards });
+}
+CONFIGS.push({ name: 'realistic / 5 info cards + labels on / no-reduce-motion', preset: 'realistic', labels: {}, cam: LABEL_CAM, rm: false, pan: false, cards: 5 });
+
 // panning reference (default config, no reduce motion)
 CONFIGS.push({ name: 'realistic / labels off / no-reduce-motion / PANNING', preset: 'realistic', labels: { enabled: false }, rm: false, pan: true });
 CONFIGS.push({ name: 'urban / labels off / no-reduce-motion / PANNING', preset: 'urban', labels: { enabled: false }, rm: false, pan: true });
@@ -118,7 +125,7 @@ const evaluate = async (sessionId, expression, awaitPromise = false) => {
   return r.result.value;
 };
 
-const initScript = (preset, labels, cam) => `(async () => {
+const initScript = (preset, labels, cam, cards = 0) => `(async () => {
   const world = await (await fetch('./sample-world.json')).json();
   const e = window.__engine;
   await e.dispatch({ type: 'init',
@@ -134,7 +141,35 @@ const initScript = (preset, labels, cam) => `(async () => {
     distance: (cam ? cam.dist : 48) * w.unitMeters,
     pitch: cam ? cam.pitch : 40,
     bearing: cam ? cam.bearing : 28 } });
-  return { kind: w.kind, name: w.name, buildings: w.buildings.length, reduceMotion: s.reduceMotion, traffic: s.params().street.traffic };
+  const cards = ${JSON.stringify(cards)};
+  if (cards > 0) {
+    const o = s.camera.orbit;
+    // The sample world has 3 POIs; top the list up with building centroids so "5 cards" really is 5.
+    const spots = [
+      ...w.pois.map((p) => ({ id: p.id, name: p.name, cat: p.cat, x: p.x, z: p.z })),
+      ...w.buildings.map((b, i) => ({ id: b.id, name: b.name || ('빌딩 ' + (i + 1)), cat: 'store', x: b.x, z: b.z })),
+    ];
+    const near = spots.sort((a, b) => Math.hypot(a.x - o.x, a.z - o.z) - Math.hypot(b.x - o.x, b.z - o.z)).slice(0, cards);
+    for (let i = 0; i < near.length; i++) {
+      const p = near[i];
+      await e.dispatch({ type: 'setInfoCard', card: {
+        id: 'card-' + p.id,
+        coordinate: s.toLngLat({ x: p.x, z: p.z }),
+        anchor: 'auto',
+        dismissible: true,
+        content: {
+          title: p.name,
+          subtitle: '카페 · CAFE',
+          icon: p.cat,
+          badges: [{ text: '영업 중', tone: 'good' }],
+          rating: { value: 4.3, count: 1281 },
+          rows: [{ icon: 'hours', text: '22:00 영업 종료' }, { icon: 'location', text: '성수동2가 273-13' }],
+          actions: [{ id: 'route', label: '길찾기', primary: true }, { id: 'call', label: '전화' }],
+        },
+      } });
+    }
+  }
+  return { kind: w.kind, name: w.name, buildings: w.buildings.length, reduceMotion: s.reduceMotion, traffic: s.params().street.traffic, cards: document.querySelectorAll('.mpr-ic').length };
 })()`;
 
 async function runOnce(cfg) {
@@ -159,7 +194,7 @@ async function runOnce(cfg) {
       if (await evaluate(sessionId, 'window.__MAPRAMA_READY__ === true')) break;
       await sleep(250);
     }
-    const info = await evaluate(sessionId, initScript(cfg.preset, cfg.labels, cfg.cam), true);
+    const info = await evaluate(sessionId, initScript(cfg.preset, cfg.labels, cfg.cam, cfg.cards ?? 0), true);
     await sleep(SETTLE_MS);
 
     // a holo card is on screen exactly when its root is not display:none (the root is a
@@ -199,7 +234,7 @@ for (const cfg of CONFIGS) {
   for (let i = 0; i < REPEATS; i++) {
     const r = await runOnce(cfg);
     results.push({ cfg: cfg.name, run: i + 1, ...r });
-    console.log(`${cfg.name} | run ${i + 1} | frames ${r.frames} in ${Math.round(r.ms)}ms (=${r.per10s}/10s, ${(r.frames / (r.ms / 1000)).toFixed(1)} fps) | activeSources start=[${r.srcStart.join(',')}] end=[${r.srcEnd.join(',')}] | world kind=${r.info.kind} rm=${r.info.reduceMotion} traffic=${r.info.traffic} holo=${r.holo.shown}/${r.holo.built}${r.holo.shown ? '(' + r.holo.ids.join(',') + ')' : ''}${r.errors.length ? ' | ERRORS: ' + r.errors.join(' ; ') : ''}`);
+    console.log(`${cfg.name} | run ${i + 1} | frames ${r.frames} in ${Math.round(r.ms)}ms (=${r.per10s}/10s, ${(r.frames / (r.ms / 1000)).toFixed(1)} fps) | activeSources start=[${r.srcStart.join(',')}] end=[${r.srcEnd.join(',')}] | world kind=${r.info.kind} rm=${r.info.reduceMotion} traffic=${r.info.traffic} cards=${r.info.cards ?? 0} holo=${r.holo.shown}/${r.holo.built}${r.holo.shown ? '(' + r.holo.ids.join(',') + ')' : ''}${r.errors.length ? ' | ERRORS: ' + r.errors.join(' ; ') : ''}`);
   }
 }
 console.log('\n=== JSON ===');

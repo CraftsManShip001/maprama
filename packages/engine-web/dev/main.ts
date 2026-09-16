@@ -18,7 +18,12 @@
  * leg) · `drops=coin|cd|vinyl|note` (drop layer around the view center) ·
  * `settle=<ms>` (extra wait before ready, e.g. for label pop-in) ·
  * `model=<url>` (glTF / GLB model for the player; ready waits until it is
- * attached, e.g. `/fixtures/box-character.glb`).
+ * attached, e.g. `/fixtures/box-character.glb`) ·
+ * `cards=<n>` (holographic info cards on the POIs nearest the view centre) ·
+ * `cardAnchor=ground|roof|auto` (default `auto`) · `cardsOn=poi|building` (what the
+ * cards sit on; `building` demonstrates the roof anchor) · `focus=1` (`focusOn` the
+ * first card after showing it, as an app would after a press) ·
+ * `inset=<px>` (bottom `ui.contentInset`, as an app sheet would set).
  *
  * Sets `window.__MAPRAMA_READY__ = true` once the world is loaded and rendered
  * (used by `scripts/screenshot.mjs`); engine `error` events are logged with
@@ -29,6 +34,8 @@ import type {
   DropSpec,
   DropType,
   EngineCommand,
+  InfoCardAnchor,
+  InfoCardSpec,
   EngineEvent,
   HoloIconTile,
   LabelContent,
@@ -118,7 +125,12 @@ function theme(): ThemeSpec {
 }
 
 const labelsSpec = (): LabelsSpec => (state.labels === 'off' ? { enabled: false } : { enabled: true, style: state.labels, icons: state.icons, content: state.content });
-const uiSpec = (): MapUiSpec => (state.ui ? { locationPuck: true, scaleBar: true, zoomButtons: true, attribution: true } : {});
+const uiSpec = (): MapUiSpec => {
+  const ui: MapUiSpec = state.ui ? { locationPuck: true, scaleBar: true, zoomButtons: true, attribution: true } : {};
+  const inset = num('inset');
+  if (inset !== undefined && inset > 0) ui.contentInset = { bottom: inset };
+  return ui;
+};
 const modesFor = (c: TravelChoice): TravelMode[] => (c === 'mixed' ? ['walk', 'car', 'walk'] : [c]);
 
 const panel = document.getElementById('panel')!;
@@ -177,6 +189,79 @@ function sampleContent(labels: readonly LabelInfo[]): Record<string, LabelConten
     else out[l.id] = l.subtitle?.includes('RIVER') ? { title: l.name, subtitle: '수변 산책 퀘스트', icon: 'water' } : { title: l.name, subtitle: `지금 ${3 + (n % 22)}명 플레이 중` };
   }
   return out;
+}
+
+/**
+ * Sample place-card content per POI category, in the shape a map app shows: a
+ * category subtitle, an opening-hours badge, detail rows and actions.
+ */
+const CARD_SAMPLES: Readonly<Record<string, { subtitle: string; badge: { text: string; tone: 'good' | 'warn' | 'bad' }; rows: string[]; actions: string[] }>> = {
+  cafe: { subtitle: '카페 · CAFE', badge: { text: '영업 중', tone: 'good' }, rows: ['22:00 영업 종료', '성수동2가 273-13', '02-000-0000'], actions: ['길찾기', '전화'] },
+  music: { subtitle: '음반 · RECORDS', badge: { text: '곧 마감', tone: 'warn' }, rows: ['21:00 영업 종료', '성수이로 78', '오늘의 드롭 3곡'], actions: ['예약', '공유'] },
+  store: { subtitle: '편의점 · STORE', badge: { text: '24시간', tone: 'good' }, rows: ['연중무휴', '연무장길 41', '택배 접수 가능'], actions: ['길찾기'] },
+  book: { subtitle: '서점 · BOOKS', badge: { text: '영업 종료', tone: 'bad' }, rows: ['내일 10:00 영업 시작', '아차산로 105', '신간 입고'], actions: ['길찾기', '전화'] },
+  park: { subtitle: '공원 · PARK', badge: { text: '개방', tone: 'good' }, rows: ['상시 개방', '성수동1가 일대', '산책 퀘스트 진행 중'], actions: ['길찾기'] },
+  plaza: { subtitle: '광장 · PLAZA', badge: { text: '이벤트', tone: 'good' }, rows: ['오늘 19:00 점령전', '성수광장', '참가자 24명'], actions: ['참가'] },
+  subway: { subtitle: '지하철역 · STATION', badge: { text: '운행 중', tone: 'good' }, rows: ['다음 열차 2분', '2호선 · 수인분당선', '엘리베이터 있음'], actions: ['길찾기', '시간표'] },
+  school: { subtitle: '학교 · SCHOOL', badge: { text: '방과후', tone: 'good' }, rows: ['17:00 하교', '성수동1가 656', '방과후 이벤트'], actions: ['길찾기'] },
+};
+const DEFAULT_CARD = CARD_SAMPLES.cafe!;
+const ROW_ICONS = ['hours', 'location', 'info'] as const;
+
+/** Anchors of the info cards: the nearest POIs, or the nearest building centroids (for `roof`). */
+function cardAnchors(count: number, on: 'poi' | 'building', cx: number, cz: number): { id: string; name: string; cat: string; x: number; z: number }[] {
+  const w = engine.scene!.world()!;
+  if (on === 'building') {
+    return [...w.buildings]
+      .sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))
+      .slice(0, count)
+      .map((b, i) => ({ id: b.id, name: b.name || `빌딩 ${i + 1}`, cat: 'store', x: b.x, z: b.z }));
+  }
+  return [...w.pois]
+    .sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))
+    .slice(0, count)
+    .map((p) => ({ id: p.id, name: p.name, cat: p.cat, x: p.x, z: p.z }));
+}
+
+/** Shows `count` info cards around the view centre; returns the card ids in placement order. */
+async function showInfoCards(count: number, anchor: InfoCardAnchor, on: 'poi' | 'building', cx: number, cz: number): Promise<string[]> {
+  const scene = engine.scene!;
+  const anchors = cardAnchors(count, on, cx, cz);
+  const ids: string[] = [];
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i]!, sample = CARD_SAMPLES[a.cat] ?? DEFAULT_CARD;
+    const card: InfoCardSpec = {
+      id: `card-${a.id}`,
+      coordinate: scene.toLngLat({ x: a.x, z: a.z }),
+      anchor,
+      dismissible: true,
+      content: {
+        title: a.name,
+        subtitle: sample.subtitle,
+        icon: (a.cat as InfoCardSpec['content']['icon']) ?? 'store',
+        badges: [{ text: sample.badge.text, tone: sample.badge.tone }],
+        rating: { value: Math.round(38 + ((i * 3) % 12)) / 10, count: 128 + i * 337 },
+        rows: sample.rows.map((text, k) => ({ icon: ROW_ICONS[k % ROW_ICONS.length]!, text })),
+        actions: sample.actions.map((label, k) => (k === 0 ? { id: `a${k}`, label, primary: true } : { id: `a${k}`, label })),
+      },
+    };
+    ids.push(card.id);
+    await engine.dispatch({ type: 'setInfoCard', card });
+  }
+  return ids;
+}
+
+/**
+ * `focusOn` an info card and wait for the response — the reference for what an
+ * app does after a press. The engine never does this by itself.
+ */
+async function focusOnCard(id: string): Promise<void> {
+  const requestId = `focus-${id}`;
+  const answer = waitFor((e) => (e.type === 'response' && e.requestId === requestId ? e : undefined), 10000);
+  await engine.dispatch({ type: 'request', requestId, method: 'focusOn', params: { infoCardId: id, pitch: 52, animate: { durationMs: 400 } } });
+  const res = await answer;
+  if (!res.ok) console.error(`focusOn failed [${res.error.code}] ${res.error.message}`);
+  else log(`focusOn ${id}: fitted=${(res.result as { fitted: boolean }).fitted}`);
 }
 
 function snapWorld(x: number, z: number): { x: number; z: number } {
@@ -310,6 +395,17 @@ async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel
   if (params.get('model') && (flag('player') || travel)) await waitForModel('me');
   const drops = pick<DropType>('drops', MUSIC_DROPS);
   if (drops) await dropAround(drops, x, z);
+  const cards = num('cards');
+  if (cards && cards > 0) {
+    const ids = await showInfoCards(
+      cards,
+      pick<InfoCardAnchor>('cardAnchor', ['ground', 'roof', 'auto']) ?? 'auto',
+      pick<'poi' | 'building'>('cardsOn', ['poi', 'building']) ?? 'poi',
+      x,
+      z,
+    );
+    if (flag('focus') && ids[0]) await focusOnCard(ids[0]);
+  }
   const need = scene.frames() + (num('frames') ?? 24);
   await new Promise<void>((resolve) => {
     const off = scene.onFrame(() => { if (scene.frames() >= need) { off(); resolve(); } });

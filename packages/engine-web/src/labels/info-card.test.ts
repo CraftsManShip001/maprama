@@ -433,3 +433,29 @@ describe('anchors', () => {
     expect(h.cards.anchorOf('missing')).toBeNull();
   });
 });
+
+describe('several cards at once', () => {
+  it('draws the card nearest the camera target on top and never hides one', () => {
+    const doc = fakeDocument();
+    const root = doc.createElement('div');
+    const anchors: Record<string, InfoCardAnchorPoint> = {
+      far: { x: 200, z: 200, baseY: 0, height: 4 },
+      near: { x: 5, z: 5, baseY: 0, height: 4 },
+    };
+    const cards = new InfoCards(
+      () => root as unknown as HTMLElement,
+      () => {},
+      () => {},
+      (spec) => ({ ...anchors[spec.id]! }),
+      () => null,
+    );
+    cards.setCard({ ...SPEC, id: 'far' }, 0);
+    cards.setCard({ ...SPEC, id: 'near' }, 0);
+    // The camera target is the origin, so "near" is the closer card.
+    const boxes = cards.update(fakeCamera(), proj, 0);
+    expect(boxes).toHaveLength(2);
+    const zIndex = (id: string): number => Number(find(cardEls(root).find((c) => c.dataset.infoCardId === id)!, 'mpr-ic-panel')!.style.zIndex);
+    expect(zIndex('near')).toBeGreaterThan(zIndex('far'));
+    for (const el of cardEls(root)) expect(el.classes.has('on')).toBe(true);
+  });
+});

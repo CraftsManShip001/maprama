@@ -71,6 +71,13 @@ export const CARD_SCALE_MAX = 1.15;
 /** Gap (CSS px) kept between a card and the edges of the visible area. */
 const EDGE_MARGIN = 8;
 
+/** `z-index` of the farthest card; nearer cards get higher values (see {@link InfoCards.update}). */
+const CARD_BASE_Z_INDEX = 3;
+
+/** Distance from the camera target to a card's anchor, in world units (`Infinity` without one). */
+const cardDepth = (view: { anchor: InfoCardAnchorPoint | null }, cam: CameraController): number =>
+  view.anchor ? Math.hypot(view.anchor.x - cam.orbit.x, view.anchor.z - cam.orbit.z) : Infinity;
+
 /** A press reported by a card. */
 export interface InfoCardPress {
   id: string;
@@ -238,7 +245,14 @@ export class InfoCards {
     const v = cam.view;
     const scale = cardScale(proj.unitsToMeters(cam.orbit.distance));
     const boxes: Box[] = [];
-    for (const view of [...this.views.values()]) {
+    // Cards do not hide each other — how many to show at once is the app's choice, not a
+    // collision rule. Where two overlap, the one nearer the camera target is drawn on top, so
+    // the overlap reads as depth instead of as a glitch.
+    const order = [...this.views.values()].sort((a, b) => cardDepth(b, cam) - cardDepth(a, cam));
+    for (let rank = 0; rank < order.length; rank++) {
+      const view = order[rank]!;
+      const z = CARD_BASE_Z_INDEX + rank;
+      if (view.panel.style.zIndex !== `${z}`) view.panel.style.zIndex = `${z}`;
       if (view.removing && now - view.changedAt > CARD_EXIT_MS) {
         view.root.remove();
         this.views.delete(view.spec.id);
@@ -410,7 +424,9 @@ export class InfoCards {
       const star = el('i');
       star.textContent = '★';
       const value = el('b');
-      value.textContent = String(c.rating.value);
+      // One decimal, the convention for a place rating — and it keeps a host value that came out
+      // of arithmetic (4.399999999999999) from being printed in full.
+      value.textContent = c.rating.value.toFixed(1);
       rating.append(star, value);
       if (c.rating.count !== undefined) {
         const count = el('small');
