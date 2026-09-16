@@ -225,7 +225,11 @@ export class Features {
     for (const d of this.collector.removeLayer(layerId)) this.dropVisuals.remove(d);
   }
 
-  /** Creates or replaces a marker layer (markers are matched by id, so a colour-only change is a field write). */
+  /**
+   * Creates or replaces a marker layer (markers are matched by id, so a
+   * colour-only change is a field write). The frame that draws the result comes
+   * from the dispatcher's per-command render request, so an idle map repaints.
+   */
   setMarkerLayer(cmd: SetMarkerLayerCommand): void {
     this.markers.setLayer(cmd, this.scene.world() ? this.scene.projection() : null);
   }
