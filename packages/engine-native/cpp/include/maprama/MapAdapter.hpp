@@ -92,11 +92,16 @@ struct MapUiState {
   std::string attributionText;
   /// MapLibre logo.
   bool logo = false;
+  /// `ui.contentInset` (dp): app chrome covers these bands, so every ornament — the engine's own ones and
+  /// MapLibre's logo / attribution button / compass — is laid out inside the *visible area* instead of the
+  /// whole view. The OSM attribution disappearing under a bottom sheet is a licence problem, not a cosmetic
+  /// one, so the platform views must apply this (DESIGN.md §5.1 `setUi`).
+  ContentInset inset;
 
   bool operator==(const MapUiState& o) const {
     return scaleBar == o.scaleBar && scaleBarWidth == o.scaleBarWidth && scaleBarLabel == o.scaleBarLabel &&
            zoomButtons == o.zoomButtons && compass == o.compass && attribution == o.attribution &&
-           attributionText == o.attributionText && logo == o.logo;
+           attributionText == o.attributionText && logo == o.logo && inset == o.inset;
   }
   bool operator!=(const MapUiState& o) const { return !(*this == o); }
 };
@@ -122,7 +127,19 @@ struct BuildingLayerZoom {
 /// Look a label card is drawn with. `ground` / `sign` (3D labels) are drawn as `App` / `Sticker` until the
 /// custom layer exists (M2c).
 /// `NameTag`: a character name tag (engine-web `.mpr-tag`), shown in every label style (also with labels off).
-enum class LabelVisual : std::uint8_t { Holo, App, Minimal, Clean, Sticker, NameTag };
+/// `Marker`: an app-owned map pin (`setMarkerLayer`), drawn in the same view pool as the labels (M5).
+enum class LabelVisual : std::uint8_t { Holo, App, Minimal, Clean, Sticker, NameTag, Marker };
+
+/// Built-in base shape of a marker (protocol `MarkerShape`); a custom icon is drawn inside it.
+enum class MarkerShape : std::uint8_t { Pin, Dot };
+
+/// Marker view churn (diagnostics / tests), mirroring engine-web `MarkerLayers.stats`: how often a marker
+/// view had to be created (the pool could not supply one) and how often an icon image had to be loaded.
+/// A `setMarkerLayer` that only changes `color` / `selectedId` must move neither counter.
+struct MarkerStats {
+  std::uint64_t viewsCreated = 0;
+  std::uint64_t iconLoads = 0;
+};
 /// Icon tile of `Holo` cards (`HoloIconTile::Auto` resolved by the time of day: white by day, black at night).
 enum class LabelTile : std::uint8_t { White, Black, Color };
 
@@ -148,9 +165,20 @@ struct LabelCardContent {
   /// Name tags: the player's tag (filled with `color`, white text) instead of the white NPC tag.
   bool player = false;
   /// Name tags: fill colour of the player's tag (0xRRGGBB; engine-web `--tag`, default #2F5BEA).
+  /// Markers: the tint of the base shape (`MarkerSpec.color`, default #2F5BEA).
   std::uint32_t color = 0;
-  /// Accessibility label: name + type (the shown subtitle, else the default one).
+  /// Accessibility label: name + type (the shown subtitle, else the default one). A marker without one is
+  /// decorative and must be kept out of the accessibility tree (engine-web writes `aria-hidden`).
   std::string accessibilityLabel;
+
+  // ---- markers (`LabelVisual::Marker`) -----------------------------------------------------------------
+  /// Base shape the pin is drawn with.
+  MarkerShape shape = MarkerShape::Pin;
+  /// Custom image drawn inside the base shape (`MarkerImage.uri`: `data:`, `http(s):`, `file:` or a bundled
+  /// asset). Empty for a plain base shape. Platforms decode it once and cache it by this string.
+  std::string iconUri;
+  /// The layer's selected marker (drawn with the selected look; its scale is already in the card's size).
+  bool selected = false;
 };
 
 /// Measured card size (dp) in `measureLabels` request order.

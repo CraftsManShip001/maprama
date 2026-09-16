@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// card as an accessibility element ("name, type"). Main thread only.
 @interface MapramaLabelLayer : UIView
 
+/// VoiceOver activated a marker card: the host reports it as a press at that screen point (dp), which the
+/// core turns into `marker:press`. Marker cards are the only pressable cards; label cards are static text.
+@property(nonatomic, copy, nullable) void (^onMarkerActivate)(double x, double y);
+
 #ifdef __cplusplus
 /// Shows exactly the frame's cards (views recycled by label id); hides every other label view.
 - (void)applyFrame:(const maprama::LabelFrame &)frame;

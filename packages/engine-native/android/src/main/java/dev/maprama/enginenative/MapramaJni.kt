@@ -17,7 +17,11 @@ interface MapramaMapHost {
   /** The style light: spherical position (azimuth clockwise from north, polar 0 = overhead), color `#RRGGBB`. */
   fun setLight(radial: Double, azimuthal: Double, polar: Double, color: String, intensity: Double)
 
-  /** Map UI ornaments computed by the core (`MapUiState`). */
+  /**
+   * Map UI ornaments computed by the core (`MapUiState`). The four inset values are `ui.contentInset` (dp):
+   * every ornament — the engine's own and MapLibre's logo / attribution button / compass — is laid out
+   * inside the visible area, so app chrome never covers the OSM attribution.
+   */
   fun setUi(
     scaleBar: Boolean,
     scaleBarWidth: Double,
@@ -27,6 +31,10 @@ interface MapramaMapHost {
     attribution: Boolean,
     attributionText: String,
     logo: Boolean,
+    insetTop: Double,
+    insetRight: Double,
+    insetBottom: Double,
+    insetLeft: Double,
   )
 
   fun setCameraLimits(minZoom: Double, maxZoom: Double, minPitch: Double, maxPitch: Double)
@@ -159,6 +167,20 @@ internal object MapramaJni {
 
   /** Vector data of a label icon ([IconDrawingData] layout); [glyph] = the POI badge glyph. Null when there is none. */
   @JvmStatic external fun labelIconData(glyph: Boolean, icon: Int): FloatArray?
+
+  /**
+   * Vector data of a marker ([MarkerArt] layout). An empty [uri] returns the built-in base shape
+   * ([shape]: 0 pin, 1 dot); a `data:image/svg+xml` uri returns its paths. Null means "not a vector":
+   * neither Android nor iOS can decode SVG, so the core parses the subset the web engine's icons use and
+   * everything else is raster bytes for `BitmapFactory`.
+   */
+  @JvmStatic external fun markerVectorData(uri: String?, shape: Int): FloatArray?
+
+  /** The payload of a `data:` uri (raster icons), or null when it is not one. */
+  @JvmStatic external fun markerIconBytes(uri: String): ByteArray?
+
+  /** SVG bytes fetched by the platform (an `https:` / `file:` icon) as vector paths, or null. */
+  @JvmStatic external fun markerVectorFromSvg(bytes: ByteArray): FloatArray?
 
   @JvmStatic external fun frame(handle: Long, timestampMs: Double)
 

@@ -2,6 +2,8 @@ package dev.maprama.enginenative
 
 import android.animation.TimeInterpolator
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -11,12 +13,17 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
+import java.io.File
+import java.net.URI
+import java.net.URL
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.max
@@ -62,6 +69,18 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
     isFocusable = false
   }
 
+  /** VoiceOver / TalkBack activated a marker card: reported as a press at that point (dp). */
+  var onMarkerActivate: ((Double, Double) -> Unit)? = null
+
+  private fun layoutCard(card: LabelCardView, widthDp: Float, heightDp: Float) {
+    val wp = ceil(widthDp * density).toInt().coerceAtLeast(1)
+    val hp = ceil(heightDp * density).toInt().coerceAtLeast(1)
+    if (card.width == wp && card.height == hp) return
+    card.layoutParams = LayoutParams(wp, hp)
+    card.measure(MeasureSpec.makeMeasureSpec(wp, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(hp, MeasureSpec.EXACTLY))
+    card.layout(0, 0, wp, hp)
+  }
+
   private fun motion(): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
 
@@ -101,17 +120,36 @@ internal class MapramaLabelLayer(context: Context, private val density: Float) :
         r = if (free.isNotEmpty()) free.removeAt(free.size - 1) else Record(LabelCardView(context, density)).also { addView(it.card) }
         active[c.id] = r
       }
-      if (fresh || r.key != c.content.key || r.tile != frame.tile || r.night != frame.night) {
-        val (w, h) = r.card.configure(c.content, frame.tile, frame.night)
-        val wp = ceil(w * density).toInt()
-        val hp = ceil(h * density).toInt()
-        r.card.layoutParams = LayoutParams(wp, hp)
-        r.card.measure(MeasureSpec.makeMeasureSpec(wp, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(hp, MeasureSpec.EXACTLY))
-        r.card.layout(0, 0, wp, hp)
+      val marker = c.content.visual == LabelConst.VISUAL_MARKER
+      // Markers keep their content key across a recolour / reselection, so this branch — the one that
+      // rebuilds the shape and decodes the icon — is exactly what a colour-only update must not enter.
+      var sized = false
+      if (fresh || r.key != c.content.key || (!marker && (r.tile != frame.tile || r.night != frame.night))) {
+        val (cw, ch) = r.card.configure(c.content, frame.tile, frame.night)
+        if (!marker) {
+          layoutCard(r.card, cw, ch)
+          sized = true
+        }
         r.key = c.content.key
         r.tile = frame.tile
         r.night = frame.night
       }
+      if (marker) {
+        // The size is the core's (it already includes `selectedScale`) and changes with the selection.
+        r.card.applyMarker(c.width.toFloat(), c.height.toFloat())
+        r.card.contentDescription = c.content.accessibilityLabel
+        r.card.importantForAccessibility =
+          if (c.content.accessibilityLabel.isEmpty()) View.IMPORTANT_FOR_ACCESSIBILITY_NO else View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        val atX = c.x
+        val atY = c.y
+        r.card.onMarkerActivate = { onMarkerActivate?.invoke(atX, atY) }
+        layoutCard(r.card, c.width.toFloat(), c.height.toFloat())
+        sized = true
+      } else {
+        r.card.onMarkerActivate = null
+        r.card.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+      }
+      if (!sized && r.card.width == 0) layoutCard(r.card, 1f, 1f)
       val card = r.card
       // Only holo cards have a ground dot and a leader line (name tags ride along in every style).
       val holo = c.content.visual == LabelConst.VISUAL_HOLO
@@ -211,6 +249,7 @@ internal object LabelConst {
   const val VISUAL_CLEAN = 3
   const val VISUAL_STICKER = 4
   const val VISUAL_NAME_TAG = 5
+  const val VISUAL_MARKER = 6
   const val TILE_WHITE = 0
   const val TILE_BLACK = 1
   const val TILE_COLOR = 2
@@ -219,7 +258,10 @@ internal object LabelConst {
   const val KIND_POI = 2
 }
 
-/** `maprama::LabelCardContent` (flags: 1 water, 2 arterial, 4 showIcon, 8 showSubtitle, 16 custom, 32 player; color 0xRRGGBB). */
+/**
+ * `maprama::LabelCardContent` (flags: 1 water, 2 arterial, 4 showIcon, 8 showSubtitle, 16 custom, 32 player,
+ * 64 selected marker, 128 dot-shaped marker; color 0xRRGGBB).
+ */
 internal class LabelContentData(
   val key: String,
   val visual: Int,
@@ -230,6 +272,7 @@ internal class LabelContentData(
   val title: String,
   val subtitle: String,
   val accessibilityLabel: String,
+  val iconUri: String = "",
 ) {
   val water get() = flags and 1 != 0
   val arterial get() = flags and 2 != 0
@@ -237,9 +280,16 @@ internal class LabelContentData(
   val showSubtitle get() = flags and 8 != 0
   val custom get() = flags and 16 != 0
   val player get() = flags and 32 != 0
+  val selected get() = flags and 64 != 0
+  val marker get() = visual == LabelConst.VISUAL_MARKER
+  /** 0 pin, 1 dot (`maprama::MarkerShape`). */
+  val markerShape get() = if (flags and 128 != 0) 1 else 0
 
   companion object {
-    /** Decodes JNI arrays: 3 strings (title, subtitle, accessibility label) and 5 ints (visual, kind, flags, icon, color) per item. */
+    /**
+     * Decodes JNI arrays: 4 strings (title, subtitle, accessibility label, marker icon uri) and 5 ints
+     * (visual, kind, flags, icon, color) per item.
+     */
     fun list(keys: Array<String>?, strings: Array<String>, ints: IntArray): List<LabelContentData> =
       List(ints.size / 5) { i ->
         LabelContentData(
@@ -249,9 +299,10 @@ internal class LabelContentData(
           ints[i * 5 + 2],
           ints[i * 5 + 3],
           ints[i * 5 + 4],
-          strings[i * 3],
-          strings[i * 3 + 1],
-          strings[i * 3 + 2],
+          strings[i * 4],
+          strings[i * 4 + 1],
+          strings[i * 4 + 2],
+          strings[i * 4 + 3],
         )
       }
   }
@@ -263,6 +314,9 @@ internal class LabelCardData(
   val content: LabelContentData,
   val x: Double,
   val y: Double,
+  /// Markers: the size the core placed the card with (`selectedScale` included); labels measure themselves.
+  val width: Double,
+  val height: Double,
   val angle: Double,
   val opacity: Double,
   val dotX: Double,
@@ -278,7 +332,10 @@ internal class LabelFrameData(val sequence: Long, val visual: Int, val tile: Int
       val contents = LabelContentData.list(keys, strings, ints)
       val cards = List(ids.size) { i ->
         val n = i * 10
-        LabelCardData(ids[i], contents[i], numbers[n], numbers[n + 1], numbers[n + 4], numbers[n + 5], numbers[n + 6], numbers[n + 7], numbers[n + 8], numbers[n + 9])
+        LabelCardData(
+          ids[i], contents[i], numbers[n], numbers[n + 1], numbers[n + 2], numbers[n + 3],
+          numbers[n + 4], numbers[n + 5], numbers[n + 6], numbers[n + 7], numbers[n + 8], numbers[n + 9],
+        )
       }
       return LabelFrameData(sequence, visual, tile, night, cards)
     }
@@ -288,6 +345,107 @@ internal class LabelFrameData(val sequence: Long, val visual: Int, val tile: Int
 // ---------------------------------------------------------------------------------------------------------
 // Icons (vector table from the core)
 // ---------------------------------------------------------------------------------------------------------
+
+/** One path of a marker vector (`maprama::VectorPath`), already built in the icon's own viewBox. */
+internal class MarkerPathData(
+  val path: Path,
+  val hasFill: Boolean,
+  val fill: Int,
+  val fillCurrent: Boolean,
+  val fillOpacity: Float,
+  val hasStroke: Boolean,
+  val stroke: Int,
+  val strokeCurrent: Boolean,
+  val strokeWidth: Float,
+  val strokeOpacity: Float,
+  val roundJoin: Boolean,
+  val roundCap: Boolean,
+)
+
+/** A marker base shape or custom SVG icon (`maprama::VectorImage`) ready to draw. */
+internal class MarkerArt(val x: Float, val y: Float, val width: Float, val height: Float, val paths: List<MarkerPathData>) {
+  companion object {
+    private val shapes = HashMap<Int, MarkerArt?>()
+    private val icons = HashMap<String, Any?>()
+    private val loading = HashSet<String>()
+
+    /** The built-in base shape (0 pin, 1 dot), decoded once. */
+    fun shape(kind: Int): MarkerArt? = shapes.getOrPut(kind) { decode(MapramaJni.markerVectorData(null, kind)) }
+
+    /**
+     * The custom icon of a marker: a [MarkerArt] (SVG subset), a [Bitmap] (raster), or null while a remote
+     * icon is still loading or after it failed. Decoded once per uri — a marker that only changes colour or
+     * selection never reaches this.
+     */
+    fun icon(uri: String, onReady: () -> Unit): Any? {
+      icons[uri]?.let { return if (it == Unit) null else it }
+      if (uri.startsWith("data:")) {
+        val art = decode(MapramaJni.markerVectorData(uri, 0))
+        val result: Any? = art ?: MapramaJni.markerIconBytes(uri)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        icons[uri] = result ?: Unit
+        return result
+      }
+      if (!loading.add(uri)) return null
+      val main = Handler(Looper.getMainLooper())
+      Thread({
+        val bytes = runCatching {
+          if (uri.startsWith("file:") || uri.startsWith("/")) {
+            (if (uri.startsWith("file:")) File(URI(uri)) else File(uri)).readBytes()
+          } else {
+            URL(uri).openStream().use { it.readBytes() }
+          }
+        }.getOrNull()
+        main.post {
+          loading.remove(uri)
+          val art = bytes?.let { decode(MapramaJni.markerVectorFromSvg(it)) }
+          val result: Any? = art ?: bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+          icons[uri] = result ?: Unit
+          if (result != null) onReady()
+        }
+      }, "maprama-marker-icon").start()
+      return null
+    }
+
+    /** `encodeVectorImage` in maprama_jni.cpp. */
+    private fun decode(data: FloatArray?): MarkerArt? {
+      if (data == null || data.size < 5) return null
+      var i = 0
+      val x = data[i++]; val y = data[i++]; val w = data[i++]; val h = data[i++]
+      val count = data[i++].toInt()
+      val paths = ArrayList<MarkerPathData>(count)
+      repeat(count) {
+        val flags = data[i++].toInt()
+        val fill = data[i++].toInt(); val fillOpacity = data[i++]
+        val stroke = data[i++].toInt(); val strokeWidth = data[i++]; val strokeOpacity = data[i++]
+        val opCount = data[i++].toInt()
+        val ops = IntArray(opCount) { data[i + it].toInt() }
+        i += opCount
+        val coordCount = data[i++].toInt()
+        val coords = FloatArray(coordCount) { data[i + it] }
+        i += coordCount
+        val path = Path()
+        var c = 0
+        for (op in ops) {
+          when (op) {
+            0 -> { path.moveTo(coords[c], coords[c + 1]); c += 2 }
+            1 -> { path.lineTo(coords[c], coords[c + 1]); c += 2 }
+            2 -> { path.cubicTo(coords[c], coords[c + 1], coords[c + 2], coords[c + 3], coords[c + 4], coords[c + 5]); c += 6 }
+            else -> path.close()
+          }
+        }
+        paths.add(
+          MarkerPathData(
+            path,
+            flags and 1 != 0, fill or 0xFF000000.toInt(), flags and 2 != 0, fillOpacity,
+            flags and 4 != 0, stroke or 0xFF000000.toInt(), flags and 8 != 0, strokeWidth, strokeOpacity,
+            flags and 16 != 0, flags and 32 != 0,
+          )
+        )
+      }
+      return MarkerArt(x, y, w, h, paths)
+    }
+  }
+}
 
 internal class IconShapeData(val path: Path, val fill: Int, val fillOpacity: Float, val stroke: Int, val strokeWidth: Float)
 
@@ -420,6 +578,10 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
 
   /** Label id of the card currently shown (accessibility resource id `maprama-label-<id>`). */
   var labelId: String? = null
+  /** Marker cards are the only pressable cards; this reports a VoiceOver / TalkBack activation as a press. */
+  var onMarkerActivate: (() -> Unit)? = null
+  private var markerShape: MarkerArt? = null
+  private var markerIcon: Any? = null
   private var content: LabelContentData? = null
   private var tile = LabelConst.TILE_WHITE
   private var night = false
@@ -449,7 +611,29 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
 
   override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
     super.onInitializeAccessibilityNodeInfo(info)
-    labelId?.let { info.viewIdResourceName = "maprama-label-$it" }
+    val marker = content?.marker == true
+    labelId?.let { info.viewIdResourceName = if (marker) "maprama-marker-$it" else "maprama-label-$it" }
+    if (!marker) return
+    info.className = android.widget.Button::class.java.name
+    info.isClickable = true
+    info.isSelected = content?.selected == true
+    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
+  }
+
+  /**
+   * TalkBack's "activate" on a marker card. The view itself stays non-clickable so touches still reach the
+   * map (panning must work from anywhere), exactly as engine-web's cards are `pointer-events: none`; the
+   * press is reported through the same hit test a finger goes through.
+   */
+  override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+    if (action == AccessibilityNodeInfo.ACTION_CLICK) {
+      val activate = onMarkerActivate
+      if (activate != null) {
+        activate()
+        return true
+      }
+    }
+    return super.performAccessibilityAction(action, arguments)
   }
 
   private fun typeface(weight: Int, italic: Boolean): Typeface =
@@ -481,10 +665,32 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
     when (c.visual) {
       LabelConst.VISUAL_HOLO -> layoutHolo(c)
       LabelConst.VISUAL_NAME_TAG -> layoutTag(c)
+      LabelConst.VISUAL_MARKER -> layoutMarker(c)
       else -> layoutApp(c)
     }
     invalidate()
     return Pair(w, h)
+  }
+
+  /**
+   * Markers: the base shape and (once per uri) the custom icon. The card's screen size comes from the core,
+   * so this only decodes — [applyMarker] does the per-frame part, which is why a changed `color` or
+   * `selectedId` neither rebuilds a view nor reloads an icon.
+   */
+  private fun layoutMarker(c: LabelContentData) {
+    look = null
+    markerShape = MarkerArt.shape(c.markerShape)
+    markerIcon = if (c.iconUri.isEmpty()) null else MarkerArt.icon(c.iconUri) { invalidate() }
+    val art = markerShape
+    w = art?.width ?: 24f
+    h = art?.height ?: 32f
+  }
+
+  /** The per-frame part of a marker card: the size the core placed it with (`selectedScale` included). */
+  fun applyMarker(widthDp: Float, heightDp: Float) {
+    w = widthDp
+    h = heightDp
+    invalidate()
   }
 
   private fun layoutHolo(c: LabelContentData) {
@@ -629,9 +835,79 @@ internal class LabelCardView(context: Context, private val density: Float) : Vie
     canvas.drawText(text, xDp * density, baseline, p)
   }
 
+  /** The base shape scaled onto the card, tinted with the marker colour, plus the custom icon on top. */
+  private fun drawMarker(canvas: Canvas, c: LabelContentData) {
+    val art = markerShape ?: return
+    val tint = c.color or 0xFF000000.toInt()
+    canvas.save()
+    canvas.scale(w * density / art.width, h * density / art.height)
+    canvas.translate(-art.x, -art.y)
+    for (p in art.paths) {
+      if (p.hasFill) {
+        fill.style = Paint.Style.FILL
+        fill.shader = null
+        fill.color = if (p.fillCurrent) tint else p.fill
+        fill.alpha = (p.fillOpacity * 255f).toInt().coerceIn(0, 255)
+        canvas.drawPath(p.path, fill)
+      }
+      if (p.hasStroke) {
+        fill.style = Paint.Style.STROKE
+        fill.strokeWidth = p.strokeWidth
+        fill.strokeJoin = if (p.roundJoin) Paint.Join.ROUND else Paint.Join.MITER
+        fill.strokeCap = if (p.roundCap) Paint.Cap.ROUND else Paint.Cap.BUTT
+        fill.color = if (p.strokeCurrent) tint else p.stroke
+        fill.alpha = (p.strokeOpacity * 255f).toInt().coerceIn(0, 255)
+        canvas.drawPath(p.path, fill)
+      }
+    }
+    fill.alpha = 255
+    fill.style = Paint.Style.FILL
+    canvas.restore()
+    // engine-web `.mpr-mk-img`: centred, 14 % down, 46 % of the shape box.
+    val side = w * density * 0.46f
+    val left = (w * density - side) / 2f
+    val top = h * density * 0.14f
+    rect.set(left, top, left + side, top + side)
+    when (val icon = markerIcon) {
+      is Bitmap -> canvas.drawBitmap(icon, null, rect, fill)
+      is MarkerArt -> {
+        val scale = min(side / icon.width, side / icon.height)
+        canvas.save()
+        canvas.translate(left + (side - icon.width * scale) / 2f, top + (side - icon.height * scale) / 2f)
+        canvas.scale(scale, scale)
+        canvas.translate(-icon.x, -icon.y)
+        for (p in icon.paths) {
+          if (p.hasFill) {
+            fill.style = Paint.Style.FILL
+            fill.color = if (p.fillCurrent) tint else p.fill
+            fill.alpha = (p.fillOpacity * 255f).toInt().coerceIn(0, 255)
+            canvas.drawPath(p.path, fill)
+          }
+          if (p.hasStroke) {
+            fill.style = Paint.Style.STROKE
+            fill.strokeWidth = p.strokeWidth
+            fill.strokeJoin = if (p.roundJoin) Paint.Join.ROUND else Paint.Join.MITER
+            fill.strokeCap = if (p.roundCap) Paint.Cap.ROUND else Paint.Cap.BUTT
+            fill.color = if (p.strokeCurrent) tint else p.stroke
+            fill.alpha = (p.strokeOpacity * 255f).toInt().coerceIn(0, 255)
+            canvas.drawPath(p.path, fill)
+          }
+        }
+        fill.alpha = 255
+        fill.style = Paint.Style.FILL
+        canvas.restore()
+      }
+      else -> Unit
+    }
+  }
+
   override fun onDraw(canvas: Canvas) {
     val c = content ?: return
     val s = density
+    if (c.visual == LabelConst.VISUAL_MARKER) {
+      drawMarker(canvas, c)
+      return
+    }
     if (c.visual == LabelConst.VISUAL_HOLO) {
       // Glass card (no backdrop blur on Android: a denser gradient instead), border, inset ring, accent line.
       rect.set(0.5f * s, 0.5f * s, w * s - 0.5f * s, h * s - 0.5f * s)

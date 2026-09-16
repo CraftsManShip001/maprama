@@ -27,9 +27,11 @@
 
 #include "maprama/BuildingMesh.hpp"
 #include "maprama/CameraController.hpp"
+#include "maprama/CameraMath.hpp"
 #include "maprama/LabelSystem.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MapLook.hpp"
+#include "maprama/MarkerSystem.hpp"
 #include "maprama/MessageSink.hpp"
 #include "maprama/SubscriptionRegistry.hpp"
 #include "maprama/ThemeResolver.hpp"
@@ -139,6 +141,10 @@ class MapSession {
   void setLabelContent(const json::Value& entries);
   /// Character name tags from the game session (every tick while tagged characters exist; empty clears them).
   void setNameTags(std::vector<NameTag> tags);
+  /// `setMarkerLayer`: creates or replaces a marker layer (markers matched by id, DESIGN.md §5.1).
+  void setMarkerLayer(const json::Value& msg);
+  /// `removeMarkerLayer`.
+  void removeMarkerLayer(const std::string& layerId);
   /// Label placement cost (diagnostics, DESIGN.md §8): passes, total / max milliseconds of `pumpLabels`.
   struct LabelPlacementStats {
     std::uint64_t passes = 0;
@@ -179,6 +185,7 @@ class MapSession {
   MapCameraLimits limits() const;
   std::size_t pendingRequests() const { return pendingRequests_.size(); }
   const LabelSystem& labels() const { return labels_; }
+  const MarkerSystem& markers() const { return markers_; }
   /// The label frame last sent to the adapter.
   const LabelFrame& labelFrame() const { return labelFrame_; }
 
@@ -235,6 +242,13 @@ class MapSession {
   BuildingPaint buildingPaint() const;
   void pushUi();
   double metersPerDp() const;
+  /// `ui.contentInset` as fit padding.
+  camera_math::FitPadding contentPadding() const;
+  /// Ground offset (meters, +x east / +z south) from the view centre to the visible-area centre at `state`.
+  /// The MapLibre camera is moved by it so the protocol centre sits in the middle of the *visible* area.
+  camera_math::FitPoint insetShiftFor(const CameraState& state) const;
+  /// Moves a coordinate by a ground offset in meters.
+  LngLat offsetByMeters(const LngLat& center, double east, double south) const;
   void emitError(std::string_view code, std::string message, bool fatal);
   bool canMoveCamera() const;
   bool viewReady() const;
@@ -327,8 +341,9 @@ class MapSession {
   bool overlayDirty_ = true;
   double lastOverlayRequestMs_;
 
-  // Labels (M2b).
+  // Labels (M2b) and markers (M5: placed in the same pass, drawn from the same view pool).
   LabelSystem labels_;
+  MarkerSystem markers_;
   std::map<std::uint64_t, std::vector<LabelCardContent>> pendingMeasures_;
   LabelFrame labelFrame_;
   bool labelFrameSent_ = false;

@@ -25,6 +25,7 @@
 #include "maprama/EngineRegistry.hpp"
 #include "maprama/LabelIcons.hpp"
 #include "maprama/MapAdapter.hpp"
+#include "maprama/MarkerIcons.hpp"
 #include "maprama_building_layer.hpp"
 
 namespace {
@@ -227,7 +228,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
     setPaintProperties_ =
         env->GetMethodID(cls, "setPaintProperties", "([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V");
     setLight_ = env->GetMethodID(cls, "setLight", "(DDDLjava/lang/String;D)V");
-    setUi_ = env->GetMethodID(cls, "setUi", "(ZDLjava/lang/String;ZZZLjava/lang/String;Z)V");
+    setUi_ = env->GetMethodID(cls, "setUi", "(ZDLjava/lang/String;ZZZLjava/lang/String;ZDDDD)V");
     setCameraLimits_ = env->GetMethodID(cls, "setCameraLimits", "(DDDD)V");
     moveCamera_ = env->GetMethodID(cls, "moveCamera", "(DDDDDD)V");
     project_ = env->GetMethodID(cls, "project", "(JDD)V");
@@ -302,7 +303,8 @@ class JniMapAdapter final : public maprama::MapAdapter {
       jstring text = toJString(env, ui.attributionText);
       env->CallVoidMethod(host_, setUi_, static_cast<jboolean>(ui.scaleBar), ui.scaleBarWidth, label,
                           static_cast<jboolean>(ui.zoomButtons), static_cast<jboolean>(ui.compass),
-                          static_cast<jboolean>(ui.attribution), text, static_cast<jboolean>(ui.logo));
+                          static_cast<jboolean>(ui.attribution), text, static_cast<jboolean>(ui.logo),
+                          ui.inset.top, ui.inset.right, ui.inset.bottom, ui.inset.left);
       env->DeleteLocalRef(label);
       env->DeleteLocalRef(text);
     });
@@ -408,7 +410,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
   void measureLabels(std::uint64_t token, const std::vector<maprama::LabelCardContent>& items) override {
     withEnv("measureLabels", [&](JNIEnv* env) {
       const auto n = static_cast<jsize>(items.size());
-      jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
+      jobjectArray strings = env->NewObjectArray(n * 4, stringClass_, nullptr);
       std::vector<jint> ints;
       ints.reserve(items.size() * 5);
       for (jsize i = 0; i < n; ++i) packContent(env, strings, i, ints, items[static_cast<std::size_t>(i)]);
@@ -425,7 +427,7 @@ class JniMapAdapter final : public maprama::MapAdapter {
       const auto n = static_cast<jsize>(frame.cards.size());
       jobjectArray ids = env->NewObjectArray(n, stringClass_, nullptr);
       jobjectArray keys = env->NewObjectArray(n, stringClass_, nullptr);
-      jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
+      jobjectArray strings = env->NewObjectArray(n * 4, stringClass_, nullptr);
       std::vector<jint> ints;
       ints.reserve(frame.cards.size() * 5);
       std::vector<jdouble> numbers;
@@ -453,14 +455,17 @@ class JniMapAdapter final : public maprama::MapAdapter {
   }
 
  private:
-  /// 3 strings (title, subtitle, accessibility label) at `index * 3` and 4 ints (visual, kind, flags, icon).
+  /// 4 strings (title, subtitle, accessibility label, marker icon uri) at `index * 4` and 5 ints
+  /// (visual, kind, flags, icon, colour).
   static void packContent(JNIEnv* env, jobjectArray strings, jsize index, std::vector<jint>& ints,
                           const maprama::LabelCardContent& c) {
-    setString(env, strings, index * 3, c.title);
-    setString(env, strings, index * 3 + 1, c.subtitle);
-    setString(env, strings, index * 3 + 2, c.accessibilityLabel);
+    setString(env, strings, index * 4, c.title);
+    setString(env, strings, index * 4 + 1, c.subtitle);
+    setString(env, strings, index * 4 + 2, c.accessibilityLabel);
+    setString(env, strings, index * 4 + 3, c.iconUri);
     const jint flags = (c.water ? 1 : 0) | (c.arterial ? 2 : 0) | (c.showIcon ? 4 : 0) | (c.showSubtitle ? 8 : 0) |
-                       (c.custom ? 16 : 0) | (c.player ? 32 : 0);
+                       (c.custom ? 16 : 0) | (c.player ? 32 : 0) | (c.selected ? 64 : 0) |
+                       (c.shape == maprama::MarkerShape::Dot ? 128 : 0);
     ints.push_back(static_cast<jint>(c.visual));
     ints.push_back(static_cast<jint>(c.kind));
     ints.push_back(flags);
@@ -729,6 +734,62 @@ JNIEXPORT jfloatArray JNICALL Java_dev_maprama_enginenative_MapramaJni_labelIcon
   jfloatArray array = env->NewFloatArray(static_cast<jsize>(out.size()));
   env->SetFloatArrayRegion(array, 0, static_cast<jsize>(out.size()), out.data());
   return array;
+}
+
+/// `maprama::VectorImage` as floats: viewBox (x, y, w, h), path count, then per path
+/// flags, fill RGB, fill opacity, stroke RGB, stroke width, stroke opacity, op count, ops (0 M, 1 L, 2 C,
+/// 3 Z), coord count, coords. Flags: 1 fill, 2 fillCurrent, 4 stroke, 8 strokeCurrent, 16 roundJoin, 32 roundCap.
+static jfloatArray encodeVectorImage(JNIEnv* env, const maprama::VectorImage& image) {
+  std::vector<float> out{image.x, image.y, image.width, image.height, static_cast<float>(image.paths.size())};
+  for (const maprama::VectorPath& p : image.paths) {
+    const int flags = (p.hasFill ? 1 : 0) | (p.fillCurrent ? 2 : 0) | (p.hasStroke ? 4 : 0) |
+                      (p.strokeCurrent ? 8 : 0) | (p.roundJoin ? 16 : 0) | (p.roundCap ? 32 : 0);
+    out.push_back(static_cast<float>(flags));
+    out.push_back(static_cast<float>(p.fill));
+    out.push_back(p.fillOpacity);
+    out.push_back(static_cast<float>(p.stroke));
+    out.push_back(p.strokeWidth);
+    out.push_back(p.strokeOpacity);
+    out.push_back(static_cast<float>(p.ops.size()));
+    for (char op : p.ops) out.push_back(op == 'M' ? 0.0f : op == 'L' ? 1.0f : op == 'C' ? 2.0f : 3.0f);
+    out.push_back(static_cast<float>(p.coords.size()));
+    for (float v : p.coords) out.push_back(v);
+  }
+  jfloatArray array = env->NewFloatArray(static_cast<jsize>(out.size()));
+  env->SetFloatArrayRegion(array, 0, static_cast<jsize>(out.size()), out.data());
+  return array;
+}
+
+JNIEXPORT jfloatArray JNICALL Java_dev_maprama_enginenative_MapramaJni_markerVectorData(JNIEnv* env, jclass, jstring uri,
+                                                                                       jint shape) {
+  const std::string u = uri != nullptr ? toUtf8(env, uri) : std::string();
+  if (u.empty()) {
+    return encodeVectorImage(env, maprama::markerBaseShape(shape == 1 ? maprama::MarkerShape::Dot
+                                                                      : maprama::MarkerShape::Pin));
+  }
+  // Only the SVG subset comes back as vectors; anything else is raster bytes for BitmapFactory.
+  const std::optional<maprama::VectorImage> image = maprama::parseSvgDataUri(u);
+  return image ? encodeVectorImage(env, *image) : nullptr;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_dev_maprama_enginenative_MapramaJni_markerIconBytes(JNIEnv* env, jclass, jstring uri) {
+  if (uri == nullptr) return nullptr;
+  const std::optional<maprama::DataUri> data = maprama::parseDataUri(toUtf8(env, uri));
+  if (!data || data->bytes.empty()) return nullptr;
+  jbyteArray array = env->NewByteArray(static_cast<jsize>(data->bytes.size()));
+  env->SetByteArrayRegion(array, 0, static_cast<jsize>(data->bytes.size()),
+                          reinterpret_cast<const jbyte*>(data->bytes.data()));
+  return array;
+}
+
+JNIEXPORT jfloatArray JNICALL Java_dev_maprama_enginenative_MapramaJni_markerVectorFromSvg(JNIEnv* env, jclass,
+                                                                                          jbyteArray bytes) {
+  if (bytes == nullptr) return nullptr;
+  const jsize n = env->GetArrayLength(bytes);
+  std::string text(static_cast<std::size_t>(n), '\0');
+  env->GetByteArrayRegion(bytes, 0, n, reinterpret_cast<jbyte*>(text.data()));
+  const std::optional<maprama::VectorImage> image = maprama::parseSvg(text);
+  return image ? encodeVectorImage(env, *image) : nullptr;
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_frame(JNIEnv*, jclass, jlong handle, jdouble timestampMs) {
