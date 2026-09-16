@@ -182,6 +182,8 @@ MapSession::MapSession(MessageSink& sink, WorldStore& world, ClockMs clock)
       clock_(std::move(clock)),
       themes_(ThemeResolver::builtIn()),
       animatingUntilMs_(-kInf),
+      cameraIdleAtMs_(kInf),
+      cameraMoveReasonUntilMs_(-kInf),
       lastOverlayRequestMs_(-kInf),
       scheduledFrameAtMs_(kInf) {
   theme_ = themes_.resolve(Value::object());
@@ -387,6 +389,8 @@ void MapSession::zoomButton(bool zoomIn) {
   const double factor = zoomIn ? 1.0 / kZoomButtonStep : kZoomButtonStep;
   target.distance = cm::clampValue(state_.distance * factor, distanceMin(), distanceMax());
   animatingUntilMs_ = clock_() + kZoomButtonMs;
+  // A zoom button is the user's finger on an engine ornament, not a command the host sent: `gesture`.
+  noteCameraMove(CameraIdleReason::Gesture, kZoomButtonMs);
   adapter_->moveCamera(poseFor(target), kZoomButtonMs);
 }
 
@@ -551,6 +555,7 @@ void MapSession::setCamera(const Value& spec, std::string_view command) {
 }
 
 void MapSession::moveCameraTo(const CameraState& target, double durationMs) {
+  noteCameraMove(CameraIdleReason::Api, durationMs);
   if (durationMs > 0 && canMoveCamera()) {
     // The adapter animates and reports every intermediate camera; the state follows those reports.
     animatingUntilMs_ = clock_() + durationMs;
@@ -712,6 +717,21 @@ void MapSession::setUiState(const Value& uiSpec) {
   ui_.scaleBar = boolMember(uiSpec, "scaleBar");
   ui_.zoomButtons = boolMember(uiSpec, "zoomButtons");
   ui_.attribution = boolMember(uiSpec, "attribution");
+  if (const Value* inset = member(uiSpec, "contentInset")) {
+    ui_.contentInset.top = numberMember(*inset, "top").value_or(0.0);
+    ui_.contentInset.right = numberMember(*inset, "right").value_or(0.0);
+    ui_.contentInset.bottom = numberMember(*inset, "bottom").value_or(0.0);
+    ui_.contentInset.left = numberMember(*inset, "left").value_or(0.0);
+  }
+  if (!ui_.contentInset.empty()) {
+    // What the core does honour is listed in DESIGN.md §5.1 (`camera:idle` bounds / radius and the label
+    // placement). Moving the MapLibre camera and the platform ornaments is not wired up yet, so an app
+    // that needs the attribution out from under a sheet has to use the web engine for now.
+    warnOnce("contentInset",
+             "setUi: ui.contentInset is only partly implemented by the native engine — camera:idle bounds "
+             "and label placement honour it, but the camera centre, follow centring and the map ornaments "
+             "(scale bar, zoom buttons, attribution) do not move yet");
+  }
 }
 
 void MapSession::setBuildingStyle(const std::string& buildingId, const Value& style) {
@@ -770,6 +790,18 @@ void MapSession::subscribeCamera(double throttleMs) {
 
 void MapSession::unsubscribeCamera() { subscriptions_.unsubscribe(SubscriptionTopic::CameraChange, std::nullopt); }
 
+void MapSession::subscribeCameraIdle(double throttleMs) {
+  subscriptions_.subscribe(SubscriptionTopic::CameraIdle, std::nullopt, throttleMs);
+  // Subscribing arms one event, so the host learns what is on screen without waiting for a move.
+  cameraIdleAtMs_ = clock_() + kCameraIdleDelayMs;
+  pump();
+}
+
+void MapSession::unsubscribeCameraIdle() {
+  subscriptions_.unsubscribe(SubscriptionTopic::CameraIdle, std::nullopt);
+  cameraIdleAtMs_ = kInf;
+}
+
 void MapSession::request(const std::string& requestId, RequestMethod method, const Value& params) {
   if (!viewReady()) {
     respondError(requestId, kNotReadyCode, "the map view is not ready (no laid-out native view is attached)");
@@ -793,6 +825,7 @@ bool MapSession::followCenter(const LngLat& center) {
   CameraState target = state_;
   target.center = center;
   if (sameState(target, state_) && !cameraUnsent_) return false;
+  noteCameraMove(CameraIdleReason::Follow, 0.0);
   state_ = target;
   sendState();
   cameraChanged();
@@ -959,11 +992,79 @@ void MapSession::pushLimits() {
 
 void MapSession::cameraChanged() {
   subscriptions_.markChanged(SubscriptionTopic::CameraChange);
+  cameraIdleReason_ = currentCameraMoveReason();
+  if (subscriptions_.has(SubscriptionTopic::CameraIdle)) cameraIdleAtMs_ = clock_() + kCameraIdleDelayMs;
   overlayWanted_ = !anchors_.empty();
   labelsDirty_ = true;
   pushUi();
   pump();
   if (hooks_ != nullptr) hooks_->cameraMoved();
+}
+
+void MapSession::noteCameraMove(CameraIdleReason reason, double durationMs) {
+  cameraMoveReason_ = reason;
+  cameraMoveReasonUntilMs_ = clock_() + std::max(0.0, durationMs) + kCameraIdleReasonGraceMs;
+}
+
+CameraIdleReason MapSession::currentCameraMoveReason() const {
+  // Anything the adapter reports outside a commanded move is the user moving the map.
+  return clock_() <= cameraMoveReasonUntilMs_ ? cameraMoveReason_ : CameraIdleReason::Gesture;
+}
+
+Value MapSession::cameraIdleEvent() const {
+  // The visible area's ground quad, in meters around the camera centre, clamped at the far plane so a
+  // camera looking towards the horizon still reports a box an app can query (protocol
+  // CAMERA_IDLE_HORIZON_FACTOR).
+  cm::FitPadding inset;
+  inset.top = ui_.contentInset.top;
+  inset.right = ui_.contentInset.right;
+  inset.bottom = ui_.contentInset.bottom;
+  inset.left = ui_.contentInset.left;
+  const std::vector<cm::FitPoint> corners =
+      cm::visibleGroundCorners(viewport_.width, viewport_.height, inset, state_.distance, state_.pitch,
+                               state_.bearing, kCameraIdleHorizonFactor * state_.distance);
+  const double metersPerDegLng =
+      kMetersPerDegreeLng * std::max(std::cos(state_.center.lat * kDegToRad), 1e-12);
+  double minLng = kInf, minLat = kInf, maxLng = -kInf, maxLat = -kInf, maxMeters = 0.0;
+  for (const cm::FitPoint& c : corners) {
+    const double lng = state_.center.lng + c.x / metersPerDegLng;
+    const double lat = state_.center.lat - c.z / kMetersPerDegreeLat;
+    minLng = std::min(minLng, lng);
+    maxLng = std::max(maxLng, lng);
+    minLat = std::min(minLat, lat);
+    maxLat = std::max(maxLat, lat);
+    maxMeters = std::max(maxMeters, std::sqrt(c.x * c.x + c.z * c.z));
+  }
+  return Value::object({
+      {"type", "camera:idle"},
+      {"camera", Value::object({{"center", lngLatValue(state_.center)},
+                                {"distance", state_.distance},
+                                {"pitch", state_.pitch},
+                                {"bearing", cm::normalizeBearing(state_.bearing)}})},
+      {"bounds", Value::object({{"ne", Value::object({{"lng", maxLng}, {"lat", maxLat}})},
+                                {"sw", Value::object({{"lng", minLng}, {"lat", minLat}})}})},
+      {"radiusMeters", maxMeters},
+      {"reason", std::string(enumName(cameraIdleReason_))},
+  });
+}
+
+void MapSession::pumpCameraIdle(double now, double* nextDelay) {
+  if (!worldReady_ || !subscriptions_.has(SubscriptionTopic::CameraIdle)) return;
+  if (cameraIdleAtMs_ == kInf) return;
+  if (now < cameraIdleAtMs_) {
+    *nextDelay = std::min(*nextDelay, cameraIdleAtMs_ - now);
+    return;
+  }
+  // The camera has been still for the idle delay: `takeDue` applies the subscription's own throttle
+  // (a floor between idle events) and tells us when the window opens if it is still closed.
+  double delay = kInf;
+  subscriptions_.markChanged(SubscriptionTopic::CameraIdle);
+  const auto due = subscriptions_.takeDue(SubscriptionTopic::CameraIdle, now, &delay);
+  if (!due.empty()) {
+    cameraIdleAtMs_ = kInf;
+    if (events_ != nullptr) events_->emit(cameraIdleEvent());
+  }
+  *nextDelay = std::min(*nextDelay, delay);
 }
 
 void MapSession::pump() {
@@ -983,6 +1084,7 @@ void MapSession::pump() {
     }
     nextDelay = std::min(nextDelay, delay);
   }
+  pumpCameraIdle(now, &nextDelay);
   pumpOverlay(now, &nextDelay);
   pumpZoomOut(now, &nextDelay);
   pumpLabels();

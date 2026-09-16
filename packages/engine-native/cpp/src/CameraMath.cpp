@@ -195,6 +195,67 @@ FitBoundsOutput fitBounds(const FitBoundsInput& input, FitOrientation orientatio
   return out.fitted ? out : kept;
 }
 
+namespace {
+
+/// engine-web `visibleAxis`: one axis of the viewport split into "before the visible area" and its length.
+void splitAxis(double size, double before, double after, double* start, double* length) {
+  const double a = std::max(0.0, before), b = std::max(0.0, after);
+  const double total = a + b;
+  if (total <= 0.0 || size <= 1.0) {
+    *start = 0.0;
+    *length = std::max(1.0, size);
+    return;
+  }
+  const double k = total > size - 1.0 ? (size - 1.0) / total : 1.0;
+  *start = a * k;
+  *length = std::max(1.0, size - total * k);
+}
+
+/// engine-web `CameraController.groundOrClamped`, with the camera target at the origin.
+FitPoint groundOrClamped(const Basis& basis, double px, double py, double width, double height, double tanHalf,
+                         double maxDistance) {
+  const double limit = std::max(1e-6, maxDistance);
+  FitPoint hit;
+  if (groundAt(basis, px, py, width, height, tanHalf, &hit)) {
+    const double d = std::sqrt(hit.x * hit.x + hit.z * hit.z);
+    if (d <= limit) return hit;
+    return FitPoint{hit.x / d * limit, hit.z / d * limit};
+  }
+  // Above the horizon: `limit` along the ray's ground direction.
+  const double aspect = width / height;
+  const double ndcX = (px / width) * 2 - 1, ndcY = -(py / height) * 2 + 1;
+  const double dcx = ndcX * aspect * tanHalf, dcy = ndcY * tanHalf, dcz = -1.0;
+  const double dx = basis.rx * dcx + basis.ux * dcy + basis.bx * dcz;
+  const double dz = basis.rz * dcx + basis.uz * dcy + basis.bz * dcz;
+  double hl = std::sqrt(dx * dx + dz * dz);
+  if (hl == 0.0) hl = 1.0;
+  return FitPoint{dx / hl * limit, dz / hl * limit};
+}
+
+}  // namespace
+
+VisibleRect visibleRect(double width, double height, const FitPadding& inset) {
+  VisibleRect r;
+  splitAxis(std::max(1.0, width), inset.left, inset.right, &r.x, &r.width);
+  splitAxis(std::max(1.0, height), inset.top, inset.bottom, &r.y, &r.height);
+  return r;
+}
+
+std::vector<FitPoint> visibleGroundCorners(double width, double height, const FitPadding& inset, double distance,
+                                           double pitch, double bearing, double maxDistance, double fovDeg) {
+  const double w = std::max(1.0, width), h = std::max(1.0, height);
+  const double tanHalf = std::tan((fovDeg * kDeg) / 2.0);
+  const Basis basis = basisFor(0.0, 0.0, distance, pitch, bearing);
+  const VisibleRect r = visibleRect(w, h, inset);
+  const double x0 = r.x, y0 = r.y, x1 = r.x + r.width, y1 = r.y + r.height;
+  return {
+      groundOrClamped(basis, x0, y0, w, h, tanHalf, maxDistance),
+      groundOrClamped(basis, x1, y0, w, h, tanHalf, maxDistance),
+      groundOrClamped(basis, x1, y1, w, h, tanHalf, maxDistance),
+      groundOrClamped(basis, x0, y1, w, h, tanHalf, maxDistance),
+  };
+}
+
 double normalizeBearing(double degrees) {
   if (!std::isfinite(degrees)) return 0.0;
   double b = std::fmod(degrees, 360.0);

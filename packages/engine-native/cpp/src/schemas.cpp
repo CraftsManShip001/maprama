@@ -197,8 +197,13 @@ struct Schemas {
                                             {"minDistanceMeters", positiveNumber},
                                             {"maxDistanceMeters", positiveNumber},
                                         });
-    const Check mapUiSpec = object(
-        {}, {{"locationPuck", boolean}, {"scaleBar", boolean}, {"zoomButtons", boolean}, {"attribution", boolean}});
+    const Check contentInset =
+        object({}, {{"top", nonNeg}, {"right", nonNeg}, {"bottom", nonNeg}, {"left", nonNeg}});
+    const Check mapUiSpec = object({}, {{"locationPuck", boolean},
+                                        {"scaleBar", boolean},
+                                        {"zoomButtons", boolean},
+                                        {"attribution", boolean},
+                                        {"contentInset", contentInset}});
 
     // messages.ts — commands
     const Check travelModes = array(oneOfEnum<TravelMode>(), 1);
@@ -284,6 +289,8 @@ struct Schemas {
     engineCommand = discriminated("type", std::move(commands));
 
     // messages.ts — events
+    const Check cameraState = object(
+        {{"center", lngLat}, {"distance", number}, {"pitch", range(0, 90)}, {"bearing", number}});
     const Fields travelRef = {{"requestId", id}, {"characterId", id}};
     const auto withTravelRef = [&travelRef](Fields extra) {
       Fields all = travelRef;
@@ -318,10 +325,7 @@ struct Schemas {
         {"geofence:exit", geofenceRef},
         {"character:position",
          object({{"id", id}, {"coordinate", lngLat}, {"headingDeg", number}, {"speedMps", number}})},
-        {"camera:change", object({{"camera", object({{"center", lngLat},
-                                                     {"distance", number},
-                                                     {"pitch", range(0, 90)},
-                                                     {"bearing", number}})}})},
+        {"camera:change", object({{"camera", cameraState}})},
         {"overlay:positions",
          object({{"positions", array(object({{"id", id}, {"x", number}, {"y", number}, {"visible", boolean}}))}})},
         {"response",
@@ -334,6 +338,10 @@ struct Schemas {
                                  {"markerId", id},
                                  {"coordinate", lngLat},
                                  {"point", object({{"x", number}, {"y", number}})}})},
+        {"camera:idle", object({{"camera", cameraState},
+                                {"bounds", lngLatBounds},
+                                {"radiusMeters", nonNeg},
+                                {"reason", oneOfEnum<CameraIdleReason>()}})},
     };
     engineEvent = discriminated("type", std::move(events));
   }

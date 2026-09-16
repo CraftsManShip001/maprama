@@ -88,7 +88,8 @@ enum class HoloIconTile : std::uint8_t { Auto, White, Black, Color };
 enum class LabelContentMode : std::uint8_t { NameAndType, NameOnly, TextOnly, Custom };
 enum class LabelKind : std::uint8_t { Road, District, Poi };
 enum class LabelIcon : std::uint8_t { Subway, Cafe, Store, Music, School, Book, Plaza, Park, Avenue, Street, District, Water };
-enum class SubscriptionTopic : std::uint8_t { CharacterPosition, CameraChange, TravelProgress };
+enum class SubscriptionTopic : std::uint8_t { CharacterPosition, CameraChange, TravelProgress, CameraIdle };
+enum class CameraIdleReason : std::uint8_t { Gesture, Api, Follow };
 enum class RequestMethod : std::uint8_t { Project, Unproject, SnapToRoad, Route, FitBounds };
 
 /// Specialised per enum: `values` lists protocol strings in enum order.
@@ -120,7 +121,8 @@ template <> struct EnumNames<HoloIconTile> { static constexpr std::array<std::st
 template <> struct EnumNames<LabelContentMode> { static constexpr std::array<std::string_view, 4> values{"nameAndType", "nameOnly", "textOnly", "custom"}; };
 template <> struct EnumNames<LabelKind> { static constexpr std::array<std::string_view, 3> values{"road", "district", "poi"}; };
 template <> struct EnumNames<LabelIcon> { static constexpr std::array<std::string_view, 12> values{"subway", "cafe", "store", "music", "school", "book", "plaza", "park", "avenue", "street", "district", "water"}; };
-template <> struct EnumNames<SubscriptionTopic> { static constexpr std::array<std::string_view, 3> values{"character:position", "camera:change", "travel:progress"}; };
+template <> struct EnumNames<SubscriptionTopic> { static constexpr std::array<std::string_view, 4> values{"character:position", "camera:change", "travel:progress", "camera:idle"}; };
+template <> struct EnumNames<CameraIdleReason> { static constexpr std::array<std::string_view, 3> values{"gesture", "api", "follow"}; };
 template <> struct EnumNames<RequestMethod> { static constexpr std::array<std::string_view, 5> values{"project", "unproject", "snapToRoad", "route", "fitBounds"}; };
 // clang-format on
 
@@ -236,11 +238,27 @@ struct CameraState {
   double bearing = 0.0;
 };
 
+/// `ui.contentInset`: space app chrome covers along the view edges, in density-independent pixels.
+/// The map still draws across the whole view; the inset moves the *visible area* the camera, the
+/// ornaments, the labels and `camera:idle` are measured against.
+struct ContentInset {
+  double top = 0.0;
+  double right = 0.0;
+  double bottom = 0.0;
+  double left = 0.0;
+
+  bool empty() const { return top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0; }
+  bool operator==(const ContentInset& o) const {
+    return top == o.top && right == o.right && bottom == o.bottom && left == o.left;
+  }
+};
+
 struct MapUiSpec {
   std::optional<bool> locationPuck;
   std::optional<bool> scaleBar;
   std::optional<bool> zoomButtons;
   std::optional<bool> attribution;
+  ContentInset contentInset;
 };
 
 // ---------------------------------------------------------------------------

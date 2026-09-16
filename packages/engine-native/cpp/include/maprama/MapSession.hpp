@@ -57,6 +57,13 @@ inline constexpr std::string_view kCameraLimitsClampedCode = "camera_limits_clam
 inline constexpr double kOverlayIntervalMs = 16.0;
 /// engine-web `OverlayTracker` epsilon: smaller moves are not re-sent.
 inline constexpr double kOverlayEpsilonPx = 0.25;
+/// protocol `CAMERA_IDLE_DELAY_MS`: stillness before `camera:idle` is emitted.
+inline constexpr double kCameraIdleDelayMs = 150.0;
+/// protocol `CAMERA_IDLE_HORIZON_FACTOR`: ground distance limit of `camera:idle`, as a multiple of `distance`.
+inline constexpr double kCameraIdleHorizonFactor = 6.0;
+/// How long after a commanded move (`setCamera`, `fitBounds`, a zoom button, `follow`) the camera changes the
+/// adapter reports still belong to it; later ones are the user's own gesture.
+inline constexpr double kCameraIdleReasonGraceMs = 120.0;
 /// engine-web zoom buttons: ±1.45x camera distance over 250 ms.
 inline constexpr double kZoomButtonStep = 1.45;
 inline constexpr double kZoomButtonMs = 250.0;
@@ -142,6 +149,9 @@ class MapSession {
   const LabelPlacementStats& labelStats() const { return labelStats_; }
   void subscribeCamera(double throttleMs);
   void unsubscribeCamera();
+  /// `camera:idle`: one subscription per engine, like `camera:change`. Subscribing arms one event.
+  void subscribeCameraIdle(double throttleMs);
+  void unsubscribeCameraIdle();
   /// `project` / `unproject` (answered asynchronously through the adapter) and `fitBounds` (answered at once).
   void request(const std::string& requestId, RequestMethod method, const json::Value& params);
 
@@ -231,6 +241,13 @@ class MapSession {
   void sendState();
   void pushLimits();
   void cameraChanged();
+  /// Records what moved the camera; changes reported within `durationMs` + a grace keep this reason.
+  void noteCameraMove(CameraIdleReason reason, double durationMs);
+  /// The reason the camera change happening *now* belongs to (latched by `cameraChanged`).
+  CameraIdleReason currentCameraMoveReason() const;
+  /// `camera:idle` payload: the resting camera plus the ground bounds and radius of the visible area.
+  json::Value cameraIdleEvent() const;
+  void pumpCameraIdle(double now, double* nextDelay);
   void pump();
   void pumpOverlay(double now, double* nextDelay);
   /// M4: eases the zoom-out factor (engine-web `ZoomOutController.update`) and applies its look.
@@ -265,6 +282,14 @@ class MapSession {
   bool worldReady_ = false;
   /// `state_` changed while no adapter / viewport could take it; sent on the next opportunity.
   bool cameraUnsent_ = false;
+  /// Absolute time at which `camera:idle` becomes due (+inf: nothing pending).
+  double cameraIdleAtMs_;
+  CameraIdleReason cameraMoveReason_ = CameraIdleReason::Api;
+  /// Until when `cameraMoveReason_` still owns the camera changes the adapter reports.
+  double cameraMoveReasonUntilMs_;
+  /// The reason of the last camera change, latched when it happened: `camera:idle` is emitted an idle
+  /// delay later, by which time the grace window of the move that caused it has long expired.
+  CameraIdleReason cameraIdleReason_ = CameraIdleReason::Api;
 
   // Theme and style.
   ResolvedTheme theme_;
