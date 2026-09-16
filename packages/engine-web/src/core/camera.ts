@@ -40,6 +40,9 @@ export type FollowTarget = () => { x: number; z: number } | null;
 
 const ease = (x: number): number => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
+/** Distance (world units, ≈8 mm at 8 m per unit) below which the follow easing snaps onto its target. */
+const FOLLOW_SNAP = 1e-3;
+
 export class CameraController {
   readonly camera: PerspectiveCamera;
   readonly orbit: CameraOrbit = { x: 0, z: 0, distance: 36, pitch: 50, bearing: 28 };
@@ -49,10 +52,13 @@ export class CameraController {
   height = 1;
   reduceMotion = false;
   private transition: CameraTransition | null = null;
+  /** False while the follow easing is still catching up to its target (see {@link animating}). */
+  private followSettled = true;
   private followFn: FollowTarget | null = null;
   private followId: string | null = null;
   private toNorthActive = false;
   private listeners = new Set<() => void>();
+  private activityListeners = new Set<() => void>();
   private dirty = true;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -79,6 +85,7 @@ export class CameraController {
       // shortest rotation
       to.bearing = this.orbit.bearing + wrapDeg(to.bearing - this.orbit.bearing);
       this.transition = { from: { ...this.orbit }, to, t: 0, duration: durationMs / 1000 };
+      this.notifyActivity();
     } else {
       this.transition = null;
       Object.assign(this.orbit, to);
@@ -115,6 +122,10 @@ export class CameraController {
   follow(target: FollowTarget | null, id: string | null = null): void {
     this.followFn = target;
     this.followId = target ? id : null;
+    if (target) {
+      this.followSettled = false;
+      this.notifyActivity();
+    } else this.followSettled = true;
   }
 
   get followingId(): string | null {
@@ -124,6 +135,7 @@ export class CameraController {
   /** Animates bearing to north and pitch to 45°. */
   toNorth(): void {
     this.toNorthActive = true;
+    this.notifyActivity();
     if (this.reduceMotion) {
       this.orbit.bearing = 0;
       this.orbit.pitch = 45;
@@ -132,10 +144,29 @@ export class CameraController {
     }
   }
 
-  /** Subscribes to camera changes (fires at most once per `update`). */
+  /** Subscribes to camera changes (fires at most once per `update`, after the pose was applied). */
   onChange(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => { this.listeners.delete(cb); };
+  }
+
+  /**
+   * Subscribes to camera *activity*: fires synchronously the moment something
+   * moves the camera or starts animating it — a gesture, a zoom button, a
+   * `set` / `follow` / `toNorth` — i.e. **before** the change is applied.
+   *
+   * {@link onChange} cannot serve that purpose: it only fires from
+   * {@link update}, which the on-demand render loop does not call while the
+   * engine is idle. Use this to wake the loop up.
+   */
+  onActivity(cb: () => void): () => void {
+    this.activityListeners.add(cb);
+    return () => { this.activityListeners.delete(cb); };
+  }
+
+  /** True while the camera is still moving on its own (transition, to-north, or catching up to a follow target). */
+  get animating(): boolean {
+    return !!this.transition || this.toNorthActive || !this.followSettled;
   }
 
   /** Advances animations / follow and applies the pose to the three camera. */
@@ -152,13 +183,18 @@ export class CameraController {
       const p = this.followFn();
       if (p) {
         const k = this.reduceMotion ? 1 : 1 - Math.exp(-dt * 5);
-        const nx = this.orbit.x + (p.x - this.orbit.x) * k, nz = this.orbit.z + (p.z - this.orbit.z) * k;
-        if (Math.abs(nx - this.orbit.x) > 1e-5 || Math.abs(nz - this.orbit.z) > 1e-5) {
+        let nx = this.orbit.x + (p.x - this.orbit.x) * k, nz = this.orbit.z + (p.z - this.orbit.z) * k;
+        // The exponential easing only approaches the target: snap below a sub-pixel distance so
+        // following a standing character terminates instead of rendering forever.
+        if (Math.abs(p.x - nx) < FOLLOW_SNAP) nx = p.x;
+        if (Math.abs(p.z - nz) < FOLLOW_SNAP) nz = p.z;
+        if (nx !== this.orbit.x || nz !== this.orbit.z) {
           this.orbit.x = nx;
           this.orbit.z = nz;
           this.dirty = true;
         }
-      }
+        this.followSettled = nx === p.x && nz === p.z;
+      } else this.followSettled = true;
     }
     if (this.toNorthActive) {
       const d = wrapDeg(-this.orbit.bearing);
@@ -225,5 +261,10 @@ export class CameraController {
 
   private markChanged(): void {
     this.dirty = true;
+    this.notifyActivity();
+  }
+
+  private notifyActivity(): void {
+    for (const cb of [...this.activityListeners]) cb();
   }
 }

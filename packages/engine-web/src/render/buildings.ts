@@ -207,6 +207,8 @@ export class BuildingRenderer {
   private modelCache = new Map<string, Promise<Object3D>>();
   /** Called when a replacement model fails to load. */
   onModelError: ((id: string, uri: string, error: unknown) => void) | null = null;
+  /** Called after a replacement model arrived and the building was rebuilt (on-demand rendering needs a frame). */
+  onModelLoaded: ((id: string) => void) | null = null;
   loadModel: ModelLoader = (uri) => new GLTFLoader().loadAsync(uri).then((g) => g.scene);
 
   constructor() {
@@ -314,6 +316,7 @@ export class BuildingRenderer {
       e.model = scene.clone(true);
       e.modelUri = uri;
       this.buildOne(e);
+      this.onModelLoaded?.(e.b.id);
     }).catch((err) => {
       if (e.style.modelUri === uri) this.onModelError?.(e.b.id, uri, err);
     });

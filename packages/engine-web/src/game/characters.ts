@@ -395,6 +395,7 @@ export class Character implements FollowerBody {
     loadModel(uri).then((gltf) => {
       if (token !== this.loadToken || this.mgr.disposed) return;
       this.attachModel(gltf);
+      this.mgr.scene.requestRender(); // a late-arriving model changes the picture outside any frame hook
     }, (err: unknown) => {
       if (token !== this.loadToken || this.mgr.disposed) return;
       this.mgr.reportModelError(this.id, uri, err);

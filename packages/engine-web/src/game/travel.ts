@@ -155,6 +155,14 @@ export class TravelManager {
   }
 
   /**
+   * True while at least one trip is running. A trip only advances inside
+   * `step` / the follower, so it has to keep the render loop awake.
+   */
+  get active(): boolean {
+    return this.trips.size > 0;
+  }
+
+  /**
    * Starts a trip; a running trip of the character is cancelled first. The
    * character moves at real-world speed × `timeScale` (see `playbackSpeeds`).
    */

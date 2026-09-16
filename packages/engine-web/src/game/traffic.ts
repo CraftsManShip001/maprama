@@ -34,6 +34,19 @@ export class AmbientTraffic {
     this.group.visible = false;
   }
 
+  /** Number of ambient cars built for the current world. */
+  get count(): number {
+    return this.cars.length;
+  }
+
+  /**
+   * True while the cars are driving: they keep moving regardless of reduced
+   * motion, so they need frames as long as the theme shows them.
+   */
+  get animating(): boolean {
+    return this.group.visible && this.cars.length > 0;
+  }
+
   build(world: WorldModel, mats: MaterialFactory, glowTex: Texture): void {
     this.clear();
     this.world = world;

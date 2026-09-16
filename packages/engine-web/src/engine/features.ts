@@ -82,6 +82,8 @@ export class Features {
   private proj: Projection | null = null;
   private ui: { root: HTMLDivElement; scale: ScaleBar; zoom: ZoomButtons; attribution: Attribution } | null = null;
   private readonly offs: (() => void)[] = [];
+  /** Active render sources currently held, by tag (see {@link hold}). */
+  private readonly holds = new Map<string, () => void>();
 
   constructor(private readonly scene: SceneApi) {
     const emitError = (code: string, message: string): void => scene.emit({ type: 'error', code, message, fatal: false });
@@ -106,10 +108,12 @@ export class Features {
     this.routes.name = 'routes';
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
 
+    // With reduced motion the never-ending idle animations (character breathing, geofence pulses,
+    // the captured-building glow, zoom-out and camera easings) all collapse, so the features only
+    // need frames while something really moves — see `updateSources`. Without it they still run, so
+    // the loop stays awake as before.
+    if (!scene.reduceMotion) this.offs.push(scene.addActiveSource('features'));
     this.offs.push(
-      // M1: the part-2 features keep the loop running unconditionally, exactly like the old
-      // always-on render loop. Later milestones replace this with per-subsystem sources.
-      scene.addActiveSource('features'),
       scene.onWorldLoad((w) => this.worldLoaded(w)),
       scene.onThemeChange((p) => {
         this.chars.applyOutline(p.outline);
@@ -231,6 +235,8 @@ export class Features {
 
   dispose(): void {
     for (const off of this.offs.splice(0)) off();
+    for (const release of this.holds.values()) release();
+    this.holds.clear();
     this.location.dispose();
     this.travel.dispose();
     this.chars.dispose();
@@ -310,6 +316,8 @@ export class Features {
 
   private onLocationFix(fix: SmoothedFix & { raw: { x: number; z: number } }): void {
     for (const ch of this.chars.chars.values()) if (ch.spec.follow === 'location') this.driveToFix(ch, fix);
+    // A `device` watch or an external `pushLocation` arrives outside any frame hook.
+    this.scene.requestRender();
   }
 
   private driveToFix(ch: Character | undefined, fix: { x: number; z: number }): void {
@@ -326,9 +334,35 @@ export class Features {
     ch.follower.setTrip(trip.pts.length > 1 ? [{ mode: 'walk', pts: trip.pts }] : [], trip.speed);
   }
 
+  /**
+   * Acquires / releases the active render source `tag` so that it is held
+   * exactly while `want` is true (idempotent).
+   */
+  private hold(tag: string, want: boolean): void {
+    const release = this.holds.get(tag);
+    if (want === !!release) return;
+    if (want) this.holds.set(tag, this.scene.addActiveSource(tag));
+    else {
+      release!();
+      this.holds.delete(tag);
+    }
+  }
+
+  /**
+   * Keeps the render loop awake exactly while something still moves. Anything
+   * that starts moving from outside a frame (a command, a gesture, an async
+   * model) asks for one frame, and this picks the source up on that frame.
+   */
+  private updateSources(): void {
+    this.hold('features:dynamic', this.dropVisuals.animating || this.traffic.animating || this.travel.active || this.location.animating || this.chars.chars.size > 0);
+  }
+
   private frame(dt: number, t: number): void {
     const world = this.scene.world();
-    if (!world) return;
+    if (!world) {
+      this.updateSources();
+      return;
+    }
     const proj = this.scene.projection();
     this.location.step(dt);
     this.chars.step(dt, t);
@@ -363,6 +397,7 @@ export class Features {
       }
     }
     this.travel.progress(this.progressTopic, now);
+    this.updateSources();
   }
 
   private beforeRender(): void {

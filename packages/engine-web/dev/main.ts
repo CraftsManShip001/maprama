@@ -49,6 +49,7 @@ import type {
 } from '@maprama/protocol';
 import { HOLO_ICON_TILES, LABEL_CONTENT_MODES, LABEL_STYLES, LOCATION_SOURCE_KINDS, PRESET_NAMES, TIMES_OF_DAY, ZOOM_OUT_BEHAVIORS } from '@maprama/protocol';
 import { createDirectTransport, createEngine } from '../src/index.js';
+import type { WorldModel } from '../src/world/model.js';
 
 declare global {
   interface Window {
@@ -281,6 +282,18 @@ async function init(world?: WorldSource): Promise<void> {
   if (!scene) return;
   const w = scene.world();
   if (!w) return;
+  // Rendering is on demand, so the set-up below (which waits for frames, for a model to attach and
+  // for the scene to settle) has to keep the loop running; released once the page is ready.
+  const releaseRender = scene.addActiveSource('playground:init');
+  try {
+    await setUpScene(scene, w);
+  } finally {
+    releaseRender();
+  }
+  window.__MAPRAMA_READY__ = true;
+}
+
+async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel): Promise<void> {
   const x = num('x') ?? w.start.x, z = num('z') ?? w.start.z;
   await engine.dispatch({
     type: 'setCamera',
@@ -304,7 +317,6 @@ async function init(world?: WorldSource): Promise<void> {
   if (travel) await demoTravel(travel);
   const settle = num('settle') ?? 0;
   if (settle > 0) await new Promise((r) => setTimeout(r, settle));
-  window.__MAPRAMA_READY__ = true;
 }
 
 function updateHash(): void {

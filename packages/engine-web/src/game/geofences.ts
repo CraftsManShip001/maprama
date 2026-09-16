@@ -78,6 +78,14 @@ export class GeofenceVisuals {
     this.group.name = 'geofences';
   }
 
+  /**
+   * True while the pulse rings animate. With reduced motion the pulse is
+   * hidden and frozen, so they need no frames at all.
+   */
+  animating(reduceMotion: boolean): boolean {
+    return !reduceMotion && this.items.length > 0;
+  }
+
   build(fences: readonly WorldFence[], groundY: number): void {
     this.clear();
     const ring = new MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0.85, depthWrite: false });
