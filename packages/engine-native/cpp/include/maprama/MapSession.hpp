@@ -27,6 +27,7 @@
 
 #include "maprama/BuildingMesh.hpp"
 #include "maprama/CameraController.hpp"
+#include "maprama/LabelSystem.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama/MapLook.hpp"
 #include "maprama/MessageSink.hpp"
@@ -105,6 +106,8 @@ class MapSession {
   void onUnprojected(std::uint64_t token, const std::optional<LngLat>& coordinate);
   void onBuildingQueried(std::uint64_t token, const std::optional<std::string>& buildingId, const std::optional<LngLat>& ground);
   void onTextFetched(std::uint64_t token, bool ok, const std::string& bodyOrError);
+  /// Reply to `MapAdapter::measureLabels`.
+  void onLabelsMeasured(std::uint64_t token, const std::vector<LabelSize>& sizes);
   /// Flushes throttled subscriptions / overlay positions that became due (`MapAdapter::scheduleFrame`).
   void frame();
   /// Platform tap (dp): hit-tests the 3D buildings, then emits `building:press` or `map:press`.
@@ -121,6 +124,20 @@ class MapSession {
   /// `style` is a `BuildingStyle` object or `null` (clears the override).
   void setBuildingStyle(const std::string& buildingId, const json::Value& style);
   void setOverlayAnchors(const json::Value& anchors);
+  /// `LabelsSpec` object (replaces the spec, engine-web semantics).
+  void setLabels(const json::Value& labelsSpec);
+  /// `Record<string, LabelContent>` (replaces all host content).
+  void setLabelContent(const json::Value& entries);
+  /// Character name tags from the game session (every tick while tagged characters exist; empty clears them).
+  void setNameTags(std::vector<NameTag> tags);
+  /// Label placement cost (diagnostics, DESIGN.md §8): passes, total / max milliseconds of `pumpLabels`.
+  struct LabelPlacementStats {
+    std::uint64_t passes = 0;
+    std::uint64_t tagPasses = 0;
+    double totalMs = 0.0;
+    double maxMs = 0.0;
+  };
+  const LabelPlacementStats& labelStats() const { return labelStats_; }
   void subscribeCamera(double throttleMs);
   void unsubscribeCamera();
   /// `project` / `unproject`; answered asynchronously through the adapter.
@@ -149,6 +166,9 @@ class MapSession {
   MapCameraPose poseFor(const CameraState& state) const;
   MapCameraLimits limits() const;
   std::size_t pendingRequests() const { return pendingRequests_.size(); }
+  const LabelSystem& labels() const { return labels_; }
+  /// The label frame last sent to the adapter.
+  const LabelFrame& labelFrame() const { return labelFrame_; }
 
  private:
   struct PendingRequest {
@@ -183,6 +203,12 @@ class MapSession {
   json::Value worldLayers() const;
   /// Sends the complete style (+ the current custom building layer, M2c) to the adapter and tells the hooks.
   void sendStyle();
+  void setLabelsState(const json::Value& labelsSpec);
+  /// Asks the platform for the sizes of label cards that are not measured yet.
+  void requestLabelSizes();
+  /// Recomputes the label placement (+ name tags) when something changed and sends it when it differs.
+  void pumpLabels();
+  void recordLabelPass(double ms, bool tagsOnly);
   /// Rebuilds the layers from the look + building overrides and sends the changed paint properties / light.
   void applyLook();
   /// Rebuilds the custom building layer; when its content changed, keeps it and (if `send`) hands it to the adapter.
@@ -263,6 +289,26 @@ class MapSession {
   bool overlayWanted_ = false;
   bool overlayDirty_ = true;
   double lastOverlayRequestMs_;
+
+  // Labels (M2b).
+  LabelSystem labels_;
+  std::map<std::uint64_t, std::vector<LabelCardContent>> pendingMeasures_;
+  LabelFrame labelFrame_;
+  bool labelFrameSent_ = false;
+  bool labelsDirty_ = true;
+  /// Only the name tags moved (game tick): the label cards of `labelOnly_` are reused.
+  bool tagsDirty_ = false;
+  /// The last label placement without the name tags.
+  LabelFrame labelOnly_;
+  LabelPlacementStats labelStats_;
+  LabelPlacementStats labelWindow_;
+  double labelWindowStartMs_ = -1.0;
+  /// Whether the last placement showed nothing although labels are on (logged once per change).
+  bool labelsEmptyLogged_ = false;
+  /// `LabelFrame::sequence` of the last frame sent (frames may reach the platform out of order).
+  std::uint64_t labelFrameSeq_ = 0;
+  /// engine-web `groundYFor(world.kind)`: the holo ground dot height (0.05 on the procedural grid, else 0.09).
+  double labelGroundY_ = kLabelGroundY;
 
   SubscriptionRegistry subscriptions_;
   std::map<std::uint64_t, PendingRequest> pendingRequests_;

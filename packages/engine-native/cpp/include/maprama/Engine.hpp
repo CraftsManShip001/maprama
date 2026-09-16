@@ -90,6 +90,8 @@ class Engine {
   /// Reply to `MapAdapter::queryBuilding`: the pressed building's `id` (nullopt: none) and the ground
   /// coordinate under the tap (nullopt: not on the ground).
   virtual void onBuildingQueried(std::uint64_t token, std::optional<std::string> buildingId, std::optional<LngLat> ground) = 0;
+  /// Reply to `MapAdapter::measureLabels`: card sizes (dp) in request order (M2b).
+  virtual void onLabelsMeasured(std::uint64_t token, std::vector<LabelSize> sizes) = 0;
 
   // ---- M3a platform input ------------------------------------------------------------------------
   /// A platform GPS fix (`MapAdapter::startLocationUpdates`), used with the `device` location source.

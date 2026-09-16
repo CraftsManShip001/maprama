@@ -229,9 +229,10 @@ export default function NativeGameScreen() {
           }}
           onError={(e) => pushLog(`error ${e.code}: ${e.message}`)}
         >
-          {crowd !== 1 && <Character id="me" isPlayer name="Traveller" color="#E0457B" follow="none" position={START} />}
-          {/* M3b: the example glTF robot (idle / walk clips) walks the simulated loop; "me" is the procedural body. */}
-          <Character id="walker" name="Walker" color="#D3A03E" follow="location" model={SAMPLE_CHARACTER_MODEL_URI} />
+          {crowd !== 1 && <Character id="me" isPlayer name="Traveller" showNameTag color="#E0457B" follow="none" position={START} />}
+          {/* M3b: the example glTF robot (idle / walk clips) walks the simulated loop; "me" is the procedural body.
+              Both show their name tags (M2b label views, engine-web anchors: above the head, on the vehicle). */}
+          <Character id="walker" name="Walker" showNameTag color="#D3A03E" follow="location" model={SAMPLE_CHARACTER_MODEL_URI} />
           {occlusion &&
             STATUES.map((s) => (
               <Character

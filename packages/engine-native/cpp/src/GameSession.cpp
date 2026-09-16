@@ -318,10 +318,6 @@ void GameSession::applyUpsert(const std::vector<Value>& specs) {
     // engine-web `CharacterManager.upsert`: `refreshClips()`, then `setModel(spec.model?.uri ?? null)`.
     ch->visual.setMapping(animationMapping(member(ch->spec, "animations")));
     setModel(*ch, modelUriOf(ch->spec));
-    if (const Value* tag = member(ch->spec, "showNameTag"); tag != nullptr && tag->asBool()) {
-      warnOnce("character.showNameTag",
-               "engine-native: CharacterSpec.showNameTag is accepted but name tags are not drawn yet (label view pool, M2b)");
-    }
   }
   // engine-web `Features.upsertCharacters`.
   for (const Value& s : specs) {
@@ -818,6 +814,7 @@ void GameSession::emitProgress(double nowMs) {
 
 void GameSession::flushVisuals(double nowMs) {
   if (!adapter_ || !worldReady_ || !proj_) return;
+  sendNameTags();
   // M3b: models animate, so their frame is re-sent every tick while any is on screen (and once more to clear).
   const bool models = !chars_.empty() || !dropVisuals_.empty() || modelsShown_;
   if (dirty_ == 0 && !models) return;
@@ -863,6 +860,38 @@ void GameSession::flushVisuals(double nowMs) {
     send(game_style::kSourcePuck, puckGeoJson(puck));
   }
   if (models) sendModelFrame(nowMs);
+}
+
+void GameSession::sendNameTags() {
+  // engine-web `CharacterManager.updateTags`: a tag per `showNameTag` character, anchored by `nameTagAnchor` (on the
+  // vehicle while riding once it has popped in); the map session projects and hides them with the labels.
+  std::vector<NameTag> tags;
+  for (const auto& ch : chars_) {
+    const Value* show = member(ch->spec, "showNameTag");
+    if (show == nullptr || !show->isBoolean() || !show->asBool()) continue;
+    const FollowerBody& body = ch->follower.body;
+    double vehicle = 0.0;
+    if (const int k = vehicleIndex(body.mode); k >= 0) {
+      const VehicleState& v = ch->visual.vehicles().vehicles[static_cast<std::size_t>(k)];
+      if (v.visible) vehicle = v.p;
+    }
+    const NameTagOffset a = nameTagAnchor(body.mode, ch->yaw, ch->scale(), vehicle);
+    NameTag tag;
+    tag.characterId = ch->id();
+    tag.text = stringMember(ch->spec, "name").value_or(ch->id());
+    tag.player = ch->isPlayer();
+    if (tag.player) {
+      if (const std::optional<std::string> css = stringMember(ch->spec, "color")) tag.color = parseCssHex(*css).value_or(kPlayerTagColor);
+    }
+    tag.anchor = proj_->toLngLat(WorldPoint{body.x + a.dx, body.z + a.dz});
+    tag.anchorY = body.y + a.dy;
+    tag.root = WorldPoint{body.x, body.z};
+    tag.rootY = body.y;
+    tags.push_back(std::move(tag));
+  }
+  if (tags.empty() && !tagsShown_) return;
+  tagsShown_ = !tags.empty();
+  map_.setNameTags(std::move(tags));
 }
 
 void GameSession::sendModelFrame(double nowMs) {

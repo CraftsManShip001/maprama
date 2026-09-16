@@ -14,6 +14,7 @@
 
 #import "MapramaBuildingLayer.h"
 #import "MapramaEngineModule.h"
+#import "MapramaLabelLayer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -45,6 +46,7 @@ static NSString *const kBuildingsLayer = @"buildings";
 - (void)maprama_setBuildingLayer:(std::shared_ptr<const maprama::BuildingLayerData>)data;
 - (void)maprama_setBuildingLayerZoom:(maprama::BuildingLayerZoom)zoom;
 - (void)maprama_setModelFrame:(std::shared_ptr<const maprama::ModelLayerFrame>)frame;
+- (void)maprama_setLabelFrame:(const maprama::LabelFrame &)frame;
 @end
 
 namespace {
@@ -429,6 +431,28 @@ class AppleMapAdapter final : public maprama::MapAdapter {
     });
   }
 
+  void measureLabels(std::uint64_t token, const std::vector<maprama::LabelCardContent> &items) override {
+    const std::vector<maprama::LabelCardContent> copy = items;
+    std::weak_ptr<maprama::Engine> weakEngine = engine_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      std::vector<maprama::LabelSize> sizes = [MapramaLabelLayer measure:copy];
+      if (auto engine = weakEngine.lock()) engine->onLabelsMeasured(token, std::move(sizes));
+    });
+  }
+
+  void setLabelFrame(const maprama::LabelFrame &frame) override {
+    // Camera reports arrive on the main thread: apply in the same run-loop turn so the cards move with the map
+    // (updating views never calls back into the engine). Commands from the JS thread hop to the main queue.
+    if ([NSThread isMainThread]) {
+      if (MapramaNativeView *view = view_) [view maprama_setLabelFrame:frame];
+      return;
+    }
+    const maprama::LabelFrame copy = frame;
+    onView(^(MapramaNativeView *view) {
+      [view maprama_setLabelFrame:copy];
+    });
+  }
+
  private:
   void onMain(void (^block)(MLNMapView *map)) {
     __weak MLNMapView *weakMap = mapView_;
@@ -480,6 +504,7 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 
 @implementation MapramaNativeView {
   UIView *_container;
+  MapramaLabelLayer *_labels;
   MapramaPassthroughView *_ornaments;
   MLNMapView *_mapView;
   NSString *_engineId;
@@ -544,6 +569,10 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
     _mapView.rotateEnabled = YES;
     _mapView.pitchEnabled = YES;
     _mapView.showsUserLocation = NO;
+    // The camera target is the view centre (engine-web's model; the core's label projection relies on it): no
+    // safe-area content inset shifting the map centre.
+    _mapView.automaticallyAdjustsContentInset = NO;
+    _mapView.contentInset = UIEdgeInsetsZero;
     // Ornaments follow `MapUiState` (the core sends one on attach); hidden until then.
     _mapView.showsScale = NO;
     _mapView.logoView.hidden = YES;
@@ -563,6 +592,10 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
 
     _container = [[UIView alloc] initWithFrame:self.bounds];
     [_container addSubview:_mapView];
+    // Label cards (core-placed) above the map, below the map UI; touches pass through to the map.
+    _labels = [[MapramaLabelLayer alloc] initWithFrame:_container.bounds];
+    _labels.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_container addSubview:_labels];
     _ornaments = [[MapramaPassthroughView alloc] initWithFrame:_container.bounds];
     _ornaments.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_container addSubview:_ornaments];
@@ -904,6 +937,12 @@ UIButton *zoomButton(NSString *title, NSString *identifier, NSString *label) {
   _attributionLabel.hidden = !ui.attribution;
   _attributionLabel.text = toNSString(ui.attributionText);
   [self layoutOrnaments];
+}
+
+#pragma mark - Labels
+
+- (void)maprama_setLabelFrame:(const maprama::LabelFrame &)frame {
+  [_labels applyFrame:frame];
 }
 
 - (void)zoomInPressed {

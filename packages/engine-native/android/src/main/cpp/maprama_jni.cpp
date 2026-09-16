@@ -23,6 +23,7 @@
 
 #include "maprama/Engine.hpp"
 #include "maprama/EngineRegistry.hpp"
+#include "maprama/LabelIcons.hpp"
 #include "maprama/MapAdapter.hpp"
 #include "maprama_building_layer.hpp"
 
@@ -241,6 +242,9 @@ class JniMapAdapter final : public maprama::MapAdapter {
     stopLocationUpdates_ = env->GetMethodID(cls, "stopLocationUpdates", "()V");
     modelLayerChanged_ = env->GetMethodID(cls, "modelLayerChanged", "()V");
     fetchBinary_ = env->GetMethodID(cls, "fetchBinary", "(JLjava/lang/String;)V");
+    measureLabels_ = env->GetMethodID(cls, "measureLabels", "(J[Ljava/lang/String;[I)V");
+    setLabelFrame_ = env->GetMethodID(
+        cls, "setLabelFrame", "(JIIZ[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[I[D)V");
     env->DeleteLocalRef(cls);
     jclass stringClass = env->FindClass("java/lang/String");
     stringClass_ = static_cast<jclass>(env->NewGlobalRef(stringClass));
@@ -401,7 +405,69 @@ class JniMapAdapter final : public maprama::MapAdapter {
     withEnv("stopLocationUpdates", [&](JNIEnv* env) { env->CallVoidMethod(host_, stopLocationUpdates_); });
   }
 
+  void measureLabels(std::uint64_t token, const std::vector<maprama::LabelCardContent>& items) override {
+    withEnv("measureLabels", [&](JNIEnv* env) {
+      const auto n = static_cast<jsize>(items.size());
+      jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
+      std::vector<jint> ints;
+      ints.reserve(items.size() * 5);
+      for (jsize i = 0; i < n; ++i) packContent(env, strings, i, ints, items[static_cast<std::size_t>(i)]);
+      jintArray intArray = env->NewIntArray(static_cast<jsize>(ints.size()));
+      env->SetIntArrayRegion(intArray, 0, static_cast<jsize>(ints.size()), ints.data());
+      env->CallVoidMethod(host_, measureLabels_, static_cast<jlong>(token), strings, intArray);
+      env->DeleteLocalRef(strings);
+      env->DeleteLocalRef(intArray);
+    });
+  }
+
+  void setLabelFrame(const maprama::LabelFrame& frame) override {
+    withEnv("setLabelFrame", [&](JNIEnv* env) {
+      const auto n = static_cast<jsize>(frame.cards.size());
+      jobjectArray ids = env->NewObjectArray(n, stringClass_, nullptr);
+      jobjectArray keys = env->NewObjectArray(n, stringClass_, nullptr);
+      jobjectArray strings = env->NewObjectArray(n * 3, stringClass_, nullptr);
+      std::vector<jint> ints;
+      ints.reserve(frame.cards.size() * 5);
+      std::vector<jdouble> numbers;
+      numbers.reserve(frame.cards.size() * 10);
+      for (jsize i = 0; i < n; ++i) {
+        const maprama::LabelCard& c = frame.cards[static_cast<std::size_t>(i)];
+        setString(env, ids, i, c.id);
+        setString(env, keys, i, c.content.key);
+        packContent(env, strings, i, ints, c.content);
+        for (double v : {c.x, c.y, c.width, c.height, c.angle, c.opacity, c.dotX, c.dotY, c.lineX, c.lineY}) numbers.push_back(v);
+      }
+      jintArray intArray = env->NewIntArray(static_cast<jsize>(ints.size()));
+      env->SetIntArrayRegion(intArray, 0, static_cast<jsize>(ints.size()), ints.data());
+      jdoubleArray numberArray = env->NewDoubleArray(static_cast<jsize>(numbers.size()));
+      env->SetDoubleArrayRegion(numberArray, 0, static_cast<jsize>(numbers.size()), numbers.data());
+      env->CallVoidMethod(host_, setLabelFrame_, static_cast<jlong>(frame.sequence), static_cast<jint>(frame.visual),
+                          static_cast<jint>(frame.tile), static_cast<jboolean>(frame.night), ids, keys, strings, intArray,
+                          numberArray);
+      env->DeleteLocalRef(ids);
+      env->DeleteLocalRef(keys);
+      env->DeleteLocalRef(strings);
+      env->DeleteLocalRef(intArray);
+      env->DeleteLocalRef(numberArray);
+    });
+  }
+
  private:
+  /// 3 strings (title, subtitle, accessibility label) at `index * 3` and 4 ints (visual, kind, flags, icon).
+  static void packContent(JNIEnv* env, jobjectArray strings, jsize index, std::vector<jint>& ints,
+                          const maprama::LabelCardContent& c) {
+    setString(env, strings, index * 3, c.title);
+    setString(env, strings, index * 3 + 1, c.subtitle);
+    setString(env, strings, index * 3 + 2, c.accessibilityLabel);
+    const jint flags = (c.water ? 1 : 0) | (c.arterial ? 2 : 0) | (c.showIcon ? 4 : 0) | (c.showSubtitle ? 8 : 0) |
+                       (c.custom ? 16 : 0) | (c.player ? 32 : 0);
+    ints.push_back(static_cast<jint>(c.visual));
+    ints.push_back(static_cast<jint>(c.kind));
+    ints.push_back(flags);
+    ints.push_back(static_cast<jint>(c.icon));
+    ints.push_back(static_cast<jint>(c.color & 0xFFFFFFu));
+  }
+
   template <class F>
   void withEnv(const char* where, F&& call) {
     JNIEnv* env = currentEnv();
@@ -437,6 +503,8 @@ class JniMapAdapter final : public maprama::MapAdapter {
   jmethodID stopLocationUpdates_ = nullptr;
   jmethodID modelLayerChanged_ = nullptr;
   jmethodID fetchBinary_ = nullptr;
+  jmethodID measureLabels_ = nullptr;
+  jmethodID setLabelFrame_ = nullptr;
 };
 
 /// What the Kotlin view holds as a `long` handle.
@@ -616,6 +684,51 @@ JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onBinaryFetched(
     payload = toUtf8(env, message);
   }
   fromHandle(handle)->engine->onBinaryFetched(static_cast<std::uint64_t>(token), success, std::move(payload));
+}
+
+JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_onLabelsMeasured(JNIEnv* env, jclass, jlong handle,
+                                                                                  jlong token, jdoubleArray sizes) {
+  if (handle == 0) return;
+  const jsize n = sizes != nullptr ? env->GetArrayLength(sizes) : 0;
+  std::vector<jdouble> flat(static_cast<std::size_t>(n));
+  if (n > 0) env->GetDoubleArrayRegion(sizes, 0, n, flat.data());
+  std::vector<maprama::LabelSize> out;
+  out.reserve(flat.size() / 2);
+  for (std::size_t i = 0; i + 1 < flat.size(); i += 2) out.push_back(maprama::LabelSize{flat[i], flat[i + 1]});
+  fromHandle(handle)->engine->onLabelsMeasured(static_cast<std::uint64_t>(token), std::move(out));
+}
+
+// [color, size, roundCaps, textLength, text code points..., shapeCount,
+//  (fill, fillOpacity, stroke, strokeWidth, opCount, ops (M 0, L 1, C 2, Z 3)..., coordCount, coords...)...]
+JNIEXPORT jfloatArray JNICALL Java_dev_maprama_enginenative_MapramaJni_labelIconData(JNIEnv* env, jclass, jboolean glyph,
+                                                                                    jint icon) {
+  if (icon < 0 || icon >= static_cast<jint>(maprama::EnumNames<maprama::LabelIcon>::values.size())) return nullptr;
+  const auto labelIcon = static_cast<maprama::LabelIcon>(icon);
+  const maprama::IconDrawing* d = glyph == JNI_TRUE ? maprama::poiGlyph(labelIcon) : &maprama::holoIcon(labelIcon);
+  if (d == nullptr) return nullptr;
+  std::vector<float> out;
+  out.push_back(static_cast<float>(maprama::iconColor(labelIcon)));
+  out.push_back(d->size);
+  out.push_back(d->roundCaps ? 1.0f : 0.0f);
+  const std::string text = d->text != nullptr ? d->text : "";
+  out.push_back(static_cast<float>(text.size()));  // ASCII only ("M")
+  for (char ch : text) out.push_back(static_cast<float>(static_cast<unsigned char>(ch)));
+  out.push_back(static_cast<float>(d->shapeCount));
+  for (std::size_t i = 0; i < d->shapeCount; ++i) {
+    const maprama::IconShape& s = d->shapes[i];
+    out.push_back(static_cast<float>(s.fill));
+    out.push_back(s.fillOpacity);
+    out.push_back(static_cast<float>(s.stroke));
+    out.push_back(s.strokeWidth);
+    const std::string ops = s.ops;
+    out.push_back(static_cast<float>(ops.size()));
+    for (char op : ops) out.push_back(op == 'M' ? 0.0f : op == 'L' ? 1.0f : op == 'C' ? 2.0f : 3.0f);
+    out.push_back(static_cast<float>(s.coordCount));
+    for (std::size_t k = 0; k < s.coordCount; ++k) out.push_back(s.coords[k]);
+  }
+  jfloatArray array = env->NewFloatArray(static_cast<jsize>(out.size()));
+  env->SetFloatArrayRegion(array, 0, static_cast<jsize>(out.size()), out.data());
+  return array;
 }
 
 JNIEXPORT void JNICALL Java_dev_maprama_enginenative_MapramaJni_frame(JNIEnv*, jclass, jlong handle, jdouble timestampMs) {

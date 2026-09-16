@@ -12,4 +12,5 @@ executionOrder:
     - 06-native-m2a
     - 07-native-m2c
     - 08-native-m3a
+    - 09-native-labels
     - 10-native-m4

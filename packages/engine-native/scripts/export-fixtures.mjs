@@ -17,6 +17,9 @@
  * - travel-plan.json, travel-trace.json, location.json, drops.json, geofences.json
  *                        game logic (M3 core) from engine-web's TypeScript sources, written by
  *                        scripts/export-game-fixtures.mjs (run through tsx, see the last section)
+ * - labels.json          engine-web's label rules (src/labels/index.ts): label entries + labelsIndex payloads of
+ *                        the sample worlds (Seongsu included) and of generated town / grid worlds, content
+ *                        modes, HUD exclusions, holo placement, visibility and clamping samples (DESIGN.md §6.5)
  *
  * Run `npm run build -w @maprama/protocol` and `npm run build -w @maprama/engine-web` first (the root
  * `npm run build` does both).
@@ -25,6 +28,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as P from '@maprama/protocol';
+import { loadWebLabels } from './web-labels.mjs';
 
 /** Imports a built engine-web module (dist) with a helpful message when it has not been built. */
 async function importEngineWeb(specifier) {
@@ -37,6 +41,8 @@ async function importEngineWeb(specifier) {
   }
 }
 const W = await importEngineWeb('@maprama/engine-web');
+// engine-web's pure label modules (not in its dist bundle): transpiled from src/labels by web-labels.mjs.
+const WL = await loadWebLabels();
 
 /**
  * Verbatim copy of engine-web's internal `mulberry32` (`packages/engine-web/src/util/math.ts`; the dist is a
@@ -708,6 +714,126 @@ function generatedWorld(layout, seed) {
 const procedural = { prng, worlds: PROCEDURAL_CASES.map(([layout, seed]) => generatedWorld(layout, seed)) };
 
 // ---------------------------------------------------------------------------
+// Labels (engine-web src/labels/index.ts)
+// ---------------------------------------------------------------------------
+
+const sampleWorld = JSON.parse(readFileSync(new URL('../../engine-web/dev/sample-world.json', import.meta.url), 'utf8'));
+
+/** engine-web's label entries (placement data) and `labelsIndex` payload for a WorldData value. */
+function labelWorld(name, data, inputPath) {
+  const model = W.loadWorldData(data);
+  const entries = WL.buildLabelEntries(model, W.projectionFor(model));
+  return { name, ...(inputPath ? { inputPath } : { world: data }), entries, infos: entries.map(WL.toLabelInfo) };
+}
+
+const labelWorlds = [
+  labelWorld('engine-web dev/sample-world.json', sampleWorld),
+  labelWorld('repeated district names', {
+    ...sampleWorld,
+    districts: [{ name: 'Dong', x: 0, z: 0 }, { name: 'Dong', x: 5, z: 5 }, { name: 'Dong', x: 9, z: 9, water: true }],
+  }),
+  labelWorld('fixture world', world),
+];
+if (existsSync(seongsuPath)) {
+  labelWorlds.push(labelWorld('tools/osm/samples/seongsu.world.json', JSON.parse(readFileSync(seongsuPath, 'utf8')), seongsuPath));
+}
+
+/** engine-web's label entries of a generated world (`init.world.kind = "procedural"`): districts, road anchors, POIs. */
+function labelProcedural(layout, seed) {
+  const model = (layout === 'town' ? W.buildTownWorld : W.buildGridWorld)(seed);
+  const entries = WL.buildLabelEntries(model, W.projectionFor(model));
+  return { name: `procedural ${layout} seed ${seed}`, procedural: { layout, seed }, entries, infos: entries.map(WL.toLabelInfo) };
+}
+labelWorlds.push(labelProcedural('town', 42), labelProcedural('town', 7), labelProcedural('grid', 7));
+
+const hostContent = {
+  'poi:poi-cafe': { title: '오늘의 카페', subtitle: '영업 중 · 22시까지', icon: 'music' },
+  'poi:poi-subway': { title: 'Only title' },
+  'road:road-sejong:0': { title: 'Custom road', subtitle: '' },
+  'district:Pond': { title: 'P', icon: 'park' },
+};
+const labelContent = [];
+for (const mode of P.LABEL_CONTENT_MODES) {
+  for (const e of labelWorlds[0].entries) {
+    labelContent.push({ id: e.id, mode, resolved: WL.resolveLabelContent(e, mode, hostContent) });
+  }
+}
+
+const lr = mulberry32(20260916);
+const between = (a, b) => a + (b - a) * lr();
+const hud = [];
+for (const [vw, vh] of [[390, 760], [430, 932], [360, 640]]) {
+  for (const ui of [{}, { zoomButtons: true }, { scaleBar: true, attribution: true }, { zoomButtons: true, scaleBar: true, attribution: true }]) {
+    for (const insets of [{}, { top: 47, bottom: 34 }]) hud.push({ vw, vh, ui, insets, boxes: WL.hudExclusions(vw, vh, ui, insets) });
+  }
+}
+const holo = [];
+for (let n = 0; n < 60; n++) {
+  const count = 1 + Math.floor(lr() * 30);
+  const candidates = Array.from({ length: count }, (_, i) => {
+    const kind = P.LABEL_KINDS[Math.floor(lr() * 3)];
+    return {
+      id: `c${i}`,
+      kind,
+      pri: kind === 'district' ? 0 : kind === 'poi' ? 2 : lr() < 0.5 ? 1 : 3,
+      dT: Math.round(between(0, 20)) / 2, // ties exercise the stable sort
+      eligible: lr() < 0.85,
+      top: { x: between(-20, 410), y: between(-10, 780) },
+      onScreen: lr() < 0.9,
+      w: between(40, 160),
+      h: between(20, 44),
+    };
+  });
+  const exclusions = WL.hudExclusions(390, 760, n % 2 ? { zoomButtons: true, scaleBar: true } : {});
+  const maxRoads = n % 3 === 0 ? 2 : WL.HOLO_MAX_ROADS;
+  const shown = [...WL.placeHolo(candidates, exclusions, maxRoads)].map(([id, box]) => ({ id, box }));
+  holo.push({ candidates, exclusions, maxRoads, shown });
+}
+const dists = [0, 14, 22, 22.5, 40, 40.5, 41, 42, 42.5, 70, 71, 80, 81, 95, 96, 114, 115, 116, 119, 120, 121, 124, 125, 126, 150];
+const eligible = [];
+for (const kind of P.LABEL_KINDS) {
+  for (const dT of [0, 5, 14, 20, 23.9, 24, 30, 50, 60, 84]) for (const dist of dists) eligible.push([kind, dT, dist, WL.holoEligible(kind, dT, dist)]);
+}
+const visible = [];
+for (const style of ['app', 'minimal', 'clean', 'sticker']) {
+  for (const [kind, pri] of [['district', 0], ['road', 1], ['road', 3], ['poi', 2]]) {
+    for (const dist of dists) for (const zoomOut of [0, 0.2, 0.3]) visible.push([style, kind, pri, dist, zoomOut, WL.domLabelVisible(style, { kind, pri }, dist, zoomOut)]);
+  }
+}
+const clamp = [];
+for (const x of [-50, 0, 10, 56, 200, 334, 385, 450]) {
+  for (const hw of [0, 30, 50, 190, 200, 300]) {
+    for (const vw of [390, 100]) for (const margin of [null, 0, 6, 12]) clamp.push([x, hw, vw, margin, WL.clampLabelX(x, hw, vw, margin ?? undefined)]);
+  }
+}
+const rotated = Array.from({ length: 40 }, () => {
+  const [x, y, w, h, angle] = [between(0, 400), between(0, 800), between(10, 200), between(10, 40), between(-Math.PI, Math.PI)];
+  return { x, y, w, h, angle, box: WL.rotatedBox(x, y, w, h, angle) };
+});
+const upright = [-4, -3.2, -1.6, -Math.PI / 2, -1, 0, 1, Math.PI / 2, 1.6, 2.4, 3.14, 4].map((a) => [a, WL.uprightAngle(a)]);
+const tiles = [];
+for (const tile of [...P.HOLO_ICON_TILES, null]) for (const night of [false, true]) tiles.push([tile, night, WL.iconTileFor(tile ?? undefined, night)]);
+
+const labels = {
+  worlds: labelWorlds,
+  content: { entries: hostContent, cases: labelContent },
+  hud,
+  holo,
+  eligible,
+  visible,
+  clamp,
+  rotated,
+  upright,
+  tiles,
+  holoHeight: WL.HOLO_HEIGHT,
+  holoMaxRoads: WL.HOLO_MAX_ROADS,
+  edgeMargin: WL.LABEL_EDGE_MARGIN,
+  poiSubtitles: WL.POI_SUBTITLES,
+  kindSubtitles: WL.KIND_SUBTITLES,
+  iconColors: WL.ICON_COLORS,
+};
+
+// ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
 
@@ -777,6 +903,7 @@ const files = {
   'projection.json': { samples: projectionSamples, errors: projectionErrors, haversine },
   'json-format.json': jsonFormat,
   'procedural.json': procedural,
+  'labels.json': labels,
 };
 
 let total = 0;

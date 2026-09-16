@@ -8,6 +8,7 @@
 
 #include "maprama/CameraMath.hpp"
 #include "maprama/ProceduralWorld.hpp"
+#include "maprama/TravelLogic.hpp"
 #include "maprama/WorldStore.hpp"
 #include "maprama/protocol.hpp"
 
@@ -74,6 +75,22 @@ bool positionsChanged(const std::vector<ScreenPoint>& a, const std::vector<Scree
     }
   }
   return false;
+}
+
+/// Label frames that would look the same (positions within 0.05 dp; the sequence is not part of the look).
+bool sameLabelFrame(const LabelFrame& a, const LabelFrame& b) {
+  if (a.visual != b.visual || a.tile != b.tile || a.night != b.night || a.cards.size() != b.cards.size()) return false;
+  const auto near = [](double p, double q) { return std::fabs(p - q) < 0.05; };
+  for (std::size_t i = 0; i < a.cards.size(); ++i) {
+    const LabelCard& p = a.cards[i];
+    const LabelCard& q = b.cards[i];
+    if (p.id != q.id || p.content.key != q.content.key || p.opacity != q.opacity || !near(p.x, q.x) || !near(p.y, q.y) ||
+        !near(p.width, q.width) || !near(p.height, q.height) || !near(p.angle * 100, q.angle * 100) ||
+        !near(p.dotX, q.dotX) || !near(p.dotY, q.dotY) || !near(p.lineX, q.lineX) || !near(p.lineY, q.lineY)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool pointInRing(double x, double z, const std::vector<Vec2>& ring) {
@@ -160,6 +177,10 @@ void MapSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   overlayToken_ = 0;
   pendingTaps_.clear();
   animatingUntilMs_ = -kInf;
+  pendingMeasures_.clear();
+  labels_.resetRequests();
+  labelFrameSent_ = false;
+  labelsDirty_ = true;
   if (!adapter_) return;
   sendStyle();
   zoomSentValid_ = false;
@@ -168,6 +189,7 @@ void MapSession::attachAdapter(std::shared_ptr<MapAdapter> adapter) {
   pushUi();
   pushLimits();
   if (worldReady_ || cameraUnsent_) sendState();
+  requestLabelSizes();
   overlayWanted_ = true;
   pump();
 }
@@ -184,6 +206,9 @@ void MapSession::detachAdapter() {
     emitError(error_codes::kWorldLoadFailed, "failed to load " + url + ": the map view was detached", true);
   }
   pendingTaps_.clear();
+  pendingMeasures_.clear();
+  labels_.resetRequests();
+  labelFrameSent_ = false;
   overlayToken_ = 0;
   adapter_.reset();
   scheduledFrameAtMs_ = kInf;
@@ -194,6 +219,7 @@ void MapSession::setViewport(const Viewport& viewport) {
   const bool sizeChanged = heightChanged || viewport.width != viewport_.width;
   viewport_ = viewport;
   if (!sizeChanged) return;
+  labelsDirty_ = true;
   if (heightChanged) {
     // The protocol distance is physical: keep it (and re-derive the MapLibre zoom) when the view resizes.
     pushLimits();
@@ -307,6 +333,16 @@ void MapSession::onTextFetched(std::uint64_t token, bool ok, const std::string& 
   loadWorldValue(parsed.value, pending.initMsg, pending.url);
 }
 
+void MapSession::onLabelsMeasured(std::uint64_t token, const std::vector<LabelSize>& sizes) {
+  auto it = pendingMeasures_.find(token);
+  if (it == pendingMeasures_.end()) return;
+  const std::vector<LabelCardContent> items = std::move(it->second);
+  pendingMeasures_.erase(it);
+  labels_.onMeasured(items, sizes);
+  labelsDirty_ = true;
+  pump();
+}
+
 void MapSession::frame() {
   scheduledFrameAtMs_ = kInf;
   pump();
@@ -339,7 +375,7 @@ void MapSession::init(const Value& msg) {
   // engine-web: the theme and ui of `init` apply at once (a `setTheme` sent while a url world loads wins).
   if (const Value* theme = member(msg, "theme")) setThemeState(*theme);
   if (const Value* ui = member(msg, "ui")) setUiState(*ui);
-  warnOnce("init.labels", "engine-native: init.labels / setLabels are not applied yet (labels arrive in M2b)");
+  if (const Value* labels = member(msg, "labels")) setLabelsState(*labels);
 
   const Value& source = *msg.find("world");
   const std::string& kind = source.find("kind")->asString();
@@ -442,6 +478,15 @@ void MapSession::onWorldLoaded(const WorldLoadReport& report, const Value& initM
   sendState();
   // engine-web: world hooks (characters, drops, geofences) run before `init.camera` (which may follow a character).
   if (hooks_ != nullptr) hooks_->worldLoaded(initMsg, extras.generated);
+  // engine-web: `labelsIndex` after every world load (same ids, same shape), emitted by the world hooks, i.e.
+  // before `init.camera` (whose `follow` may fail with `unknown_character`).
+  labels_.setWorld(world, projection);
+  labelGroundY_ = groundYFor(extras.generated != nullptr ? std::optional<ProceduralLayout>(extras.generated->layout) : std::nullopt);
+  if (events_ != nullptr) {
+    events_->emit(Value::object({{"type", "labelsIndex"}, {"labels", labelsIndexValue(labels_.entries())}}));
+  }
+  requestLabelSizes();
+  labelsDirty_ = true;
   if (const Value* camera = member(initMsg, "camera")) setCamera(*camera, "init");
   overlayDirty_ = true;
   lastPositions_.clear();
@@ -496,6 +541,7 @@ void MapSession::setCamera(const Value& spec, std::string_view command) {
 void MapSession::setTheme(const Value& themeSpec) {
   setThemeState(themeSpec);
   applyLook();
+  labelsDirty_ = true;  // night palette / icon tile
   pump();  // M4: the zoom-out behaviour may have changed
 }
 
@@ -511,6 +557,41 @@ void MapSession::setThemeState(const Value& themeSpec) {
 void MapSession::setUi(const Value& uiSpec) {
   setUiState(uiSpec);
   pushUi();
+  labelsDirty_ = true;  // HUD exclusion zones
+  pump();
+}
+
+void MapSession::setLabels(const Value& labelsSpec) {
+  setLabelsState(labelsSpec);
+  requestLabelSizes();
+  pump();
+}
+
+void MapSession::setLabelsState(const Value& labelsSpec) {
+  labels_.setSpec(parseLabelsSpec(labelsSpec));
+  const LabelStyle style = labels_.spec().style;
+  if (style == LabelStyle::Ground || style == LabelStyle::Sign) {
+    const std::string name(enumName(style));
+    warnOnce("labels.style." + name,
+             "engine-native: label style " + json::quote(name) + " is drawn as " +
+                 (style == LabelStyle::Ground ? "\"app\"" : "\"sticker\"") +
+                 " labels (3D ground / sign labels need the custom layer, M2c)");
+  }
+  labelsDirty_ = true;
+}
+
+void MapSession::setLabelContent(const Value& entries) {
+  labels_.setContent(parseLabelContentEntries(entries));
+  labelsDirty_ = true;
+  requestLabelSizes();
+  pump();
+}
+
+void MapSession::setNameTags(std::vector<NameTag> tags) {
+  if (tags.empty() && labels_.nameTags().empty()) return;
+  if (labels_.setNameTags(std::move(tags))) requestLabelSizes();
+  tagsDirty_ = true;
+  pumpLabels();
 }
 
 void MapSession::setUiState(const Value& uiSpec) {
@@ -610,6 +691,7 @@ void MapSession::shutdown() {
   pendingWorld_.reset();
   subscriptions_.clear();
   anchors_.clear();
+  pendingMeasures_.clear();
   overlayToken_ = 0;
 }
 
@@ -763,6 +845,7 @@ void MapSession::pushLimits() {
 void MapSession::cameraChanged() {
   subscriptions_.markChanged(SubscriptionTopic::CameraChange);
   overlayWanted_ = !anchors_.empty();
+  labelsDirty_ = true;
   pushUi();
   pump();
   if (hooks_ != nullptr) hooks_->cameraMoved();
@@ -787,6 +870,7 @@ void MapSession::pump() {
   }
   pumpOverlay(now, &nextDelay);
   pumpZoomOut(now, &nextDelay);
+  pumpLabels();
   if (std::isfinite(nextDelay)) requestFrame(now, nextDelay);
 }
 
@@ -841,6 +925,93 @@ void MapSession::pushBuildingLayerZoom(bool force) {
   zoomSent_ = z;
   zoomSentValid_ = true;
   adapter_->setBuildingLayerZoom(z);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Labels
+// ---------------------------------------------------------------------------------------------------
+
+void MapSession::requestLabelSizes() {
+  if (!adapter_ || !worldReady_) return;
+  std::vector<LabelCardContent> items = labels_.takeUnmeasured();
+  if (items.empty()) return;
+  const std::uint64_t token = nextToken_++;
+  adapter_->measureLabels(token, items);
+  pendingMeasures_.emplace(token, std::move(items));
+}
+
+void MapSession::pumpLabels() {
+  // Synchronous on every change (camera reports arrive once per rendered frame), so the cards follow the
+  // map without a projection round trip; the frame is only sent when it differs from the last one.
+  if (!(labelsDirty_ || tagsDirty_) || !viewReady()) return;
+  const auto started = std::chrono::steady_clock::now();
+  const bool full = labelsDirty_ || !worldReady_;
+  labelsDirty_ = false;
+  tagsDirty_ = false;
+  LabelFrame frame;
+  if (worldReady_) {
+    const WorldData& w = *world_.world();
+    LabelLayoutInput in;
+    in.pose = poseFor(state_);
+    in.width = viewport_.width;
+    in.height = viewport_.height;
+    in.ui = uiSent_;
+    in.unitMeters = w.unitMeters;
+    in.distanceUnits = state_.distance / w.unitMeters;
+    in.target = world_.projection()->toWorld(state_.center);
+    in.night = theme_.time.lights > 0.8;  // engine-web `params.lights > 0.8`
+    in.groundY = labelGroundY_;
+    in.zoomOut = zoomOutFactor(theme_.zoomOut, in.distanceUnits);
+    if (full) labelOnly_ = labels_.layout(in);
+    frame = labelOnly_;
+    std::vector<LabelCard> tags = labels_.layoutTags(in);  // after the labels: drawn on top (engine-web DOM order)
+    frame.cards.insert(frame.cards.end(), std::make_move_iterator(tags.begin()), std::make_move_iterator(tags.end()));
+  } else {
+    labelOnly_ = LabelFrame();
+  }
+  recordLabelPass(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(), !full);
+  // Diagnostic: labels on, entries known, but nothing placed (usually card sizes that were never measured).
+  const bool nothingShown = worldReady_ && labels_.spec().enabled && !labels_.entries().empty() && frame.cards.empty();
+  if (nothingShown != labelsEmptyLogged_) {
+    labelsEmptyLogged_ = nothingShown;
+    if (nothingShown) {
+      log(LogLevel::Info, "engine-native: labels: nothing placed (" + std::to_string(labels_.entries().size()) + " labels, " +
+                              std::to_string(labels_.knownSizes()) + " sizes known, " + std::to_string(labels_.unansweredRequests()) +
+                              " awaiting measurement)");
+    } else {
+      log(LogLevel::Info, "engine-native: labels: " + std::to_string(frame.cards.size()) + " cards placed again");
+    }
+  }
+  if (labelFrameSent_ && sameLabelFrame(frame, labelFrame_)) return;
+  labelFrame_ = std::move(frame);
+  labelFrame_.sequence = ++labelFrameSeq_;
+  labelFrameSent_ = true;
+  adapter_->setLabelFrame(labelFrame_);
+}
+
+void MapSession::recordLabelPass(double ms, bool tagsOnly) {
+  for (LabelPlacementStats* st : {&labelStats_, &labelWindow_}) {
+    ++st->passes;
+    if (tagsOnly) ++st->tagPasses;
+    st->totalMs += ms;
+    st->maxMs = std::max(st->maxMs, ms);
+  }
+  // Every 5 s of activity: the per-pass cost on the thread that placed them (the platform logs it; DESIGN.md §8).
+  const double now = clock_();
+  if (labelWindowStartMs_ < 0) labelWindowStartMs_ = now;
+  if (now - labelWindowStartMs_ < 5000.0) return;
+  const auto fixed = [](double v, int digits) {
+    std::string out = std::to_string(v);
+    const std::size_t dot = out.find('.');
+    return dot == std::string::npos ? out : out.substr(0, dot + 1 + static_cast<std::size_t>(digits));
+  };
+  const LabelPlacementStats& w = labelWindow_;
+  log(LogLevel::Info, "engine-native: label placement " + std::to_string(w.passes) + " passes (" + std::to_string(w.tagPasses) +
+                          " name-tag only) in " + fixed((now - labelWindowStartMs_) / 1000.0, 1) + " s: avg " +
+                          fixed(w.totalMs / static_cast<double>(w.passes), 3) + " ms, max " + fixed(w.maxMs, 3) + " ms (" +
+                          std::to_string(labelFrame_.cards.size()) + " cards)");
+  labelWindow_ = LabelPlacementStats();
+  labelWindowStartMs_ = now;
 }
 
 void MapSession::pumpOverlay(double now, double* nextDelay) {
