@@ -33,11 +33,19 @@ Usage:
   maprama-osm fetch --bbox s,w,n,e --out raw.json [--endpoint url]... [--no-cache] [--timeout 90]
   maprama-osm build --raw raw.json --out world.json --name <name>
                     [--bbox s,w,n,e] [--origin lat,lng] [--unit-meters 8]
-                    [--kr-buildings kr.geojson] [--simplify-meters 0.5]
+                    [--kr-buildings kr.geojson] [--kr-fill-missing]
+                    [--simplify-meters 0.5]
                     [--precision 2] [--include-sidewalks]
   maprama-osm sample <${Object.keys(SAMPLES).join('|')}> [--out world.json] [--raw raw.json]
                     [--endpoint url]... [--no-cache] [--kr-buildings kr.geojson]
+                    [--kr-fill-missing]
   maprama-osm help
+
+Options:
+  --kr-buildings <file>  Korean national building GeoJSON (국가공간정보포털
+                         GIS건물통합정보, EPSG:4326): a height source for OSM buildings
+  --kr-fill-missing      Also emit buildings for polygons in that file that OSM
+                         does not have (off by default; requires --kr-buildings)
 
 Environment:
   MAPRAMA_OVERPASS_ENDPOINT  comma-separated Overpass endpoints (overrides defaults)
@@ -81,6 +89,7 @@ const buildOptions = {
   origin: { type: 'string' },
   'unit-meters': { type: 'string' },
   'kr-buildings': { type: 'string' },
+  'kr-fill-missing': { type: 'boolean' },
   'simplify-meters': { type: 'string' },
   precision: { type: 'string' },
   'include-sidewalks': { type: 'boolean' },
@@ -90,12 +99,16 @@ interface BuildFlags {
   origin?: string;
   'unit-meters'?: string;
   'kr-buildings'?: string;
+  'kr-fill-missing'?: boolean;
   'simplify-meters'?: string;
   precision?: string;
   'include-sidewalks'?: boolean;
 }
 
 async function toBuildOptions(flags: BuildFlags, name: string): Promise<BuildWorldOptions> {
+  if (flags['kr-fill-missing'] && !flags['kr-buildings']) {
+    throw new UsageError('--kr-fill-missing requires --kr-buildings <file>');
+  }
   return {
     name,
     origin: flags.origin ? parseLatLng(flags.origin) : undefined,
@@ -104,6 +117,7 @@ async function toBuildOptions(flags: BuildFlags, name: string): Promise<BuildWor
     precision: num('precision', flags.precision),
     includeSidewalks: flags['include-sidewalks'] ?? false,
     krBuildings: flags['kr-buildings'] ? await readJson(resolve(flags['kr-buildings'])) : undefined,
+    krFillMissing: flags['kr-fill-missing'] ?? false,
   };
 }
 

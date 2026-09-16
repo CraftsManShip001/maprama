@@ -42,6 +42,7 @@ import {
   interiorPoint,
   openRing,
   pointInRect,
+  rectsOverlap,
   removeCollinear,
   ringArea,
   roundTo,
@@ -49,13 +50,18 @@ import {
   simplifyRing,
   type Rect,
 } from './geometry.js';
-import { KrBuildingIndex } from './kr.js';
+import { KrBuildingIndex, OsmFootprintIndex } from './kr.js';
 import type { BBox, OverpassElement, OverpassLatLon, OverpassResponse, Tags } from './types.js';
 
 /** Required OSM attribution line (ODbL). */
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 /** Attribution added when Korean national building data is joined. */
 export const KR_ATTRIBUTION = '건물 높이: 국가공간정보포털 GIS건물통합정보 (국토교통부)';
+/**
+ * Id prefix for buildings generated from the Korean national dataset, chosen so
+ * it cannot collide with the OSM prefixes `n`/`w`/`r`.
+ */
+export const KR_ID_PREFIX = 'k';
 
 /** Options for {@link buildWorld}. */
 export interface BuildWorldOptions {
@@ -71,6 +77,12 @@ export interface BuildWorldOptions {
   simplifyMeters?: number;
   /** Parsed GeoJSON FeatureCollection of the Korean building dataset (EPSG:4326). */
   krBuildings?: unknown;
+  /**
+   * Also emit buildings for `krBuildings` polygons that no OSM building
+   * represents, using the same record's height and floor count. Default false;
+   * ignored without {@link BuildWorldOptions.krBuildings}.
+   */
+  krFillMissing?: boolean;
   /** Keep `footway=sidewalk|crossing` ways. Default false. */
   includeSidewalks?: boolean;
   /** Decimal places for output coordinates (world units). Default 2 (= 8 cm at 8 m/unit). */
@@ -85,7 +97,14 @@ export interface BuildWorldOptions {
 
 /** Build statistics. */
 export interface BuildStats {
+  /** Total buildings written: `buildingsFromOsm + buildingsFilled`. */
   buildings: number;
+  /** Buildings derived from OSM `building=*` ways and relations. */
+  buildingsFromOsm: number;
+  /** Buildings generated from national-dataset polygons (`krFillMissing`). */
+  buildingsFilled: number;
+  /** National-dataset polygons inside the bbox skipped because OSM already has them. */
+  krFillSkipped: number;
   roads: number;
   water: number;
   parks: number;
@@ -179,9 +198,11 @@ function wayPoints(el: OverpassElement): OverpassLatLon[] {
  *
  * Buildings: closed `building=*` ways and multipolygon relations (outer rings),
  * projected, simplified, clipped to the bbox, made counter-clockwise and
- * deduplicated. Roads: `highway=*` polylines split at the bbox edge. Water,
- * parks, POIs, stations (merged by name), districts and a plaza are derived as
- * documented in the package README.
+ * deduplicated. With `krFillMissing`, national-dataset polygons that no OSM
+ * building represents are added afterwards, through the same pipeline. Roads:
+ * `highway=*` polylines split at the bbox edge. Water, parks, POIs, stations
+ * (merged by name), districts and a plaza are derived as documented in the
+ * package README.
  *
  * @throws RangeError for invalid options; Error if the result fails `validateWorldData`.
  */
@@ -226,6 +247,9 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
 
   const stats: BuildStats = {
     buildings: 0,
+    buildingsFromOsm: 0,
+    buildingsFilled: 0,
+    krFillSkipped: 0,
     roads: 0,
     water: 0,
     parks: 0,
@@ -247,6 +271,15 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
   const seenFootprints = new Set<string>();
   const seenIds = new Set<string>();
   const namedWater = new Map<string, { area: number; ring: Vec2[] }>();
+  /** Projected rings of the OSM buildings actually written, for the fill-in pass. */
+  const osmRings: Vec2[][] = [];
+  /** Indices of national-dataset records an OSM building already matched. */
+  const matchedKr = new Set<number>();
+  const footprintKey = (ring: Vec2[]): string =>
+    ring
+      .map((p) => `${p[0]},${p[1]}`)
+      .sort()
+      .join(';');
 
   for (const el of raw.elements) {
     const tags: Tags | undefined = el.tags;
@@ -261,18 +294,19 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
         const footprint = finishRing(projected, minBuildingArea);
         if (!footprint) return;
         const id = rings.length > 1 ? `${baseId}_${k}` : baseId;
-        const key = footprint
-          .map((p) => `${p[0]},${p[1]}`)
-          .sort()
-          .join(';');
+        const key = footprintKey(footprint);
         if (seenFootprints.has(key) || seenIds.has(id)) {
           stats.duplicateBuildings++;
           return;
         }
         seenFootprints.add(key);
         seenIds.add(id);
+        osmRings.push(projected);
         const match = kr?.match(projected);
-        if (match) stats.krMatches[match.method]++;
+        if (match) {
+          stats.krMatches[match.method]++;
+          matchedKr.add(match.index);
+        }
         const height = resolveHeight(tags, match);
         stats.heightSources[height.source]++;
         const b: BuildingFootprint = { id, footprint, height: roundTo(height.heightMeters / unitMeters, 3) };
@@ -281,6 +315,7 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
         const name = displayName(tags);
         if (name) b.name = name;
         buildings.push(b);
+        stats.buildingsFromOsm++;
       });
     }
 
@@ -359,6 +394,42 @@ export function buildWorldWithStats(raw: OverpassResponse, options: BuildWorldOp
     if (el.type === 'node' && isDistrictPlace(tags) && name) {
       const p = toVec(el);
       if (pointInRect({ x: p[0], z: p[1] }, rect)) districts.push({ name, x: round(p[0]), z: round(p[1]) });
+    }
+  }
+
+  // Fill gaps: national-dataset polygons the OSM extract does not cover. A
+  // record counts as "already represented" when an OSM building matched it
+  // (KrBuildingIndex.match), or when an OSM footprint covers >= KR_MIN_OVERLAP
+  // of the record's own area or contains its centroid (OsmFootprintIndex).
+  if (kr && options.krFillMissing) {
+    const osmIndex = new OsmFootprintIndex();
+    for (const ring of osmRings) osmIndex.add(ring);
+    for (const record of kr.records) {
+      if (!rectsOverlap(record.rect, rect)) continue; // wholly outside the clip box
+      if (matchedKr.has(record.index) || osmIndex.covers(record.ring)) {
+        stats.krFillSkipped++;
+        continue;
+      }
+      const footprint = finishRing(record.ring, minBuildingArea);
+      if (!footprint) continue;
+      const key = footprintKey(footprint);
+      if (seenFootprints.has(key)) {
+        stats.krFillSkipped++;
+        continue;
+      }
+      let id = `${KR_ID_PREFIX}${record.key}`;
+      for (let n = 1; seenIds.has(id); n++) id = `${KR_ID_PREFIX}${record.key}_${n}`;
+      seenFootprints.add(key);
+      seenIds.add(id);
+      // The dataset carries no OSM tags, so height comes from the record and
+      // the facade kind falls back to the same rules an untagged building gets.
+      const height = resolveHeight(undefined, record);
+      stats.heightSources[height.source]++;
+      const b: BuildingFootprint = { id, footprint, height: roundTo(height.heightMeters / unitMeters, 3) };
+      if (height.levels !== undefined) b.levels = height.levels;
+      b.kind = classifyKind(undefined, height.heightMeters);
+      buildings.push(b);
+      stats.buildingsFilled++;
     }
   }
 

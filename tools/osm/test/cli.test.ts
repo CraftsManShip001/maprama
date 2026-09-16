@@ -46,6 +46,48 @@ describe('maprama-osm CLI', () => {
     expect(world.unitMeters).toBe(4);
   });
 
+  it('build --kr-fill-missing adds the buildings OSM is missing and reports the counts', async () => {
+    const out = join(dir, 'world-filled.json');
+    const c = capture();
+    const code = await main(
+      [
+        'build',
+        '--raw',
+        fixture('fill-gaps.overpass.json'),
+        '--out',
+        out,
+        '--name',
+        'CLI fill',
+        '--kr-buildings',
+        fixture('fill-gaps.kr.geojson'),
+        '--kr-fill-missing',
+      ],
+      c.io,
+    );
+    expect(code).toBe(0);
+    const world = JSON.parse(readFileSync(out, 'utf8')) as WorldData;
+    expect(validateWorldData(world).ok).toBe(true);
+    expect(world.buildings).toHaveLength(3);
+    const stats = JSON.parse(c.out[0]!) as Record<string, number>;
+    expect(stats).toMatchObject({ buildings: 3, buildingsFromOsm: 1, buildingsFilled: 2, krFillSkipped: 1 });
+  });
+
+  it('build --kr-fill-missing without --kr-buildings is a usage error', async () => {
+    const c = capture();
+    const code = await main(
+      ['build', '--raw', fixture('fill-gaps.overpass.json'), '--out', join(dir, 'x.json'), '--name', 'x', '--kr-fill-missing'],
+      c.io,
+    );
+    expect(code).toBe(2);
+    expect(c.err.join('\n')).toContain('--kr-fill-missing requires --kr-buildings');
+  });
+
+  it('help documents --kr-fill-missing', async () => {
+    const c = capture();
+    expect(await main(['help'], c.io)).toBe(0);
+    expect(c.out.join('\n')).toContain('--kr-fill-missing');
+  });
+
   it('usage errors exit with 2', async () => {
     expect(await main(['build', '--raw', 'x.json'], capture().io)).toBe(2);
     expect(await main(['sample', 'atlantis'], capture().io)).toBe(2);

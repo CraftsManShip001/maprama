@@ -1,0 +1,41 @@
+{
+ "version": 0.6,
+ "generator": "hand-written fixture: one OSM building in an area the national dataset covers with three",
+ "elements": [
+  {
+   "type": "way",
+   "id": 1,
+   "tags": {
+    "building": "yes",
+    "name": "성수테스트빌딩"
+   },
+   "geometry": [
+    { "lat": 37.5440, "lon": 127.0555 },
+    { "lat": 37.5440, "lon": 127.0558 },
+    { "lat": 37.5442, "lon": 127.0558 },
+    { "lat": 37.5442, "lon": 127.0555 },
+    { "lat": 37.5440, "lon": 127.0555 }
+   ]
+  },
+  {
+   "type": "way",
+   "id": 10,
+   "tags": {
+    "highway": "residential",
+    "name": "연무장길"
+   },
+   "geometry": [
+    { "lat": 37.5439, "lon": 127.0550 },
+    { "lat": 37.5439, "lon": 127.0570 }
+   ]
+  }
+ ],
+ "maprama": {
+  "bbox": {
+   "south": 37.5432,
+   "west": 127.0548,
+   "north": 37.5448,
+   "east": 127.0572
+  }
+ }
+}

@@ -4,7 +4,16 @@
  * @packageDocumentation
  */
 
-export { KR_ATTRIBUTION, OSM_ATTRIBUTION, assertBBox, buildWorld, buildWorldWithStats, inferBBox, stringifyWorld } from './build.js';
+export {
+  KR_ATTRIBUTION,
+  KR_ID_PREFIX,
+  OSM_ATTRIBUTION,
+  assertBBox,
+  buildWorld,
+  buildWorldWithStats,
+  inferBBox,
+  stringifyWorld,
+} from './build.js';
 export type { BuildStats, BuildWorldOptions, BuildWorldResult } from './build.js';
 export {
   METERS_PER_LEVEL,
@@ -32,8 +41,8 @@ export {
   simplifyRing,
 } from './geometry.js';
 export type { Rect } from './geometry.js';
-export { KR_MIN_OVERLAP, KrBuildingIndex, intersectionArea } from './kr.js';
-export type { KrMatch } from './kr.js';
+export { KR_MIN_OVERLAP, KrBuildingIndex, OsmFootprintIndex, intersectionArea, krFeatureKey } from './kr.js';
+export type { KrMatch, KrRecord } from './kr.js';
 export {
   DEFAULT_OVERPASS_ENDPOINTS,
   DEFAULT_USER_AGENT,
