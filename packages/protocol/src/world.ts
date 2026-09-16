@@ -99,6 +99,25 @@ export interface Poi {
   x: number;
   /** Position in world units. */
   z: number;
+  /**
+   * Id of the {@link BuildingFootprint} this POI belongs to, when the world
+   * build could attach one — either because a footprint contains `x`/`z`, or
+   * because the POI was snapped onto the nearest footprint within range.
+   *
+   * Optional: worlds built before this field existed simply do not have it, and
+   * a POI in open space (a park, a plaza, a genuinely unmapped building) never
+   * gets one. An engine uses it to anchor a pin or a label on the roof instead
+   * of the ground.
+   */
+  buildingId?: string;
+  /**
+   * True when `x`/`z` were moved onto `buildingId` because no footprint
+   * contained the original position. Absent means the POI was already inside
+   * the footprint (or has no `buildingId` at all).
+   */
+  snapped?: boolean;
+  /** How far `x`/`z` moved in meters. Only present together with `snapped`. */
+  snapDistanceMeters?: number;
 }
 
 /** A transit (subway) station, used by `subway` travel. */
@@ -187,7 +206,12 @@ export const checkWorldData: Check = object(
     ),
     water: array(array(vec2, { min: 3 })),
     parks: array(object({ poly: array(vec2, { min: 3 }) }, { name: string })),
-    pois: array(object({ id: nonEmptyString, name: string, cat: oneOf(POI_CATEGORIES), x: number, z: number })),
+    pois: array(
+      object(
+        { id: nonEmptyString, name: string, cat: oneOf(POI_CATEGORIES), x: number, z: number },
+        { buildingId: nonEmptyString, snapped: boolean, snapDistanceMeters: nonNegativeNumber },
+      ),
+    ),
     stations: array(object({ id: nonEmptyString, name: string, x: number, z: number })),
     districts: array(object({ name: string, x: number, z: number }, { water: boolean })),
     attribution: array(string),
