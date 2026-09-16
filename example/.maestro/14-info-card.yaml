@@ -54,6 +54,10 @@ tags:
 - takeScreenshot: screenshots/14-info-card-ground
 
 # The event log lives below the fold of the control panel; swipe the panel, not the map.
+# The swipe is given in screen percentages rather than `from: { id: panel }`: the centre of the
+# panel element sits on the "focusOn the open card" button, and on Android that button wins the
+# gesture, so the element-anchored swipe presses it instead of scrolling. 95% → 62% starts in the
+# panel's empty bottom area on both platforms.
 - repeat:
     times: 4
     while:
@@ -61,9 +65,9 @@ tags:
         text: ".*focusOn done.*"
     commands:
       - swipe:
-          from:
-            id: "panel"
-          direction: UP
+          start: "50%, 95%"
+          end: "50%, 62%"
+          duration: 600
 - assertVisible:
     text: ".*marker:press|.*focusOn done.*"
 
@@ -76,6 +80,20 @@ tags:
 - tapOn:
     id: "card-close"
     waitToSettleTimeoutMs: 1000
+# `card-open` is the first readout at the top of the panel, which is still scrolled down from
+# reading the log, so scroll back before asserting on it (on Android the close button can be in
+# view while the readouts are not).
+- repeat:
+    times: 4
+    while:
+      notVisible:
+        id: "card-open"
+        text: "card: none"
+    commands:
+      - swipe:
+          start: "50%, 62%"
+          end: "50%, 95%"
+          duration: 600
 - assertVisible:
     id: "card-open"
     text: "card: none"
