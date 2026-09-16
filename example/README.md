@@ -131,16 +131,27 @@ cd example
 maestro test .maestro        # app must be installed on a booted simulator
 ```
 
-The Maestro CLI needs a Java runtime. Without one, run the same folder through the
-Maestro MCP server (`run` with `dir: example/.maestro`). `takeScreenshot` paths are
-relative to the Maestro process's working directory.
+The Maestro CLI needs a Java runtime. On this machine it is **installed but not on `PATH`** — call it
+by its absolute path (`~/.maestro/bin/maestro`, 2.10) with Java 17 from
+`/opt/homebrew/opt/openjdk@17`. `which maestro` finding nothing does **not** mean it is missing.
+`takeScreenshot` paths are relative to the Maestro process's working directory.
+
+`pod install` fails with `Encoding::CompatibilityError` unless the locale is set: prefix it with
+`LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`.
 
 Tested on an iOS 26.5 simulator (iPhone 17 Pro) with the Release build above (Xcode 26.6, Node 26.5,
-Maestro CLI 2.10). All four flows pass.
+Maestro CLI 2.10).
 
 ## Android
 
-Not built or tested yet: this machine has no usable Java / Android SDK. Nothing
-in the app is iOS-only. `app.json` sets `android.package`, and the config plugin
-adds `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`. `npx expo run:android`
-should work on a machine with the Android toolchain, but that is unverified.
+Built and tested. Use a dedicated AVD (android-35 `google_apis` arm64) rather than one already
+booted — other work on this machine keeps its own emulators. `app.json` sets `android.package`, and
+the config plugin adds `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`.
+
+```sh
+cd example
+npx expo run:android --variant release
+```
+
+A Release build embeds the JS bundle, so the flows need no Metro server. If you do run Metro, pick a
+port other than 8081 — it is usually taken by other work on this machine.

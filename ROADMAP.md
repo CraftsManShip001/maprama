@@ -128,6 +128,19 @@ needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far
 
 Each of these is a real gap found while answering an integrator's questions against the code:
 
+- **`focusOn({ infoCardId })` answers `fitted: false`.** Observed on both platforms while running
+  Maestro flow 14 (iOS 135 m, Android 167 m), where the same screen's first `focusOn` by coordinate
+  answers `fitted: true`. Framing a card by its own anchor and float height is the case the request
+  exists for, so "could not fit" there is either a real solver miss or a wrong success criterion.
+  Nothing asserts `fitted` today, so this went unnoticed until someone read the readout.
+- **A ground-anchored info card is clamped over the app's own header.** With `anchor: 'ground'` the
+  card lands at the top-left of the viewport and its title sits under the example app's "engine
+  ready" badge. Card clamping knows the engine's ornaments and `ui.contentInset`, but an app's own
+  chrome is invisible to it — the same class of problem as the HUD exclusion boxes below, and the
+  reason `ui.contentInset` should probably accept a top inset for app headers too.
+- **Flow 14 asserts `text: "card: .+"`, which also matches `card: none`.** The assertion passes
+  whether or not a card is open. Tighten it to the expected id when touching that flow.
+
 - **Location puck without a character.** The puck is only drawn when a player `Character` exists
   (`engine-web/src/engine/features.ts`), so a map that only needs "my position" has to add a character, which
   draws a body. Wanted: `ui.locationPuck` fed by `pushLocation` alone. Workaround: draw it with `<MapOverlay>`.
