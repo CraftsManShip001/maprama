@@ -356,7 +356,7 @@ Error strings match the TS codec exactly, except the V8-specific text after `$: 
 Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.cpp`, `cpp/src/MapSession.cpp`,
 `cpp/tests/map_session_tests.cpp`]. **Mn** is the milestone that implements the command fully (§11).
 
-### 5.1 Commands (host → engine) — all 20 `ENGINE_COMMAND_TYPES`
+### 5.1 Commands (host → engine) — all 22 `ENGINE_COMMAND_TYPES`
 
 <!-- protocol-commands:start -->
 | Command | Kind | Core subsystem(s) | Behaviour | Current (M1) | Full in |
@@ -381,9 +381,11 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `subscribe` | fire-and-forget | `SubscriptionRegistry` (`MapSession` for `camera:change`, `GameSession` for the rest) | Topic × optional id × `throttleMs`; samples the characters / camera / trips each tick | `camera:change` emitted once on subscribe, then throttled; `character:position` (on change) and `travel:progress` throttled per subscription and key (§2.2) | M1 (`camera:change`), **M3a** |
 | `unsubscribe` | fire-and-forget | `SubscriptionRegistry` | Removes the subscription with the same topic and id | `camera:change` removed (id ignored, as engine-web); other topics by id | M1 (`camera:change`), **M3a** |
 | `request` | request → `response` | `project`, `unproject` → `MapSession` (adapter); `snapToRoad`, `route` → `GameSession` (`RoadGraph`, `planLegs`) | Always answered with exactly one `response` (same `requestId`); failures use `ok: false` | `project` / `unproject` answered asynchronously through the adapter (`ok: false`, `not_ready` without an attached, laid-out view or when it detaches); `snapToRoad` / `route` answered synchronously (`not_ready` without a world) | M1 (`project`, `unproject`), **M3a** (`snapToRoad`, `route`) |
+| `setMarkerLayer` | fire-and-forget | marker layers (not built yet; `engine-web` draws them as recycled label views) | Replaces the layer's markers (matched by `id`), its `selectedId`, `selectedScale`, `size` and `anchor`. Markers are fixed-size screen pins placed before the labels: `alwaysVisible` markers and the selected one are never hidden, the rest lose collisions by `priority` (higher wins), then camera-target distance. A changed `color` / `selectedId` must not reload an icon or recreate a view. | decoded and validated, then warn-logged and ignored (`Dispatcher::ignoreNotImplemented`) | **M5** (native marker views on the label view pool) |
+| `removeMarkerLayer` | fire-and-forget | marker layers | Removes the layer and recycles its views | decoded and validated, then warn-logged and ignored | **M5** |
 <!-- protocol-commands:end -->
 
-### 5.2 Events (engine → host) — all 16 `ENGINE_EVENT_TYPES`
+### 5.2 Events (engine → host) — all 17 `ENGINE_EVENT_TYPES`
 
 <!-- protocol-events:start -->
 | Event | Emitted by | Trigger | Delivery | Current (M1) | Full in |
@@ -404,6 +406,7 @@ Statuses: **Current (M1)** is what the core does today [V: `cpp/src/Dispatcher.c
 | `camera:change` | `SubscriptionRegistry` sampling `CameraController::state` | Topic subscribed and camera changed | Throttled | emitted by `MapSession` (after a world load; gestures, animations and `setCamera`) | M1 |
 | `overlay:positions` | `MapSession` (`projectPoints` replies) | Anchors exist and the view or anchors changed | At most once per frame (16 ms) | emitted | M2a |
 | `response` | `Dispatcher` (per request method handler) | Every `request` | Exactly once per `requestId` | `project` / `unproject` results; `snapToRoad` / `route` results (M3a); `not_ready` | M1 / **M3a** |
+| `marker:press` | marker layers (`engine-web`: the engine's tap hit-test, and keyboard / assistive-technology activation of the marker's DOM card) | A press hits a visible marker | Immediate; takes precedence over `building:press` and `map:press`, which are then not emitted for the same press | not emitted yet (no native marker views) | **M5** |
 <!-- protocol-events:end -->
 
 The table coverage is enforced by `npm test` [V: `scripts/check-design-coverage.mjs` fails when a name in

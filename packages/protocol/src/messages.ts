@@ -38,7 +38,9 @@ import {
   checkGeofenceSpec,
   checkLocationFix,
   checkMapUiSpec,
+  checkMarkerSpec,
   LOCATION_SOURCE_KINDS,
+  MARKER_ANCHORS,
   TRAVEL_MODES,
   type BuildingStyle,
   type CameraSpec,
@@ -48,6 +50,8 @@ import {
   type LocationFix,
   type LocationSourceKind,
   type MapUiSpec,
+  type MarkerAnchor,
+  type MarkerSpec,
   type TravelMode,
 } from './entities.js';
 import {
@@ -178,6 +182,37 @@ export interface SetDropLayerCommand {
 /** Removes a drop layer. */
 export interface RemoveDropLayerCommand {
   type: 'removeDropLayer';
+  layerId: string;
+}
+
+/**
+ * Creates or replaces a marker layer (app-owned map pins at a fixed screen
+ * size), modelled on {@link SetDropLayerCommand}: the command carries the
+ * layer's whole marker list and replaces the previous one.
+ *
+ * Markers are matched by `id`, so an update that only changes `color` or
+ * `selectedId` must not make the engine reload an icon or recreate a view.
+ */
+export interface SetMarkerLayerCommand {
+  type: 'setMarkerLayer';
+  layerId: string;
+  markers: MarkerSpec[];
+  /**
+   * Marker drawn in the selected state: scaled by `selectedScale` and never
+   * hidden by collision. `null` (or absent) selects none.
+   */
+  selectedId?: string | null;
+  /** Scale of the selected marker. Default 1.25. */
+  selectedScale?: number;
+  /** Marker height in density-independent pixels. Default 36. */
+  size?: number;
+  /** Which point of the marker sits on the coordinate. Default `'bottom'` (the pin tip). */
+  anchor?: MarkerAnchor;
+}
+
+/** Removes a marker layer. */
+export interface RemoveMarkerLayerCommand {
+  type: 'removeMarkerLayer';
   layerId: string;
 }
 
@@ -315,6 +350,8 @@ export type EngineCommand =
   | CancelTravelCommand
   | SetDropLayerCommand
   | RemoveDropLayerCommand
+  | SetMarkerLayerCommand
+  | RemoveMarkerLayerCommand
   | SetGeofencesCommand
   | SetBuildingStyleCommand
   | SetOverlayAnchorsCommand
@@ -388,6 +425,22 @@ export interface BuildingPressEvent {
   type: 'building:press';
   buildingId: string;
   coordinate: LngLat;
+}
+
+/**
+ * A marker was pressed.
+ *
+ * Takes precedence over {@link BuildingPressEvent} and {@link MapPressEvent}:
+ * a press that hits a visible marker emits this event **only**.
+ */
+export interface MarkerPressEvent {
+  type: 'marker:press';
+  layerId: string;
+  markerId: string;
+  /** The marker's coordinate (not the pressed point). */
+  coordinate: LngLat;
+  /** Screen position of the marker's anchor in density-independent pixels, origin top-left. */
+  point: { x: number; y: number };
 }
 
 /**
@@ -530,6 +583,7 @@ export type EngineEvent =
   | LabelsIndexEvent
   | MapPressEvent
   | BuildingPressEvent
+  | MarkerPressEvent
   | DropCollectEvent
   | TravelStartEvent
   | TravelProgressEvent
@@ -628,6 +682,18 @@ const commandChecks: { [K in EngineCommandType]: Check } = {
     const req = v as { method: RequestMethod; params: unknown };
     return requestChecks[req.method](req.params, `${p}.params`);
   },
+  // Commands added after the first release are appended here, so the order of
+  // ENGINE_COMMAND_TYPES (and the index engines derive from it) stays stable.
+  setMarkerLayer: object(
+    { layerId: id, markers: array(checkMarkerSpec) },
+    {
+      selectedId: nullable(nonEmptyString),
+      selectedScale: positiveNumber,
+      size: positiveNumber,
+      anchor: oneOf(MARKER_ANCHORS),
+    },
+  ),
+  removeMarkerLayer: object({ layerId: id }),
 };
 
 const travelRef = { requestId: id, characterId: id };
@@ -669,6 +735,13 @@ const eventChecks: { [K in EngineEventType]: Check } = {
       ? object({ result: json })(v, p)
       : object({ error: protocolError })(v, p);
   },
+  // Appended for the same reason as the new commands above.
+  'marker:press': object({
+    layerId: id,
+    markerId: id,
+    coordinate: checkLngLat,
+    point: object({ x: number, y: number }),
+  }),
 };
 
 /** Every command `type`, in declaration order. */
