@@ -15,6 +15,8 @@ import type {
   EngineEventType,
   EngineInfo,
   FitBoundsResult,
+  FocusOnParams,
+  FocusOnResult,
   InitCommand,
   LngLat,
   LngLatBounds,
@@ -32,6 +34,8 @@ import { MapramaError, normalizeErrorCode, type MapramaErrorCode } from './error
 import type { EngineHost } from './host/EngineHost';
 import type {
   FitBoundsOptions,
+  FocusOnOptions,
+  FocusOnTarget,
   MapramaErrorEvent,
   MapramaViewRef,
   EngineEventOf,
@@ -401,6 +405,13 @@ export class MapController implements MapramaViewRef {
   fitBounds(bounds: LngLatBounds, options: FitBoundsOptions = {}): Promise<FitBoundsResult> {
     const { timeoutMs, ...params } = options;
     return this.request('fitBounds', { ...params, bounds }, timeoutMs === undefined ? {} : { timeoutMs });
+  }
+
+  focusOn(target: FocusOnTarget, options: FocusOnOptions = {}): Promise<FocusOnResult> {
+    const { timeoutMs, ...rest } = options;
+    const where: Pick<FocusOnParams, 'coordinate' | 'infoCardId'> =
+      'infoCardId' in target ? { infoCardId: target.infoCardId } : { coordinate: { lng: target.lng, lat: target.lat } };
+    return this.request('focusOn', { ...rest, ...where }, timeoutMs === undefined ? {} : { timeoutMs });
   }
 
   subscribe<T extends SubscriptionTopic>(

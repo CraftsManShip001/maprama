@@ -5,7 +5,8 @@
  * once per animation frame the batcher diffs the merged state against what was
  * last sent and emits at most one command per kind: `removeCharacters`,
  * `upsertCharacters`, `setDropLayer`/`removeDropLayer` (per changed layer),
- * `setMarkerLayer`/`removeMarkerLayer` (per changed layer), `setGeofences`,
+ * `setMarkerLayer`/`removeMarkerLayer` (per changed layer),
+ * `setInfoCard`/`removeInfoCard` (per changed card), `setGeofences`,
  * `setOverlayAnchors` and `setLabelContent`.
  *
  * @module
@@ -16,6 +17,7 @@ import type {
   DropSpec,
   EngineCommand,
   GeofenceSpec,
+  InfoCardSpec,
   LabelContent,
   MarkerAnchor,
   MarkerSpec,
@@ -63,6 +65,9 @@ export interface MarkerLayerState {
   anchor?: MarkerAnchor;
 }
 
+/** One info card's state as sent with `setInfoCard` (the id is the map key). */
+export type InfoCardState = Omit<InfoCardSpec, 'id'>;
+
 interface BatcherOptions {
   /** Receives the batched commands. */
   sink: (command: EngineCommand) => void;
@@ -95,6 +100,7 @@ export class CommandBatcher {
   private readonly characterSources = new Map<string, { specs: CharacterSpec[]; json: string }>();
   private readonly dropLayers = new Map<string, { state: DropLayerState; json: string }>();
   private readonly markerLayers = new Map<string, { state: MarkerLayerState; json: string }>();
+  private readonly infoCards = new Map<string, { state: InfoCardState; json: string }>();
   private readonly geofences = new Map<string, GeofenceSpec>();
   private readonly overlays = new Map<string, OverlayAnchor>();
   private labelContent: Record<string, LabelContent> | null = null;
@@ -107,6 +113,7 @@ export class CommandBatcher {
   private sentFields = new Map<string, Set<ClearableCharacterKey>>();
   private sentDropLayers = new Map<string, string>();
   private sentMarkerLayers = new Map<string, string>();
+  private sentInfoCards = new Map<string, string>();
   private sentGeofences = '[]';
   private sentOverlays = '[]';
   private sentLabelContent: string | null = null;
@@ -191,6 +198,25 @@ export class CommandBatcher {
     this.markDirty();
   }
 
+  // -- info cards ----------------------------------------------------------
+
+  /**
+   * Creates or replaces one info card. Cards are diffed per id, so a screen
+   * with several cards that re-renders sends nothing for the unchanged ones.
+   */
+  setInfoCard(id: string, state: InfoCardState): void {
+    const next = json(state);
+    if (this.infoCards.get(id)?.json === next) return;
+    this.infoCards.set(id, { state, json: next });
+    this.markDirty();
+  }
+
+  /** Removes one info card. */
+  removeInfoCard(id: string): void {
+    if (!this.infoCards.delete(id)) return;
+    this.markDirty();
+  }
+
   // -- geofences / overlays / labels --------------------------------------
 
   setGeofence(spec: GeofenceSpec): void {
@@ -231,6 +257,7 @@ export class CommandBatcher {
     this.sentFields = new Map();
     this.sentDropLayers = new Map();
     this.sentMarkerLayers = new Map();
+    this.sentInfoCards = new Map();
     this.sentGeofences = '[]';
     this.sentOverlays = '[]';
     this.sentLabelContent = null;
@@ -244,6 +271,7 @@ export class CommandBatcher {
     this.flushCharacters();
     this.flushDropLayers();
     this.flushMarkerLayers();
+    this.flushInfoCards();
     this.flushGeofences();
     this.flushOverlays();
     this.flushLabelContent();
@@ -349,6 +377,19 @@ export class CommandBatcher {
         ...(state.size !== undefined ? { size: state.size } : {}),
         ...(state.anchor !== undefined ? { anchor: state.anchor } : {}),
       });
+    }
+  }
+
+  private flushInfoCards(): void {
+    for (const id of [...this.sentInfoCards.keys()]) {
+      if (this.infoCards.has(id)) continue;
+      this.sentInfoCards.delete(id);
+      this.sink({ type: 'removeInfoCard', id });
+    }
+    for (const [id, { state, json: next }] of this.infoCards) {
+      if (this.sentInfoCards.get(id) === next) continue;
+      this.sentInfoCards.set(id, next);
+      this.sink({ type: 'setInfoCard', card: { id, ...state } });
     }
   }
 

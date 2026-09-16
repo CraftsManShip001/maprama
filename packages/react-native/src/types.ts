@@ -24,6 +24,11 @@ import type {
   LabelsSpec,
   FitBoundsParams,
   FitBoundsResult,
+  FocusOnParams,
+  FocusOnResult,
+  InfoCardAnchor,
+  InfoCardContent,
+  InfoCardSpec,
   LngLat,
   LngLatBounds,
   LocationFix,
@@ -251,6 +256,12 @@ export interface RequestOptions {
 /** Options of {@link MapramaViewRef.fitBounds}; everything but `timeoutMs` reaches the engine. */
 export interface FitBoundsOptions extends RequestOptions, Omit<FitBoundsParams, 'bounds'> {}
 
+/** What {@link MapramaViewRef.focusOn} frames: a coordinate, or an info card by id. */
+export type FocusOnTarget = LngLat | { infoCardId: string };
+
+/** Options of {@link MapramaViewRef.focusOn}; everything but `timeoutMs` reaches the engine. */
+export interface FocusOnOptions extends RequestOptions, Omit<FocusOnParams, 'coordinate' | 'infoCardId'> {}
+
 /** Options for `subscribe`. */
 export interface SubscribeOptions {
   /** Character id for `character:position` / `travel:progress`; all characters when absent. */
@@ -322,6 +333,28 @@ export interface MapramaViewRef {
    * ```
    */
   fitBounds(bounds: LngLatBounds, options?: FitBoundsOptions): Promise<FitBoundsResult>;
+  /**
+   * Frames one point — and the column of air above it, where an `<InfoCard>`
+   * floats — and moves the camera there, honouring the current
+   * `minDistanceMeters` / `maxDistanceMeters`.
+   *
+   * Same character as {@link fitBounds}: a request, not an order. It resolves
+   * with the camera it moved to plus `fitted` (false when the limits did not
+   * allow framing the whole target) and `distanceLimited`. A newer `focusOn`
+   * does not cancel an older one — both resolve, and the camera simply ends up
+   * where the newer one asked, exactly like two `setCamera` calls.
+   *
+   * **The engine never calls this by itself.** Wiring "tap a marker → focus →
+   * show a card" is the app's job:
+   *
+   * ```tsx
+   * const onPress = async (e: MarkerPressInfo) => {
+   *   await map.current?.focusOn(e.coordinate, { pitch: 55, animate: true });
+   *   setCard(await loadPlace(e.markerId));   // renders an <InfoCard>
+   * };
+   * ```
+   */
+  focusOn(target: FocusOnTarget, options?: FocusOnOptions): Promise<FocusOnResult>;
   /**
    * Low-level request/response call. Rejects with the engine's error code,
    * `timeout`, `engine_reloaded`, `unmounted` or a fatal host code such as
@@ -570,6 +603,53 @@ export interface MarkerLayerProps<T> {
   onPress?: (event: MarkerPressInfo) => void;
 }
 
+/** Payload of `InfoCard` `onPress`. */
+export interface InfoCardPressInfo {
+  id: string;
+  /** The `actions` entry that was pressed; absent when the card body was pressed. */
+  actionId?: string;
+}
+
+/** Payload of `InfoCard` `onDismiss`. */
+export interface InfoCardDismissInfo {
+  id: string;
+}
+
+/**
+ * Props of `InfoCard`: a holographic place card the engine draws floating over
+ * a coordinate, in the same visual language as the `holo` labels.
+ *
+ * Several cards can be mounted at once; `id` is the key. The engine only draws
+ * the card — it does not open it on a press and it does not move the camera.
+ * Use `ref.focusOn` for the camera and mount / unmount the card yourself; see
+ * the guide for the full "tap → focus → card" wiring.
+ *
+ * `content` is a fixed schema, not host markup: the same card has to be
+ * drawable by both engines and readable by a screen reader in a defined order.
+ * For free rendering use `<MapOverlay>` with `ref.project` instead.
+ */
+export interface InfoCardProps {
+  /** Card id, unique per map. Also what `onPress` / `onDismiss` report. */
+  id: string;
+  coordinate: LngLat;
+  /**
+   * Where the beam starts. `'auto'` (the default) puts it on the roof of the
+   * building under the coordinate, otherwise on the ground.
+   */
+  anchor?: InfoCardAnchor;
+  /** How far above the anchor the card floats, in metres. Engine default per anchor kind. */
+  heightMeters?: number;
+  content: InfoCardContent;
+  /** Draw the ground dot and the leader line. Default true. */
+  beam?: boolean;
+  /** Show a close button, which fires `onDismiss` (the card stays until you unmount it). */
+  dismissible?: boolean;
+  /** The card body or one of its action buttons was pressed. */
+  onPress?: (event: InfoCardPressInfo) => void;
+  /** The close button was pressed. The engine does not remove the card — you decide. */
+  onDismiss?: (event: InfoCardDismissInfo) => void;
+}
+
 /** Payload of `Geofence` `onEnter` / `onExit`. */
 export interface GeofenceEventInfo {
   geofenceId: string;
@@ -618,4 +698,4 @@ export interface MapOverlayProps {
 }
 
 /** Re-exported for convenience in prop types. */
-export type { CameraState, DropSpec, MarkerSpec };
+export type { CameraState, DropSpec, InfoCardSpec, MarkerSpec };
