@@ -15,6 +15,46 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- `camera:idle`, a subscription topic that fires **once** when the camera comes
+  to rest — 150 ms (`CAMERA_IDLE_DELAY_MS`) after the last movement of a
+  gesture, a zoom button, a `setCamera` / `fitBounds` animation or a followed
+  character settling — so an app no longer has to debounce `camera:change` and
+  unproject the four corners itself. The payload carries the resting `camera`,
+  the ground `bounds` (`{ ne, sw }`, the north-aligned box around the visible
+  area), a **required** `radiusMeters`, and an honest `reason`. `radiusMeters`
+  measures from `camera.center` to the *farthest corner of the visible area* —
+  the circumscribed radius, so a "give me everything within R of here" query
+  never drops the POIs sitting in the corners of the screen; a tilted camera
+  looking towards the horizon is clamped to `CAMERA_IDLE_HORIZON_FACTOR` (6) ×
+  `camera.distance`, the engine's far plane, so the numbers are always finite
+  and describe ground that is really drawn. `reason` is `'gesture'` for user
+  input **including the engine's own zoom buttons** (the user presses them; the
+  app never issues them), `'api'` for the app's `setCamera` / `fitBounds`, and
+  `'follow'` for the camera catching up with a followed character. Subscribing
+  arms one event, so the first query happens without waiting for the user to
+  touch the map. React Native: `ref.subscribe('camera:idle', …)` and the
+  `useCameraIdle(map, { throttleMs })` hook.
+- `ui.contentInset` (`{ top?, right?, bottom?, left? }` in dp) on `MapUiSpec`
+  tells the engine which edges of the map view app chrome covers — a bottom
+  sheet, a top bar. The map keeps rendering across the whole view; what moves is
+  everything that means "where the user is looking": a `setCamera` `center`
+  lands at the centre of the *visible* area (and is reported back as such by
+  `camera:change`, `camera:idle` and `fitBounds`), a followed character stays
+  above the sheet, the engine ornaments move inside the inset, labels and
+  markers are placed and clamped there, `ScreenPoint.visible` (`project`,
+  `overlay:positions`) means "inside the visible area", `fitBounds` adds the
+  inset to its padding, and `camera:idle` reports the visible area's `bounds`
+  and `radiusMeters`. **The attribution stays engine-drawn and moves with the
+  inset**: a sheet can no longer cover `© OpenStreetMap` while
+  `attribution: true`, which is a data-licensing requirement and not a cosmetic
+  one — switching the attribution off and redrawing it in the app would go stale
+  the moment the library changes its wording or its sources.
+  `project` / `unproject` keep working in **full-view screen coordinates** with
+  the origin at the top left of the whole map view; the inset never moves the
+  coordinate frame. The native engine (`engine="native"`) validates and stores
+  the inset and applies it to `camera:idle` and label placement, but does not
+  move the MapLibre camera or the platform ornaments yet and warn-logs once
+  (`packages/engine-native/DESIGN.md` §11.1 lists what remains).
 - Camera distance limits in **metres**: `minDistanceMeters` / `maxDistanceMeters`
   on `CameraSpec` — the `camera` prop of `<MapramaView>` and `ref.setCamera` —
   bound the camera independently of the world's `unitMeters`, on every path that

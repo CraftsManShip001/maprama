@@ -108,10 +108,64 @@ if (!fitted) {
 `ne.lng < sw.lng`인 상자(태평양을 가로지르는 상자)는 지원하지 않습니다. 두 상자로 나눠 주세요. `ne.lat < sw.lat`도 거부됩니다.
 :::
 
+## 카메라가 멈췄을 때: `camera:idle`
+
+"화면에 지금 뭐가 보이나"는 지도가 **멈춘 뒤에** 물어야 하는 질문입니다. `camera:change`는 제스처 내내 계속 오기 때문에 앱이 직접 디바운스하고, 네 모서리를 `unproject`하고, 시야각 40°를 하드코딩해 반경을 다시 구해야 했습니다. `camera:idle`은 그 답을 한 번에 줍니다.
+
+```tsx
+import { useCameraIdle } from '@maprama/react-native';
+
+const idle = useCameraIdle(map, { throttleMs: 500 });
+
+useEffect(() => {
+  if (!idle) return;
+  void fetchPois(snapToGrid(idle.camera.center, 0.005), idle.radiusMeters);
+}, [idle]);
+```
+
+`ref.subscribe('camera:idle', listener, { throttleMs })`로도 받을 수 있습니다.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `camera` | 멈춘 카메라 상태. `center`는 **보이는 영역**의 중심입니다([콘텐츠 인셋](./content-inset)) |
+| `bounds` | 보이는 영역이 덮는 지면을 감싸는 북향 상자 `{ ne, sw }` |
+| `radiusMeters` | `camera.center`에서 **보이는 영역의 가장 먼 꼭짓점**까지의 거리 — 화면에 보이는 모든 것을 담는 원 |
+| `reason` | `'gesture'` \| `'api'` \| `'follow'` |
+
+### 언제 오나
+
+마지막 카메라 움직임으로부터 **150 ms**(`CAMERA_IDLE_DELAY_MS`) 뒤에 한 번입니다. 제스처, 줌 버튼, `setCamera` / `fitBounds` 애니메이션, 따라가던 캐릭터가 멈추는 것 — 모두 같습니다. `throttleMs`는 *지연*이 아니라 **idle 이벤트 사이의 하한**입니다.
+
+구독하는 순간에도 한 번 예약됩니다. 즉 **사용자가 지도를 건드리기 전에** 첫 질의를 할 수 있습니다.
+
+### `radiusMeters`가 어느 모서리까지인가
+
+`camera.center`에서 **보이는 영역의 지면 사각형 네 꼭짓점 중 가장 먼 것**까지입니다. 즉 외접원입니다. 내접원(가장 가까운 변까지)이 아닌 이유는 명확합니다: "여기서 R 안의 것을 다 주세요"라는 질의가 **화면 모서리에 있는 POI를 빠뜨리면 안 되기** 때문입니다. 조금 더 받아오는 쪽이 안전합니다.
+
+피치가 0보다 크면 가장 먼 꼭짓점은 보이는 영역 **위쪽** 두 개 중 하나입니다.
+
+`bounds`의 꼭짓점까지가 아니라는 점에 주의하세요. 피치가 있으면 지면은 사다리꼴이고 `bounds`는 그 사다리꼴을 감싸는 **북향 상자**라 보통 더 큽니다. `bounds`는 "모두 이 안에 있다"는 상자이고, `radiusMeters`는 실제로 보이는 사각형에 대한 반경입니다.
+
+### 지평선이 화면에 들어오면
+
+피치가 큰 카메라는 이론상 무한히 먼 지면을 봅니다. 그런 꼭짓점은 `camera.center`에서 **`6 × camera.distance`**(`CAMERA_IDLE_HORIZON_FACTOR`)로 당겨집니다. 이 값은 엔진의 far plane입니다 — 그 너머는 애초에 그려지지 않으므로, 사용자가 볼 수 있었던 것을 잘라내지 않으면서 `bounds`와 `radiusMeters`가 항상 **쓸 수 있는 유한한 값**이 됩니다. 아무도 못 쓰는 경계를 주느니 이쪽이 낫습니다.
+
+### `reason`은 정직합니다
+
+| `reason` | 무엇이 카메라를 움직였나 |
+| --- | --- |
+| `'gesture'` | **사용자 입력** — 팬·핀치·회전·휠, 그리고 **엔진의 줌 버튼**(`ui.zoomButtons`) |
+| `'api'` | **앱의 코드** — `setCamera`(`camera` prop 포함), `fitBounds` |
+| `'follow'` | 따라가던 캐릭터에 카메라가 안착 |
+
+줌 버튼이 `api`가 아니라 `gesture`인 이유: `api`는 "내가 보낸 명령"이라는 뜻이어야 쓸모가 있습니다. 앱이 자기 명령을 걸러내려면 그 명령이 앱에서 나갔어야 합니다. 줌 버튼은 엔진이 그리는 컨트롤이지만 누르는 것은 **사용자의 손가락**이고, 앱은 그런 일이 일어났는지 미리 알 수 없습니다. 이걸 `api`로 보고하면 "사용자가 움직였을 때만 다시 질의한다"는 규칙이 줌 버튼에서 조용히 깨집니다.
+
 ## 캐릭터 따라가기
 
 `camera.follow`에 캐릭터 id를 주면 카메라 타깃이 그 캐릭터를 따라갑니다. `distance` / `pitch` / `bearing`은 그대로이고, 거리 한계도 그대로 적용됩니다. `null`을 보내거나 사용자가 팬하면 해제됩니다. 자세한 내용은 [캐릭터와 모델](./characters)에 있습니다.
 
 ## 예제
 
-예제 앱의 **10. Camera limits & fitBounds** 화면이 이 문서를 그대로 보여줍니다: 기본 1,200 m 상한에서 핀 몇 개가 화면에 있는지 세고, `maxDistanceMeters`를 3,330 m로 올려 같은 장면을 다시 보고, `fitBounds`로 핀 18개를 한 번에 담습니다.
+예제 앱의 **11. Bottom sheet: camera:idle & content inset** 화면이 `camera:idle`을 그대로 보여줍니다: 시트가 화면 절반을 덮은 상태에서 정지할 때마다 중심·`bounds`·`radiusMeters`·`reason`이 갱신되고, 인셋을 켜고 끄며 차이를 볼 수 있습니다.
+
+**10. Camera limits & fitBounds** 화면은 거리 한계와 `fitBounds`를 그대로 보여줍니다: 기본 1,200 m 상한에서 핀 몇 개가 화면에 있는지 세고, `maxDistanceMeters`를 3,330 m로 올려 같은 장면을 다시 보고, `fitBounds`로 핀 18개를 한 번에 담습니다.

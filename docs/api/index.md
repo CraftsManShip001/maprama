@@ -11,7 +11,7 @@
 - 컴포넌트: [`MapramaView`](/api/reference/react-native/variables/MapramaView), [`Character`](/api/reference/react-native/functions/Character), [`CharacterLayer`](/api/reference/react-native/functions/CharacterLayer), [`DropLayer`](/api/reference/react-native/functions/DropLayer), [`MarkerLayer`](/api/reference/react-native/functions/MarkerLayer), [`Geofence`](/api/reference/react-native/functions/Geofence), [`MapOverlay`](/api/reference/react-native/functions/MapOverlay)
 - props: [`MapramaViewProps`](/api/reference/react-native/interfaces/MapramaViewProps), [`CharacterProps`](/api/reference/react-native/interfaces/CharacterProps), [`DropLayerProps`](/api/reference/react-native/type-aliases/DropLayerProps), [`MarkerLayerProps`](/api/reference/react-native/interfaces/MarkerLayerProps)
 - ref: [`MapramaViewRef`](/api/reference/react-native/interfaces/MapramaViewRef)
-- 훅: [`useMapramaView`](/api/reference/react-native/functions/useMapramaView), [`useCharacterPosition`](/api/reference/react-native/functions/useCharacterPosition), [`useCameraState`](/api/reference/react-native/functions/useCameraState)
+- 훅: [`useMapramaView`](/api/reference/react-native/functions/useMapramaView), [`useCharacterPosition`](/api/reference/react-native/functions/useCharacterPosition), [`useCameraState`](/api/reference/react-native/functions/useCameraState), [`useCameraIdle`](/api/reference/react-native/functions/useCameraIdle)
 - 엔진 호스트: [`EngineHost`](/api/reference/react-native/interfaces/EngineHost), [`registerEngineHost`](/api/reference/react-native/functions/registerEngineHost), [`createMessageChannelHost`](/api/reference/react-native/functions/createMessageChannelHost)
 - 오류: [`MapramaError`](/api/reference/react-native/classes/MapramaError)
 
@@ -23,6 +23,8 @@
 - 월드: [`WorldData`](/api/reference/protocol/interfaces/WorldData), [`WorldSource`](/api/reference/protocol/type-aliases/WorldSource), [`validateWorldData`](/api/reference/protocol/functions/validateWorldData)
 - 마커: [`MarkerSpec`](/api/reference/protocol/interfaces/MarkerSpec), [`SetMarkerLayerCommand`](/api/reference/protocol/interfaces/SetMarkerLayerCommand), [`MarkerPressEvent`](/api/reference/protocol/interfaces/MarkerPressEvent)
 - 카메라: [`CameraSpec`](/api/reference/protocol/interfaces/CameraSpec), [`CAMERA_FOV_DEG`](/api/reference/protocol/variables/CAMERA_FOV_DEG), [`visibleSpanMeters`](/api/reference/protocol/functions/visibleSpanMeters), [`LngLatBounds`](/api/reference/protocol/interfaces/LngLatBounds), [`FitBoundsParams`](/api/reference/protocol/interfaces/FitBoundsParams), [`FitBoundsResult`](/api/reference/protocol/interfaces/FitBoundsResult)
+- 카메라 정지: [`CameraIdleEvent`](/api/reference/protocol/interfaces/CameraIdleEvent), [`CameraIdleReason`](/api/reference/protocol/type-aliases/CameraIdleReason), [`CAMERA_IDLE_DELAY_MS`](/api/reference/protocol/variables/CAMERA_IDLE_DELAY_MS), [`CAMERA_IDLE_HORIZON_FACTOR`](/api/reference/protocol/variables/CAMERA_IDLE_HORIZON_FACTOR)
+- 지도 UI: [`MapUiSpec`](/api/reference/protocol/interfaces/MapUiSpec), [`ContentInset`](/api/reference/protocol/interfaces/ContentInset)
 - 좌표: [`createProjection`](/api/reference/protocol/functions/createProjection), [`haversineMeters`](/api/reference/protocol/functions/haversineMeters)
 - 메시지: [`EngineCommand`](/api/reference/protocol/type-aliases/EngineCommand), [`EngineEvent`](/api/reference/protocol/type-aliases/EngineEvent), [`encodeCommand`](/api/reference/protocol/functions/encodeCommand), [`decodeEvent`](/api/reference/protocol/functions/decodeEvent)
 
