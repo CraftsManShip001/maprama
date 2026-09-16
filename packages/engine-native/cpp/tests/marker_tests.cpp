@@ -2,6 +2,7 @@
 // updates) and the session behaviour (marker cards in the label frame, `marker:press`, the marker boxes as
 // label exclusions), plus `ui.contentInset` — the camera anchor, the ornament layout and the HUD zones.
 // Emitted envelopes go to --emit (verify-emitted-events).
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <optional>
