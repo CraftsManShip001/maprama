@@ -31,11 +31,14 @@ _Last updated: 2026-09-16._
 - **M4** zoom-out game view (`theme.zoomOut`, `keepGameView`), performance and memory measurement,
   parity pass. Far-camera model draw calls 64 → 1; Android far-camera frame interval 31.7–47.3 ms →
   8.2–13.1 ms.
-- **Labels (M2b)** — see "In progress" below.
+- **Labels (M2b)** native label views (`labelsIndex`, `setLabels`, `setLabelContent`, every label style the
+  view pool can show, custom content), character name tags, labels on procedural worlds and engine-web's
+  zoom-out label rules.
 
 ## Known gaps and limitations
 
-- **Labels on the native engine** are the last capability gap before a native beta (see below).
+- **Label limitations on the native engine.** Labels are native views, so they are never occluded by
+  buildings, and the `ground` / `sign` 3D styles are drawn as the `app` / `sticker` card looks.
 - **Performance numbers are simulator/emulator only.** No real-device measurements, binary size or cold
   start yet. The Android emulator translates GL on the host, so its near-camera frame times are pessimistic.
 - **Deliberate visual deviations from the web engine** (documented in DESIGN.md §11): icon discs beyond the
@@ -51,9 +54,8 @@ _Last updated: 2026-09-16._
 
 ## In progress
 
-- **Native labels** (`labelsIndex`, `setLabels`, `setLabelContent`, character name tags, labels on
-  procedural worlds, label zoom-out rules). The work is verified on both platforms except the final E2E
-  pass at the time of writing; it lands on `main` as soon as that passes.
+Nothing is in flight. The native engine has no capability gap left against the parity matrix; what remains
+are the visual deviations and limitations listed above, real-device measurements, and the M5 work below.
 
 ## Next milestone — M5: app-integration API
 
