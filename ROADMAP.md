@@ -119,10 +119,12 @@ Each of these is a real gap found while answering an integrator's questions agai
   `WALK_CADENCE_SPEED` (3.2 units/s ≈ 25.6 m/s at 8 m/unit), so a character walking at a real 4.8 km/h gets a
   cadence of ~0.05 and is clamped to `MIN_CADENCE` 0.5 — the walk clip plays faster than the feet travel
   (sliding). It affects every `unitMeters` value and is most visible at `travelTimeScale: 1`.
-- **The web engine renders continuously.** `core/renderer.ts` drives an unconditional
-  `requestAnimationFrame` loop with no dirty-flag gating, so a static map still renders every frame (battery
-  cost inside the WebView). The native engine gained off-screen/idle frame gating in M4; the web engine has
-  no equivalent.
+- **The web engine keeps its `requestAnimationFrame` alive when idle.** Rendering itself is now on demand
+  (`RenderCore.requestRender()` / `addActiveSource()`), so an untouched map draws no frames, but the RAF
+  callback still fires ~60 times a second and returns immediately. Cancelling it entirely (and restarting it
+  on the next request, plus a `document.visibilitychange` gate) and real WebGL context-loss recovery
+  (rebuilding textures, materials and the static world after `webglcontextrestored`; only the listeners are
+  in place today) are still open.
 - **No non-ASCII path coverage in CI.** An integrator builds from a path containing Korean characters;
   `expo prebuild` works, but Android CMake/NDK and iOS Pods builds from such a path are not covered by CI.
 - **No real-device performance numbers.** All figures are from simulators and emulators.
