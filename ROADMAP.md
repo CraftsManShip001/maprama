@@ -75,6 +75,30 @@ Also requested, lower priority: `ref.setWorld(source)` without a remount, `minDi
 metre range scales with `WorldData.unitMeters`), then tile-backed worlds with a PMTiles pipeline in
 `tools/osm` and a flat basemap outside the diorama.
 
+### Backlog from the same integration review
+
+Each of these is a real gap found while answering an integrator's questions against the code:
+
+- **Location puck without a character.** The puck is only drawn when a player `Character` exists
+  (`engine-web/src/engine/features.ts`), so a map that only needs "my position" has to add a character, which
+  draws a body. Wanted: `ui.locationPuck` fed by `pushLocation` alone. Workaround: draw it with `<MapOverlay>`.
+- **Hiding POI / station markers.** `labels: { enabled: false }` hides label text, but POIs and stations are
+  also drawn as coloured dots by the world style, with no toggle in `ThemeSpec` or `MapUiSpec`. Workaround:
+  build the world without `pois` / `stations`.
+- **Batch `project`.** Only one coordinate per request today, while the native adapter already projects
+  overlay anchors in batches. A `projectMany` request would let an app place 40–60 pins within a frame.
+- **Gesture toggles.** Rotation, pitch and zoom cannot be disabled individually; the native adapter always
+  enables rotate and pitch.
+- **`MapOverlay` ordering.** No `zIndex` and no collision avoidance; stacking follows child order.
+- **`engine-native` distribution.** Private and source-built: the C++ core compiles inside the app build and
+  there are no prebuilt XCFramework / AAR artifacts, so adoption needs a development build (no Expo Go). A
+  published support matrix (RN / Expo versions; the example is verified on RN 0.86 / Expo 57, peer is RN ≥
+  0.76) and prebuilt binaries are open decisions.
+- **Docs to add.** Serving world files from your own static hosting (R2 / S3 / CDN — plain unauthenticated
+  GET, no user identifiers, CORS needed for the WebView engine), and an explicit statement that a plain
+  `<MapramaView world theme />` never starts demo behaviour (the default location source is `external`;
+  `simulated` and characters are opt-in).
+
 ## Testing notes
 
 - `npm test` runs the JS suites, the C++ core tests and the fixture conformance checks; `npm run build`
