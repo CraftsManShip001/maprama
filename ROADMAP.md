@@ -124,6 +124,14 @@ Each of these is a real gap found while answering an integrator's questions agai
 - **No non-ASCII path coverage in CI.** An integrator builds from a path containing Korean characters;
   `expo prebuild` works, but Android CMake/NDK and iOS Pods builds from such a path are not covered by CI.
 - **No real-device performance numbers.** All figures are from simulators and emulators.
+- **No world-load diagnostics for the host.** Nothing tells an app how the data it supplied became what is on
+  screen: how many buildings the world declared, how many were rendered, how many were dropped by the minimum
+  area filter or invalid geometry, and whether the engine added anything of its own. The synthetic plaza
+  landmark stayed invisible to integrators for exactly this reason — it was appended *after* the counts they
+  could see, so the building total matched while the picture did not. The native core already builds a
+  `WorldLoadReport` with warnings internally; the web engine has no equivalent and neither reaches the host.
+  Suggested by the first integrator after that bug: expose a load report (counts + reasons + anything the
+  engine synthesised) so a mismatch between data and drawing is visible from the app side.
 - **Docs to add.** Serving world files from your own static hosting (R2 / S3 / CDN — plain unauthenticated
   GET, no user identifiers, CORS needed for the WebView engine), and an explicit statement that a plain
   `<MapramaView world theme />` never starts demo behaviour (the default location source is `external`;
