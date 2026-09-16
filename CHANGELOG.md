@@ -15,8 +15,19 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- Markers: `<MarkerLayer>` draws app-owned map pins in the engine — fixed
+  screen size, pin tip on the coordinate, custom SVG or built-in `pin` / `dot`
+  shapes tinted per marker, priority-based collision shared with the map labels
+  (`alwaysVisible` and the selected marker are never hidden), a per-marker
+  accessibility label, and a `marker:press` that reports the marker's screen
+  point and takes precedence over `building:press` / `map:press`. Markers are
+  matched by id, so an update that only changes colours or the selection
+  neither reloads an icon nor recreates a view. Protocol: the optional
+  `setMarkerLayer` / `removeMarkerLayer` commands and the `marker:press` event
+  (`PROTOCOL_VERSION` unchanged). Implemented by `@maprama/engine-web`; the
+  native engine validates and ignores the commands for now.
 - `@maprama/react-native`: `<MapramaView>` with `Character`, `CharacterLayer`,
-  `DropLayer` (app data or the hosted service), `Geofence` and `MapOverlay`,
+  `DropLayer` (app data or the hosted service), `MarkerLayer`, `Geofence` and `MapOverlay`,
   the `ref` API (`travel`, `setCamera`, `project`, `route`, `subscribe`, …),
   `useCharacterPosition` / `useCameraState` hooks, the WebView engine host and
   an Expo config plugin.
