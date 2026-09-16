@@ -115,6 +115,43 @@ OSM 기반 월드를 보여 줄 때는 `ui.attribution`을 켜 두세요. ODbL�
 - 두 prop은 타이머를 걸 때마다 최신 값을 읽으므로 바꾸면 다음 타이머부터 반영됩니다.
 - 호스트가 치명적으로 실패하면(`host_load_failed`, 또는 `engine`에 등록된 호스트가 없음) 대기 중인 요청과 이동이 모두 그 코드로 reject됩니다.
 
+## 설치 문제 해결
+
+실제 도입 과정에서 확인된 걸림돌 세 가지입니다.
+
+### 경로에 한글이나 공백이 있을 때
+
+CocoaPods가 설치 경로를 유니코드 정규화하는 단계에서 죽습니다.
+
+```
+Pod::Config#installation_root → String#unicode_normalize
+Encoding::CompatibilityError: Unicode Normalization not appropriate for ASCII-8BIT
+```
+
+- `LANG`, `LC_ALL`, `RUBYOPT=-Eutf-8`을 모두 걸어도 통과하지 않습니다 (CocoaPods 1.17 / Ruby 4.0에서 확인).
+- `expo prebuild`는 통과하고 `pod install`에서 실패합니다. 그래서 prebuild만 돌려 보면 문제를 놓칩니다.
+- `expo run:ios`는 내부에서 `pod install --repo-update`를 다시 실행하는데, 이때 UTF-8 환경이 전달되지 않아 또 실패합니다.
+
+가장 확실한 해결은 프로젝트를 ASCII 경로에 두는 것입니다. 경로를 바꿀 수 없다면 `pod install`을 따로 돌린 뒤 Expo CLI를 거치지 않고 빌드하세요.
+
+```sh
+(cd ios && pod install)
+xcodebuild -workspace ios/MyApp.xcworkspace -scheme MyApp \
+  -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build build
+xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/MyApp.app
+xcrun simctl launch booted com.example.myapp
+```
+
+공백이 있는 경로도 같은 부류의 문제를 냅니다. 이 저장소를 공백 없는 경로에서 개발하는 이유이기도 합니다.
+
+### `babel-preset-expo` 버전이 SDK와 어긋날 때
+
+번들링이 `private properties are not supported` 같은 Hermes 변환 오류로 실패합니다. preset은 쓰는 Expo SDK에 맞춰 고정하세요. 예를 들어 SDK 54에는 `babel-preset-expo@~54.0.12`를 씁니다. 이 저장소의 예제 앱은 Expo 57 기준입니다.
+
+### 지도가 흰 화면으로 남을 때
+
+웹 엔진은 `react-native-webview`가 함께 설치돼 있어야 하고, 네이티브 엔진(`engine="native"`)은 New Architecture development build가 필요합니다. Expo Go에서는 둘 다 동작하지 않습니다.
+
 ## 다음 단계
 
 - [월드 데이터와 타일](./world-data): 내 동네 데이터 만들기
