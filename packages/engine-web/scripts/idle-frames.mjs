@@ -1,4 +1,4 @@
-// Idle-frame measurement harness (scratch; not for main).
+// Idle-frame measurement harness: proves whether a static map really stops rendering.
 //
 //   node scripts/idle-frames.mjs [--repeats 2] [--seconds 10]
 //
