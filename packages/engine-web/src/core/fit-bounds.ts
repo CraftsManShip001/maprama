@@ -38,9 +38,16 @@ export interface FitPadding {
   left: number;
 }
 
+/**
+ * A point to enclose. `y` (world units, default 0) lifts it off the ground:
+ * `fitBounds` passes ground corners and leaves it out, while `focusOn` frames a
+ * vertical prism so the info card floating above its anchor is in frame too.
+ */
+export type FitPoint = WorldPoint & { y?: number };
+
 export interface FitBoundsInput {
-  /** Ground points to enclose (the four corners of the box), in world units. */
-  corners: readonly WorldPoint[];
+  /** Points to enclose (the four corners of the box, or the eight of a prism), in world units. */
+  corners: readonly FitPoint[];
   /** Viewport size in CSS pixels / dp. */
   width: number;
   height: number;
@@ -115,6 +122,9 @@ function project(
   return { x: (ndcX * 0.5 + 0.5) * width, y: (-ndcY * 0.5 + 0.5) * height, ahead: true };
 }
 
+/** Height of a fit point above the ground plane, in world units. */
+const heightOf = (p: FitPoint): number => p.y ?? 0;
+
 /** Ground-plane (y = 0) point under a pixel, or `null` when the ray misses the ground. */
 export function groundAt(
   basis: Basis,
@@ -159,7 +169,7 @@ export function fitBoundsOrbit(input: FitBoundsInput): FitBoundsOutput {
     const basis = basisFor(cx, cz, d, input.pitch, input.bearing);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, behind = false;
     for (const c of corners) {
-      const s = project(basis, c.x, 0, c.z, width, height, tanHalf);
+      const s = project(basis, c.x, heightOf(c), c.z, width, height, tanHalf);
       if (!s.ahead) { behind = true; break; }
       if (s.x < minX) minX = s.x;
       if (s.x > maxX) maxX = s.x;
@@ -200,7 +210,7 @@ export function fitBoundsOrbit(input: FitBoundsInput): FitBoundsOutput {
 
 /** Whether every corner lands inside the padded rectangle (half a pixel of slack). */
 function enclosed(
-  corners: readonly WorldPoint[],
+  corners: readonly FitPoint[],
   cx: number, cz: number, d: number,
   input: FitBoundsInput, tanHalf: number,
   x0: number, y0: number, rw: number, rh: number,
@@ -208,7 +218,7 @@ function enclosed(
   const basis = basisFor(cx, cz, d, input.pitch, input.bearing);
   const eps = 0.5;
   for (const c of corners) {
-    const s = project(basis, c.x, 0, c.z, input.width, input.height, tanHalf);
+    const s = project(basis, c.x, heightOf(c), c.z, input.width, input.height, tanHalf);
     if (!s.ahead) return false;
     if (s.x < x0 - eps || s.x > x0 + rw + eps || s.y < y0 - eps || s.y > y0 + rh + eps) return false;
   }

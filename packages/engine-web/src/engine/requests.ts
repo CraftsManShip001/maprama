@@ -83,9 +83,10 @@ function roadPath(world: WorldModel, a: { x: number; z: number }, b: { x: number
 
 /**
  * The request methods answered from world + view services alone. `fitBounds`
- * is not one of them: it moves the camera, so the engine owns it.
+ * and `focusOn` are not among them: they move the camera, so the engine owns
+ * them.
  */
-export type RequestHandlers = { [M in Exclude<RequestMethod, 'fitBounds'>]: RequestHandler<M> };
+export type RequestHandlers = { [M in Exclude<RequestMethod, 'fitBounds' | 'focusOn'>]: RequestHandler<M> };
 
 export function createRequestHandlers(s: RequestServices): RequestHandlers {
   return {
