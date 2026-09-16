@@ -94,6 +94,8 @@ tags:
     text: "engine error.*"
 # Procedural town (seed 7): the screen remounts with the generated world and default labels (holo, on); the core
 # emits engine-web's labelsIndex of that world (87 labels) and places holo cards at the start framing.
+# The world source chips sit above the labels section, so scroll the panel back up (swipes inside the panel, which
+# is at the bottom of the screen) and let it settle before tapping.
 - repeat:
     while:
       notVisible:
@@ -101,9 +103,11 @@ tags:
     times: 20
     commands:
       - swipe:
-          start: "50%, 90%"
-          end: "50%, 80%"
+          start: "50%, 80%"
+          end: "50%, 95%"
           duration: 600
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "native-world-town"
     waitToSettleTimeoutMs: 3000

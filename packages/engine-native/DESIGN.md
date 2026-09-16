@@ -808,6 +808,25 @@ simulator is flat (≈ 0.1 ms for the whole frame); the emulator's GL translatio
 per character. The model frames also keep MapLibre rendering at the display rate while models are on screen
 (engine-web's render loop does the same); throttling idle-only animation to 30 fps is an M4 option.
 
+**M2b measurements (labels and name tags; simulators).** The core logs `label placement` every 5 s of activity
+(iOS `os_log` subsystem `dev.maprama.engine` category `core` at info level — `log show --info`; Android logcat tag
+`MapramaEngine`). One *pass* is one placement: a full one re-lays out every label, a *name-tag only* pass reuses the
+last label layout and re-places just the tags (a game tick does this every 16 ms while tagged characters exist).
+At most one pass per frame. Numbers from the Maestro flows (`09-native-labels`, `08-native-m3a`), Seongsu with the
+M2c custom building layer and the M3a/M3b markers active.
+
+| Screen | Passes per 5 s | Placement cost avg / max | Cards |
+| --- | --- | --- | --- |
+| Labels screen, full placements (Android 15 emulator) | 1–4 (camera / command driven) | 0.009–0.125 / 0.341 ms; one window 0.391 / 1.48 ms right after a style + content switch | 5–6 |
+| M3a screen, name tags (Android 15 emulator) | 155–170 (≈ all name-tag only) | 0.006–0.008 / 0.024–0.181 ms | 7 |
+| M3a screen, name tags (iOS 26.5 simulator) | 305–310 (all name-tag only) | 0.006–0.007 / 0.015–0.033 ms | 7–8 |
+
+Reusing the label layout for tag-only passes is what keeps the game tick cheap: a full pass of the 78 Seongsu
+labels costs ≈ 0.1 ms, a tag pass ≈ 0.006 ms. Platform card work (measuring and configuring views) is not in these
+numbers: it happens once per content key (`measureLabels`) and on the cards that changed. iOS full-placement
+windows were not captured — the labels screen re-places about three times per 90 s, which never filled a 5 s
+window during the runs. No device numbers (M4).
+
 ## 9. Build and packaging
 
 - The core is built by `scripts/build-core.sh` on macOS with `xcrun clang++` (no CMake on this toolchain)
