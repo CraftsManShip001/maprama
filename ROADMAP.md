@@ -89,13 +89,19 @@ Each of these is a real gap found while answering an integrator's questions agai
 - **Location puck without a character.** The puck is only drawn when a player `Character` exists
   (`engine-web/src/engine/features.ts`), so a map that only needs "my position" has to add a character, which
   draws a body. Wanted: `ui.locationPuck` fed by `pushLocation` alone. Workaround: draw it with `<MapOverlay>`.
+  **Together with the walk-cadence defect below this is a dead end, not two independent gaps**: an app that
+  drops the walking character to avoid foot sliding also loses "my position", and an app that keeps the
+  character gets sliding feet at real walking speed. Fixing either one alone unblocks the pair, so they should
+  be prioritised together.
 - **Hiding POI / station markers.** `labels: { enabled: false }` hides label text, but POIs and stations are
   also drawn as coloured dots by the world style, with no toggle in `ThemeSpec` or `MapUiSpec`. Workaround:
   build the world without `pois` / `stations`.
 - **Batch `project`.** Only one coordinate per request today, while the native adapter already projects
   overlay anchors in batches. A `projectMany` request would let an app place 40–60 pins within a frame.
 - **Gesture toggles.** Rotation, pitch and zoom cannot be disabled individually; the native adapter always
-  enables rotate and pitch.
+  enables rotate and pitch. This breaks flat-view layouts: an app that sizes its screen for pitch 0° cannot
+  stop the user from tilting, and tilting pushes the far half of the screen beyond `fogFar`, so
+  `theme.zoomOut: 'keepGameView'` becomes mandatory rather than a choice.
 - **`MapOverlay` ordering.** No `zIndex` and no collision avoidance; stacking follows child order.
 - **`engine-native` distribution.** Private and source-built: the C++ core compiles inside the app build and
   there are no prebuilt XCFramework / AAR artifacts, so adoption needs a development build (no Expo Go). A
