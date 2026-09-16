@@ -1,0 +1,101 @@
+# Camera distance limits in metres and fitBounds.
+#
+# The screen puts 18 pins on a ring ~3 km across. At the engine's default ceiling (1,200 m at the
+# sample's 8 m per world unit) only the inner pins are on screen; raising `maxDistanceMeters` to
+# 3,330 m frames the whole ring, and the fog / shadow ranges stretch with it, so the wide screenshot
+# shows ground and buildings rather than a wall of fog. `fitBounds` then frames the ring exactly.
+appId: dev.maprama.catalog
+name: Camera metre limits and fitBounds
+tags:
+  - camera
+---
+- runFlow:
+    file: subflows/open-screen.yaml
+    env:
+      SCREEN: camera
+- assertVisible:
+    id: "camera-max"
+    text: "maxDistanceMeters: 1200 m"
+- waitForAnimationToEnd:
+    timeout: 5000
+
+# BEFORE: the default ceiling. Zoom all the way out and count the pins that fit.
+- tapOn:
+    id: "camera-zoom-out"
+    waitToSettleTimeoutMs: 1500
+- extendedWaitUntil:
+    visible:
+      id: "camera-distance"
+      text: "distance: 1200 m"
+    timeout: 15000
+- assertVisible:
+    id: "camera-span"
+    text: "visible span: 874 m.*"
+- tapOn:
+    id: "camera-count"
+    waitToSettleTimeoutMs: 1000
+- extendedWaitUntil:
+    visible:
+      id: "camera-onscreen"
+      text: "pins on screen: [0-9]+ of 18"
+    timeout: 15000
+- takeScreenshot: screenshots/12-camera-default-1200m
+
+# AFTER: the same screen with maxDistanceMeters = 3,330 m.
+- tapOn:
+    id: "camera-range-wide"
+    waitToSettleTimeoutMs: 1000
+- assertVisible:
+    id: "camera-max"
+    text: "maxDistanceMeters: 3330 m"
+- tapOn:
+    id: "camera-zoom-out"
+    waitToSettleTimeoutMs: 1500
+- extendedWaitUntil:
+    visible:
+      id: "camera-distance"
+      text: "distance: 3330 m"
+    timeout: 15000
+- assertVisible:
+    id: "camera-span"
+    text: "visible span: 2424 m.*"
+- tapOn:
+    id: "camera-count"
+    waitToSettleTimeoutMs: 1000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: screenshots/12-camera-wide-3330m
+# The engine never reported a range it could not render.
+- assertNotVisible:
+    text: ".*camera_limits_clamped.*"
+
+# fitBounds frames the whole ring with dp padding and reports that it fits.
+- tapOn:
+    id: "camera-fit-pins"
+    waitToSettleTimeoutMs: 1500
+- extendedWaitUntil:
+    visible:
+      id: "camera-fit"
+      text: "fitBounds: fitted at [0-9]+ m"
+    timeout: 15000
+- tapOn:
+    id: "camera-count"
+    waitToSettleTimeoutMs: 1000
+- extendedWaitUntil:
+    visible:
+      id: "camera-onscreen"
+      text: "pins on screen: 18 of 18"
+    timeout: 15000
+- takeScreenshot: screenshots/12-camera-fitbounds
+# Street level is still reachable: the minimum is metres too, not world units.
+- tapOn:
+    id: "camera-street"
+    waitToSettleTimeoutMs: 1500
+- extendedWaitUntil:
+    visible:
+      id: "camera-distance"
+      text: "distance: 60 m"
+    timeout: 15000
+- takeScreenshot: screenshots/12-camera-street-60m
+- assertNotVisible:
+    text: "engine error.*"

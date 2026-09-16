@@ -7,18 +7,59 @@
  * Conventions (match `@maprama/protocol` `CameraSpec`):
  * - `pitch` degrees, 0 = straight down, clamped to 0–60.
  * - `bearing` degrees clockwise from north = the compass direction at the top of the screen.
- * - `distance` world units here (the protocol uses meters; convert with `unitMeters`), clamped to 14–150.
+ * - `distance` world units here (the protocol uses meters; convert with `unitMeters`), clamped to
+ *   the current distance limits (by default 14–150 world units, see {@link CameraController.setDistanceLimits}).
  *
  * @module
  */
 
+import { CAMERA_FOV_DEG } from '@maprama/protocol';
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { clamp, DEG, wrapDeg } from '../util/math.js';
 
 export const PITCH_MIN = 0;
 export const PITCH_MAX = 60;
+/** Default closest camera distance, in world units (112 m at the default 8 m per unit). */
 export const DIST_MIN = 14;
+/** Default furthest camera distance, in world units (1,200 m at the default 8 m per unit). */
 export const DIST_MAX = 150;
+
+/**
+ * Hard limits of the renderer, in world units. An app's `minDistanceMeters` /
+ * `maxDistanceMeters` are clamped into this range.
+ *
+ * - below {@link DIST_HARD_MIN} the camera is inside the near plane of its own frustum and
+ *   inside the buildings it looks at;
+ * - above {@link DIST_HARD_MAX} the depth buffer of a `near … 6 · distance` frustum starts to
+ *   z-fight on the road markings, and the fog ramp (below) has grown past any world we generate.
+ *
+ * 1,000 units is 8 km at the default 8 m per unit and 24 km at 24 m per unit.
+ */
+export const DIST_HARD_MIN = 2;
+export const DIST_HARD_MAX = 1000;
+
+/** Camera near plane, world units: 0.5 up to {@link DIST_MAX}, then `distance / 300` (a constant far:near ratio). */
+export const NEAR_BASE = 0.5;
+/** Camera far plane, world units: 900 up to {@link DIST_MAX}, then `6 · distance` (it must stay beyond `fog.far`). */
+export const FAR_BASE = 900;
+
+/**
+ * Resolves an app's distance limits — meters, or absent for "keep the engine
+ * default" — to world units for a world of `unitMeters` meters per unit. This
+ * is the whole meter ⇄ unit conversion: everything downstream is world units.
+ */
+export function limitsInUnits(limits: { min?: number; max?: number }, unitMeters: number): { min: number; max: number } {
+  const u = unitMeters > 0 ? unitMeters : 1;
+  return {
+    min: limits.min !== undefined ? limits.min / u : DIST_MIN,
+    max: limits.max !== undefined ? limits.max / u : DIST_MAX,
+  };
+}
+
+/** Near plane for a camera distance (world units). */
+export const nearFor = (distance: number): number => Math.max(NEAR_BASE, distance / 300);
+/** Far plane for a camera distance (world units). */
+export const farFor = (distance: number): number => Math.max(FAR_BASE, distance * 6);
 
 export interface CameraOrbit {
   x: number;
@@ -43,6 +84,14 @@ export interface ScreenProjection {
   x: number;
   y: number;
   visible: boolean;
+}
+
+/** The distance limits in force, in world units, and whether the renderer had to narrow the request. */
+export interface DistanceLimits {
+  min: number;
+  max: number;
+  /** True when the requested pair did not fit `[DIST_HARD_MIN, DIST_HARD_MAX]` or had `min > max`. */
+  clamped: boolean;
 }
 
 const ease = (x: number): number => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -70,10 +119,43 @@ export class CameraController {
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly tmp = new Vector3();
+  private distMin = DIST_MIN;
+  private distMax = DIST_MAX;
 
   constructor(camera?: PerspectiveCamera) {
-    this.camera = camera ?? new PerspectiveCamera(40, 1, 0.5, 900);
+    this.camera = camera ?? new PerspectiveCamera(CAMERA_FOV_DEG, 1, NEAR_BASE, FAR_BASE);
     this.apply();
+  }
+
+  /** The distance limits in force, in world units. */
+  get distanceLimits(): { min: number; max: number } {
+    return { min: this.distMin, max: this.distMax };
+  }
+
+  /**
+   * Replaces the distance limits (world units). The pair is clamped into
+   * `[DIST_HARD_MIN, DIST_HARD_MAX]` and `max` is raised to `min` when they
+   * cross; the current distance is re-clamped immediately. Returns what is
+   * actually in force, so the engine can warn about a range it had to narrow.
+   */
+  setDistanceLimits(min: number, max: number): DistanceLimits {
+    const lo = clamp(Number.isFinite(min) ? min : DIST_MIN, DIST_HARD_MIN, DIST_HARD_MAX);
+    const hi = clamp(Number.isFinite(max) ? max : DIST_MAX, lo, DIST_HARD_MAX);
+    const clamped = lo !== min || hi !== max;
+    this.distMin = lo;
+    this.distMax = hi;
+    const d = this.clampDistance(this.orbit.distance);
+    if (d !== this.orbit.distance) {
+      this.transition = null;
+      this.orbit.distance = d;
+      this.markChanged();
+    }
+    return { min: lo, max: hi, clamped };
+  }
+
+  /** Clamps a distance (world units) into the limits in force. */
+  clampDistance(distance: number): number {
+    return clamp(Number.isFinite(distance) ? distance : this.orbit.distance, this.distMin, this.distMax);
   }
 
   /** Sets the viewport size in CSS pixels. */
@@ -121,7 +203,7 @@ export class CameraController {
 
   zoomTo(distance: number): void {
     this.transition = null;
-    this.orbit.distance = clamp(distance, DIST_MIN, DIST_MAX);
+    this.orbit.distance = this.clampDistance(distance);
     this.markChanged();
   }
 
@@ -225,6 +307,14 @@ export class CameraController {
   /** Applies the orbit to the three camera immediately. */
   apply(): void {
     const o = this.orbit;
+    // The frustum follows the distance: a wide view needs its far plane beyond the (equally
+    // widened) fog, and its near plane raised with it so the depth range keeps its precision.
+    const near = nearFor(o.distance), far = farFor(o.distance);
+    if (this.camera.near !== near || this.camera.far !== far) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
     const p = o.pitch * DEG, b = o.bearing * DEG, h = o.distance * Math.sin(p);
     // forward (ground) = (sin b, −cos b); camera sits behind the target
     this.camera.position.set(o.x - Math.sin(b) * h, this.groundY + o.distance * Math.cos(p), o.z + Math.cos(b) * h);
@@ -271,7 +361,7 @@ export class CameraController {
     return {
       x: Number.isFinite(o.x) ? o.x : 0,
       z: Number.isFinite(o.z) ? o.z : 0,
-      distance: clamp(o.distance, DIST_MIN, DIST_MAX),
+      distance: this.clampDistance(o.distance),
       pitch: clamp(o.pitch, PITCH_MIN, PITCH_MAX),
       bearing: Number.isFinite(o.bearing) ? o.bearing : 0,
     };

@@ -72,17 +72,18 @@ Driven by the first integrator (a location-based game app). Their priority order
    engine ornaments, label/marker placement, `overlay:positions` and the `camera:idle` bounds, plus
    engine-drawn attribution that can be repositioned instead of switched off.
 
-4. **Camera distance limits** — `minDistanceMeters` / `maxDistanceMeters` props and `fitBounds(bounds, padding)`.
-   The clamp is 14–150 **world units**, so the metre range scales with `WorldData.unitMeters`: at the usual
-   8 m/unit the camera stops at 1,200 m (≈1.4 km of ground at 45° pitch), which is not enough for a
-   city-overview first screen (the integrator needs ≈3.3 km and sees only 5 of 18 pins at maximum zoom-out).
-   Raising `unitMeters` when building the world is the current workaround and is being measured; it also
-   rescales buildings and travel speeds, so proper limits are wanted either way. The camera's 40° field of view
-   is not exposed either, so integrators hardcode it to convert distance into a ground radius.
+4. ~~**Camera distance limits**~~ — **done** (unreleased): `minDistanceMeters` / `maxDistanceMeters` on
+   `CameraSpec` clamp the camera in real metres whatever `WorldData.unitMeters` is, on every path that changes
+   the distance; `ref.fitBounds(bounds, options)` frames a box with dp padding and reports whether it really
+   fits; `CAMERA_FOV_DEG` and `visibleSpanMeters()` are public. Widening the range widens the fog, shadow and
+   frustum ranges with the camera (unchanged at and below the old 150-unit cap), so a 3.3 km view is not a wall
+   of fog. Raising `unitMeters` is no longer the workaround — it rescales buildings, characters and the
+   *minimum* distance with it.
 
 Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
 PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
-needs tiles + `setWorld` + the camera limits; a single-city "diorama view" screen works today within ~1.4 km.
+needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far as the app's
+`maxDistanceMeters` allows (the renderer serves up to 1,000 world units, 8 km at 8 m per unit).
 
 ### Backlog from the same integration review
 

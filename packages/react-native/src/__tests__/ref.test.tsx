@@ -227,6 +227,39 @@ describe('requests', () => {
     await expect(snap).resolves.toBeNull();
   });
 
+  it('fitBounds sends the box and its options and resolves with the framing', async () => {
+    const { ref } = await readyMap();
+    const bounds = { sw: { lng: 127.04, lat: 37.53 }, ne: { lng: 127.08, lat: 37.57 } };
+    const fit = ref.current!.fitBounds(bounds, {
+      padding: { top: 80, right: 16, bottom: 160, left: 16 },
+      animate: true,
+      orientation: 'auto',
+    });
+    const [req] = commandsOf('request');
+    expect(req).toEqual({
+      type: 'request',
+      requestId: expect.any(String),
+      method: 'fitBounds',
+      params: { bounds, padding: { top: 80, right: 16, bottom: 160, left: 16 }, animate: true, orientation: 'auto' },
+    });
+    const result = {
+      camera: { center: { lng: 127.06, lat: 37.55 }, distance: 2800, pitch: 50, bearing: 28 },
+      fitted: true,
+      distanceLimited: false,
+    };
+    await emit({ type: 'response', requestId: req!.requestId, ok: true, result });
+    await expect(fit).resolves.toEqual(result);
+  });
+
+  it('fitBounds keeps timeoutMs out of the engine params', async () => {
+    const { ref } = await readyMap();
+    const bounds = { sw: { lng: 1, lat: 2 }, ne: { lng: 3, lat: 4 } };
+    const fit = ref.current!.fitBounds(bounds, { timeoutMs: 9000, padding: 24 });
+    fit.catch(() => {});
+    const [req] = commandsOf('request');
+    expect(req!.params).toEqual({ bounds, padding: 24 });
+  });
+
   it('times out', async () => {
     jest.useFakeTimers();
     const { ref } = await readyMap({ requestTimeoutMs: 200 });

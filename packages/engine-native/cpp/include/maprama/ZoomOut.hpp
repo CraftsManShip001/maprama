@@ -26,9 +26,18 @@ inline constexpr double kZoomOutFarUnits = 110.0;
 inline constexpr double kZoomOutSpriteHysteresis = 0.95;
 /// engine-web re-applies the look when the factor moved by more than this.
 inline constexpr double kZoomOutApplyEpsilon = 0.003;
+/// engine-web `RANGE_REF`: the camera distance the fog / shadow ranges below are calibrated for.
+inline constexpr double kZoomOutRangeRefUnits = 150.0;
+/// engine-web `SCALE_EPS`: change in the range stretch below which the look is not re-applied.
+inline constexpr double kZoomOutScaleEpsilon = 1e-3;
 
 /// engine-web `zoomOutTarget`: 0 for `none`, else `smooth01(clamp((distance − 55) / 55, 0, 1))`.
 double zoomOutTarget(ZoomOutBehavior behavior, double distanceUnits);
+
+/// engine-web `rangeScale`: how far the fog / shadow ranges are stretched at a camera distance —
+/// 1 up to `kZoomOutRangeRefUnits`, `distance / 150` beyond it (`minDistanceMeters` / `maxDistanceMeters`
+/// let the camera go past the range those numbers were calibrated for).
+double zoomOutRangeScale(double distanceUnits);
 
 /// What engine-web's `ZoomOutController` applies for its current factor (the last applied values).
 struct ZoomOutLook {
@@ -37,6 +46,8 @@ struct ZoomOutLook {
   double t = 0.0;
   /// The `mapColors` factor (`t` for `mapColors`, else 0).
   double mapColors = 0.0;
+  /// The applied `zoomOutRangeScale` (engine-web `k`).
+  double rangeScale = 1.0;
   /// engine-web `scaleY`: building height multiplier.
   double heightScale = 1.0;
   /// Opacity of the flat map-colour overlay (`mt · 0.92`), visible above 0.01.
@@ -61,7 +72,10 @@ class ZoomOutController {
   bool update(double dt, double distanceUnits, ZoomOutBehavior behavior, double fogNear = 0.0, double fogFar = 0.0,
               bool reduceMotion = false);
   /// Forces a re-application on the next update (engine-web: after a theme change).
-  void invalidate() { applied_ = -1.0; }
+  void invalidate() {
+    applied_ = -1.0;
+    appliedScale_ = -1.0;
+  }
   /// The smoothed factor (engine-web `t`).
   double t() const { return t_; }
   const ZoomOutLook& look() const { return look_; }
@@ -76,6 +90,7 @@ class ZoomOutController {
  private:
   double t_ = 0.0;
   double applied_ = -1.0;
+  double appliedScale_ = -1.0;
   bool haveMode_ = false;
   ZoomOutBehavior mode_ = ZoomOutBehavior::None;
   bool sprites_ = false;

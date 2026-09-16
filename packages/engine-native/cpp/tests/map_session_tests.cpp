@@ -449,3 +449,94 @@ MAPRAMA_TEST(m1_camera_report_before_viewport_keeps_world_camera) {
   ctx.near(h.engine->cameraState().center.lng, moved.center.lng, 1e-12, "reports after the camera was sent update the state");
   appendEmitted(ctx, *h.sink);
 }
+
+MAPRAMA_TEST(camera_distance_limits_in_meters) {
+  Harness h;
+  h.send(initMsg(dataWorld(ctx)));
+  // The Seongsu sample is 8 m per world unit, so the defaults are 112 m - 1,200 m.
+  h.send(setCameraMsg(Value::object({{"distance", 99999}})));
+  ctx.check(h.engine->cameraState().distance == 150 * 8, "default ceiling is DIST_MAX x unitMeters");
+
+  // The integrator's case: 3,330 m of ground without touching `unitMeters`.
+  h.send(setCameraMsg(Value::object({{"maxDistanceMeters", 3330}, {"distance", 3330}})));
+  ctx.near(h.engine->cameraState().distance, 3330, 1e-9, "maxDistanceMeters reached in the same command");
+  ctx.check(h.sink->eventsOfType("error").empty(), "a range the renderer can serve is not reported");
+
+  // Sticky: the next setCamera still sees the widened range.
+  h.send(setCameraMsg(Value::object({{"distance", 2000}})));
+  ctx.near(h.engine->cameraState().distance, 2000, 1e-9, "the limit stays in force");
+  h.send(setCameraMsg(Value::object({{"distance", 99999}})));
+  ctx.near(h.engine->cameraState().distance, 3330, 1e-9, "still clamped to the app's ceiling");
+
+  // A narrower range pulls the camera back on the next move.
+  h.send(setCameraMsg(Value::object({{"minDistanceMeters", 400}, {"maxDistanceMeters", 900}, {"distance", 100}})));
+  ctx.near(h.engine->cameraState().distance, 400, 1e-9, "minDistanceMeters in meters, not world units");
+
+  // MapLibre's own gesture limits follow, so a pinch cannot leave the range.
+  const maprama::MapCameraLimits limits = h.adapter->limits.back();
+  const double lat = h.engine->cameraState().center.lat;
+  ctx.near(limits.minZoom, cm::distanceToMapLibreZoom(900, lat, 500) - 0.01, 1e-9, "pinch-out bound = maxDistanceMeters");
+  ctx.near(limits.maxZoom, cm::distanceToMapLibreZoom(400, lat, 500) + 0.01, 1e-9, "pinch-in bound = minDistanceMeters");
+
+  // Outside what the renderer can serve: narrowed, and reported once as a non-fatal error.
+  const std::size_t before = h.sink->eventsOfType("error").size();
+  h.send(setCameraMsg(Value::object({{"minDistanceMeters", 1}, {"maxDistanceMeters", 100000}})));
+  const std::vector<Value> errors = h.sink->eventsOfType("error");
+  if (ctx.check(errors.size() == before + 1, "a range the renderer cannot serve is reported once")) {
+    const Value& e = errors.back();
+    ctx.check(e.find("code")->asString() == "camera_limits_clamped" && !e.find("fatal")->asBool(),
+              "non-fatal camera_limits_clamped: " + e.find("message")->asString());
+  }
+  h.send(setCameraMsg(Value::object({{"distance", 99999}})));
+  ctx.check(h.engine->cameraState().distance == cm::kDistanceHardMaxUnits * 8, "clamped to the renderer's ceiling");
+  h.send(setCameraMsg(Value::object({{"minDistanceMeters", 1}, {"maxDistanceMeters", 100000}})));
+  ctx.check(h.sink->eventsOfType("error").size() == errors.size(), "the same range is not reported twice");
+  appendEmitted(ctx, *h.sink);
+}
+
+MAPRAMA_TEST(camera_fit_bounds_request) {
+  Harness h;
+  h.send(initMsg(dataWorld(ctx)));
+  const maprama::LngLat origin = h.engine->cameraState().center;
+  // ~350 m across: it fits inside the default 1,200 m ceiling of an 8 m-per-unit world.
+  const auto fit = [&](Value params) {
+    params.set("bounds", Value::object({{"ne", lngLat(origin.lng + 0.002, origin.lat + 0.0016)},
+                                        {"sw", lngLat(origin.lng - 0.002, origin.lat - 0.0016)}}));
+    h.send(Value::object({{"type", "request"}, {"requestId", "fit"}, {"method", "fitBounds"}, {"params", std::move(params)}}));
+    const std::vector<Value> responses = h.sink->eventsOfType("response");
+    return responses.empty() ? Value() : responses.back();
+  };
+
+  // `reset` looks straight down to north, so the camera target is the box centre exactly.
+  Value r = fit(Value::object({{"orientation", "reset"}}));
+  if (!ctx.check(r.isObject() && r.find("ok")->asBool(), "fitBounds answers with ok")) return;
+  const Value& result = *r.find("result");
+  ctx.check(result.find("fitted")->asBool(), "the box fits");
+  ctx.check(!result.find("distanceLimited")->asBool(), "the limits did not decide the distance");
+  const Value& cam = *result.find("camera");
+  ctx.check(cam.find("pitch")->asNumber() == 0 && cam.find("bearing")->asNumber() == 0, "reset: pitch 0, bearing 0");
+  ctx.near(cam.find("center")->find("lng")->asNumber(), origin.lng, 1e-6, "centred on the box");
+  ctx.near(cam.find("center")->find("lat")->asNumber(), origin.lat, 1e-6, "centred on the box");
+  ctx.near(h.engine->cameraState().distance, cam.find("distance")->asNumber(), 1e-9, "the camera moved there");
+  const double kept = cam.find("distance")->asNumber();
+
+  // Padding needs more distance, and an animated fit goes through the adapter.
+  const std::size_t moves = h.adapter->moves.size();
+  r = fit(Value::object({{"padding", 100}, {"orientation", "reset"}, {"animate", Value::object({{"durationMs", 400}})}}));
+  ctx.check(r.find("result")->find("camera")->find("distance")->asNumber() > kept, "padding frames a wider view");
+  ctx.check(h.adapter->moves.size() == moves + 1 && h.adapter->moves.back().second == 400, "animate.durationMs");
+
+  // `keep` frames at the current pitch, which needs more distance than looking straight down.
+  r = fit(Value::object({{"orientation", "keep"}}));
+  ctx.check(r.find("result")->find("camera")->find("pitch")->asNumber() == h.engine->cameraState().pitch,
+            "keep: the current pitch");
+
+  // A box the limits cannot frame still produces a usable camera, with fitted = false.
+  h.send(setCameraMsg(Value::object({{"maxDistanceMeters", 200}})));
+  r = fit(Value::object({{"orientation", "keep"}}));
+  ctx.check(!r.find("result")->find("fitted")->asBool() && r.find("result")->find("distanceLimited")->asBool(),
+            "a box beyond maxDistanceMeters reports fitted: false");
+  ctx.near(r.find("result")->find("camera")->find("distance")->asNumber(), 200, 1e-9, "and stops at the limit");
+  ctx.check(h.sink->errors() == 0, "no dropped events");
+  appendEmitted(ctx, *h.sink);
+}

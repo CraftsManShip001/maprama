@@ -20,7 +20,7 @@ export {
   createProjection,
   haversineMeters,
 } from './geo.js';
-export type { LngLat, Projection, ProjectionOptions, WorldPoint } from './geo.js';
+export type { LngLat, LngLatBounds, Projection, ProjectionOptions, WorldPoint } from './geo.js';
 
 export {
   BUILDING_KINDS,
@@ -95,6 +95,7 @@ export type {
 export {
   ANIMATION_NAMES,
   BUILDING_DECORATIONS,
+  CAMERA_FOV_DEG,
   DROP_TYPES,
   LOCATION_SOURCE_KINDS,
   MARKER_ANCHORS,
@@ -102,6 +103,7 @@ export {
   RARITIES,
   ROOF_SHAPES,
   TRAVEL_MODES,
+  visibleSpanMeters,
 } from './entities.js';
 export type {
   AnimationName,
@@ -131,6 +133,7 @@ export {
   ENGINE_COMMAND_TYPES,
   ENGINE_EVENT_TYPES,
   ENGINE_KINDS,
+  FIT_BOUNDS_ORIENTATIONS,
   PROTOCOL_VERSION,
   REQUEST_METHODS,
   SUBSCRIPTION_TOPICS,
@@ -159,6 +162,10 @@ export type {
   EngineKind,
   Envelope,
   ErrorEvent,
+  FitBoundsOrientation,
+  FitBoundsPadding,
+  FitBoundsParams,
+  FitBoundsResult,
   EventEnvelope,
   GeofenceEnterEvent,
   GeofenceExitEvent,

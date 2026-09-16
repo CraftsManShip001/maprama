@@ -29,6 +29,7 @@ const guide: DefaultTheme.SidebarItem[] = [
     text: '지도 만들기',
     items: [
       { text: '월드 데이터와 타일', link: '/guide/world-data' },
+      { text: '카메라', link: '/guide/camera' },
       { text: '테마', link: '/guide/themes' },
       { text: '라벨', link: '/guide/labels' },
       { text: '마커(핀)', link: '/guide/markers' },

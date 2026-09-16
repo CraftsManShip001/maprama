@@ -22,7 +22,10 @@ import type {
   LabelContentMode,
   LabelInfo,
   LabelsSpec,
+  FitBoundsParams,
+  FitBoundsResult,
   LngLat,
+  LngLatBounds,
   LocationFix,
   LocationSourceKind,
   MapUiSpec,
@@ -231,6 +234,9 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
+/** Options of {@link MapramaViewRef.fitBounds}; everything but `timeoutMs` reaches the engine. */
+export interface FitBoundsOptions extends RequestOptions, Omit<FitBoundsParams, 'bounds'> {}
+
 /** Options for `subscribe`. */
 export interface SubscribeOptions {
   /** Character id for `character:position` / `travel:progress`; all characters when absent. */
@@ -265,7 +271,10 @@ export interface MapramaViewRef {
   travel(characterId: string, to: LngLat, modes?: TravelMode | TravelMode[], options?: TravelOptions): Promise<TravelResult>;
   /** Cancels the character's current travel (its promise rejects with `travel_cancelled`). */
   cancelTravel(characterId: string): void;
-  /** Moves the camera; unset fields keep their current value. */
+  /**
+   * Moves the camera; unset fields keep their current value. Also the place to
+   * change `minDistanceMeters` / `maxDistanceMeters` after mount.
+   */
   setCamera(camera: CameraSpec): void;
   /** Injects a location fix (effective with `location.source: 'external'`). */
   pushLocation(fix: LocationFix): void;
@@ -279,6 +288,21 @@ export interface MapramaViewRef {
   snapToRoad(coordinate: LngLat, maxDistanceMeters?: number, options?: RequestOptions): Promise<SnapToRoadResult | null>;
   /** Plans a route without moving anything. */
   route(from: LngLat, to: LngLat, modes?: TravelMode[], options?: RequestOptions): Promise<RouteResult>;
+  /**
+   * Frames a geographic box and moves the camera there, honouring the current
+   * `minDistanceMeters` / `maxDistanceMeters`.
+   *
+   * `padding` is in dp. By default the current pitch and bearing are kept, and
+   * only dropped to straight-down-to-north when that is the only way the box
+   * fits (`options.orientation`). Resolves with the camera it moved to plus
+   * `fitted` — false when the box is larger than `maxDistanceMeters` allows, so
+   * the app can widen the limit, drop a pin from the set, or live with it.
+   *
+   * ```ts
+   * const { fitted } = await map.current.fitBounds(boundsOfMyPins, { padding: { top: 80, bottom: 160, left: 16, right: 16 }, animate: true });
+   * ```
+   */
+  fitBounds(bounds: LngLatBounds, options?: FitBoundsOptions): Promise<FitBoundsResult>;
   /**
    * Low-level request/response call. Rejects with the engine's error code,
    * `timeout`, `engine_reloaded`, `unmounted` or a fatal host code such as

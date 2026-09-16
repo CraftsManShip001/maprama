@@ -124,7 +124,7 @@ Available through `ref` on `MapramaView`, or through `useMapramaView()` inside i
 | --- | --- | --- |
 | `travel(characterId, to, modes?, options?)` | `Promise<TravelResult>` | Resolves on `travel:arrive`. Rejects with `MapramaError` code `travel_cancelled`, `timeout`, `engine_reloaded` or `unmounted`. `options.timeoutMs` bounds the whole trip; `startTimeoutMs` bounds the wait for `travel:start`. |
 | `cancelTravel(characterId)` | `void` | |
-| `setCamera(camera)` | `void` | Unset fields keep their value. |
+| `setCamera(camera)` | `void` | Unset fields keep their value. Also where `minDistanceMeters` / `maxDistanceMeters` are changed after mount. |
 | `pushLocation(fix)` | `void` | For `location.source: 'external'`. |
 | `setBuildingStyle(buildingId, style \| null)` | `void` | |
 | `project(coordinate, options?)` | `Promise<ScreenPoint>` | Request/response correlated by `requestId`; times out after `requestTimeoutMs` (5000). |
@@ -132,6 +132,7 @@ Available through `ref` on `MapramaView`, or through `useMapramaView()` inside i
 | `unproject(point, options?)` | `Promise<LngLat \| null>` | |
 | `snapToRoad(coordinate, maxDistanceMeters?, options?)` | `Promise<SnapToRoadResult \| null>` | |
 | `route(from, to, modes?, options?)` | `Promise<RouteResult>` | |
+| `fitBounds(bounds, options?)` | `Promise<FitBoundsResult>` | Frames a `{ ne, sw }` box: `padding` in dp (a number or per side), optional `pitch` / `bearing`, `orientation` (`auto` / `keep` / `reset`), `animate`. Resolves with the camera it moved to, `fitted` and `distanceLimited`. |
 | `request(method, params, options?)` | `Promise<result>` | Low-level request. |
 | `subscribe(topic, listener, { id?, throttleMs? })` | `() => void` | `character:position`, `camera:change`, `travel:progress`. Engine subscriptions are shared and reference-counted. |
 | `addEventListener(type, listener)` | `() => void` | Any engine event. |

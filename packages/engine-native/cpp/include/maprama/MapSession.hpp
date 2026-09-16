@@ -51,6 +51,8 @@ using ClockMs = std::function<double()>;
 inline constexpr std::string_view kNotReadyCode = "not_ready";
 /// engine-web's error code for `setBuildingStyle` with an id that is not a rendered building.
 inline constexpr std::string_view kUnknownBuildingCode = "unknown_building";
+/// engine-web's non-fatal error code for a `minDistanceMeters` / `maxDistanceMeters` range it had to narrow.
+inline constexpr std::string_view kCameraLimitsClampedCode = "camera_limits_clamped";
 /// `overlay:positions` is emitted at most once per frame (60 Hz).
 inline constexpr double kOverlayIntervalMs = 16.0;
 /// engine-web `OverlayTracker` epsilon: smaller moves are not re-sent.
@@ -140,7 +142,7 @@ class MapSession {
   const LabelPlacementStats& labelStats() const { return labelStats_; }
   void subscribeCamera(double throttleMs);
   void unsubscribeCamera();
-  /// `project` / `unproject`; answered asynchronously through the adapter.
+  /// `project` / `unproject` (answered asynchronously through the adapter) and `fitBounds` (answered at once).
   void request(const std::string& requestId, RequestMethod method, const json::Value& params);
 
   void shutdown();
@@ -197,6 +199,13 @@ class MapSession {
   void loadWorldValue(const json::Value& worldData, const json::Value& initMsg, const std::string& url,
                       const WorldExtras& extras);
   void onWorldLoaded(const WorldLoadReport& report, const json::Value& initMsg, const WorldExtras& extras);
+  /// `request{fitBounds}`: frames a geographic box, moves the camera and answers with the framing.
+  void fitBounds(const std::string& requestId, const json::Value& params);
+  /// Applies `CameraSpec.minDistanceMeters` / `maxDistanceMeters` (sticky) and warns once about a
+  /// range the renderer had to narrow.
+  void applyCameraLimits(const json::Value& cameraSpec);
+  /// The tail shared by `setCamera` and `fitBounds`: animate through the adapter, or set the state.
+  void moveCameraTo(const CameraState& target, double durationMs);
   void setThemeState(const json::Value& themeSpec);
   void setUiState(const json::Value& uiSpec);
   /// World layers for the current look (+ the hooks' layers).
@@ -250,6 +259,9 @@ class MapSession {
   double animatingUntilMs_;
   Viewport viewport_;
   CameraState state_;
+  /// `CameraSpec.minDistanceMeters` / `maxDistanceMeters` in force (meters), if the app set them.
+  std::optional<double> limitMinMeters_;
+  std::optional<double> limitMaxMeters_;
   bool worldReady_ = false;
   /// `state_` changed while no adapter / viewport could take it; sent on the next opportunity.
   bool cameraUnsent_ = false;

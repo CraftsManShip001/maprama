@@ -4,6 +4,7 @@ import {
   ENGINE_EVENT_TYPES,
   PROTOCOL_VERSION,
   PRESETS,
+  REQUEST_METHODS,
   decodeCommand,
   decodeEvent,
   encodeCommand,
@@ -75,6 +76,8 @@ const commands: CommandFixtures = {
   setCamera: [
     { type: 'setCamera', camera: { zoom: 16, animate: true } },
     { type: 'setCamera', camera: { follow: null } },
+    { type: 'setCamera', camera: { minDistanceMeters: 60, maxDistanceMeters: 3330 } },
+    { type: 'setCamera', camera: { maxDistanceMeters: 3330, distance: 3330, animate: { durationMs: 400 } } },
   ],
   upsertCharacters: [
     {
@@ -178,6 +181,24 @@ const commands: CommandFixtures = {
     { type: 'request', requestId: 'q2', method: 'unproject', params: { x: 100, y: 200 } },
     { type: 'request', requestId: 'q3', method: 'snapToRoad', params: { coordinate: here, maxDistanceMeters: 30 } },
     { type: 'request', requestId: 'q4', method: 'route', params: { from: here, to: there, modes: ['subway'] } },
+    { type: 'request', requestId: 'q5', method: 'fitBounds', params: { bounds: { sw: here, ne: there } } },
+    {
+      type: 'request',
+      requestId: 'q6',
+      method: 'fitBounds',
+      params: {
+        bounds: { sw: here, ne: there },
+        padding: { top: 80, right: 16, bottom: 160, left: 16 },
+        orientation: 'reset',
+        animate: { durationMs: 400 },
+      },
+    },
+    {
+      type: 'request',
+      requestId: 'q7',
+      method: 'fitBounds',
+      params: { bounds: { sw: here, ne: there }, padding: 24, pitch: 0, bearing: 90, orientation: 'keep' },
+    },
   ],
 };
 
@@ -231,6 +252,7 @@ describe('fixtures cover the protocol', () => {
     // New messages are appended, so the index of an existing one never moves.
     expect(ENGINE_COMMAND_TYPES.slice(-2)).toEqual(['setMarkerLayer', 'removeMarkerLayer']);
     expect(ENGINE_EVENT_TYPES.at(-1)).toBe('marker:press');
+    expect(REQUEST_METHODS.at(-1)).toBe('fitBounds');
     expect(PROTOCOL_VERSION).toBe(1);
   });
 });
@@ -357,6 +379,21 @@ describe('rejects malformed messages without throwing', () => {
       [{ type: 'upsertCharacters', characters: [{ id: 'a', scale: 0 }] }, '$.msg.characters[0].scale'],
       [{ type: 'setCamera', camera: { pitch: 120 } }, '$.msg.camera.pitch'],
       [{ type: 'setCamera', camera: { animate: 'slow' } }, '$.msg.camera.animate'],
+      [{ type: 'setCamera', camera: { maxDistanceMeters: 0 } }, '$.msg.camera.maxDistanceMeters'],
+      [{ type: 'setCamera', camera: { minDistanceMeters: -1 } }, '$.msg.camera.minDistanceMeters'],
+      [
+        { type: 'request', requestId: 'q', method: 'fitBounds', params: { bounds: { sw: there, ne: here } } },
+        '$.msg.params.bounds',
+      ],
+      [
+        { type: 'request', requestId: 'q', method: 'fitBounds', params: { bounds: { sw: here, ne: there }, padding: -4 } },
+        '$.msg.params.padding',
+      ],
+      [
+        { type: 'request', requestId: 'q', method: 'fitBounds', params: { bounds: { sw: here, ne: there }, orientation: 'tight' } },
+        '$.msg.params.orientation',
+      ],
+      [{ type: 'request', requestId: 'q', method: 'fitBounds', params: {} }, '$.msg.params.bounds'],
       [{ type: 'setGeofences', geofences: [{ id: 'g', center: here, radiusMeters: 0 }] }, '$.msg.geofences[0].radiusMeters'],
       [{ type: 'removeCharacters', ids: 'me' }, '$.msg.ids'],
     ];

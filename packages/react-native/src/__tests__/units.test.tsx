@@ -84,6 +84,13 @@ describe('prop helpers', () => {
     expect(diffCamera({ pitch: 45, center: { lng: 1, lat: 2 } }, { pitch: 45, center: { lng: 1, lat: 3 } })).toEqual({ center: { lng: 1, lat: 3 } });
     expect(diffCamera({ follow: 'me', distance: 10 }, { distance: 10 })).toEqual({ follow: null });
     expect(diffCamera({ follow: null }, {})).toBeNull();
+    // The metre limits are part of the declarative camera, so a prop change sends them.
+    expect(diffCamera({}, { minDistanceMeters: 60, maxDistanceMeters: 3330 })).toEqual({
+      minDistanceMeters: 60,
+      maxDistanceMeters: 3330,
+    });
+    expect(diffCamera({ maxDistanceMeters: 3330 }, { maxDistanceMeters: 3330, pitch: 30 })).toEqual({ pitch: 30 });
+    expect(diffCamera({ maxDistanceMeters: 3330 }, { maxDistanceMeters: 1200 })).toEqual({ maxDistanceMeters: 1200 });
   });
 
   it('toLabelsSpec replaces a content function with custom', () => {

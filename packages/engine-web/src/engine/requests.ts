@@ -81,7 +81,11 @@ function roadPath(world: WorldModel, a: { x: number; z: number }, b: { x: number
   return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1]!.x, p.z - out[i - 1]!.z) > 0.01);
 }
 
-export type RequestHandlers = { [M in RequestMethod]: RequestHandler<M> };
+/**
+ * The request methods answered from world + view services alone. `fitBounds`
+ * is not one of them: it moves the camera, so the engine owns it.
+ */
+export type RequestHandlers = { [M in Exclude<RequestMethod, 'fitBounds'>]: RequestHandler<M> };
 
 export function createRequestHandlers(s: RequestServices): RequestHandlers {
   return {

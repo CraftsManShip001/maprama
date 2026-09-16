@@ -30,7 +30,10 @@ export type { CommandHandler, CommandOf, RequestHandler } from './bridge/dispatc
 export { EventEmitter } from './bridge/emitter.js';
 
 export type { SceneApi, SubscriptionHandler } from './scene-api.js';
-export { CameraController, DIST_MAX, DIST_MIN, PITCH_MAX, PITCH_MIN } from './core/camera.js';
+export { CameraController, DIST_HARD_MAX, DIST_HARD_MIN, DIST_MAX, DIST_MIN, PITCH_MAX, PITCH_MIN, farFor, nearFor } from './core/camera.js';
+export type { DistanceLimits } from './core/camera.js';
+export { FIT_ITERATIONS, fitBounds, fitBoundsOrbit } from './core/fit-bounds.js';
+export type { FitBoundsInput, FitBoundsOutput, FitOrientation, FitPadding } from './core/fit-bounds.js';
 export type { CameraOrbit, FollowTarget } from './core/camera.js';
 export { LAYER_DEFAULT, LAYER_OCCLUDER, LAYER_SILHOUETTE } from './core/renderer.js';
 export type { FrameHook, SilhouetteService } from './core/renderer.js';

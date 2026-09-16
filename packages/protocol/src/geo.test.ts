@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createProjection, DEFAULT_UNIT_METERS, EARTH_RADIUS_METERS, haversineMeters, type LngLat } from './index.js';
+import { CAMERA_FOV_DEG, createProjection, DEFAULT_UNIT_METERS, EARTH_RADIUS_METERS, haversineMeters, visibleSpanMeters, type LngLat } from './index.js';
 
 const SEOUL: LngLat = { lng: 126.978, lat: 37.5665 };
 
@@ -87,5 +87,24 @@ describe('haversineMeters', () => {
   it('is symmetric', () => {
     const b = { lng: 127.0276, lat: 37.4979 };
     expect(haversineMeters(SEOUL, b)).toBeCloseTo(haversineMeters(b, SEOUL), 9);
+  });
+});
+
+describe('camera field of view', () => {
+  it('is the 40 degrees both engines frame `distance` with', () => {
+    expect(CAMERA_FOV_DEG).toBe(40);
+  });
+
+  it('turns a distance into the ground span it shows', () => {
+    // The value integrators were hard-coding: 2 * d * tan(20 deg).
+    expect(visibleSpanMeters(1200)).toBeCloseTo(2 * 1200 * Math.tan((40 * Math.PI) / 360), 9);
+    expect(visibleSpanMeters(1200) / 1200).toBeCloseTo(0.7279, 4);
+    expect(visibleSpanMeters(0)).toBe(0);
+  });
+
+  it('is linear, so a span maps back to a distance', () => {
+    const span = 3000;
+    const distance = span / (visibleSpanMeters(1) || 1);
+    expect(visibleSpanMeters(distance)).toBeCloseTo(span, 6);
   });
 });

@@ -7,7 +7,7 @@
  */
 
 import { clamp, DEG } from '../util/math.js';
-import { DIST_MAX, DIST_MIN, PITCH_MAX, PITCH_MIN, type CameraController } from './camera.js';
+import { PITCH_MAX, PITCH_MIN, type CameraController } from './camera.js';
 
 export interface GestureHandlers {
   /** Tap at CSS pixel coordinates relative to the element. */
@@ -37,7 +37,7 @@ export class GestureController {
     on('pointercancel', (e) => this.end(e));
     on('wheel', (e) => {
       e.preventDefault();
-      this.cam.zoomTo(clamp(this.cam.orbit.distance * (1 + e.deltaY * 0.0012), DIST_MIN, DIST_MAX));
+      this.cam.zoomTo(this.cam.orbit.distance * (1 + e.deltaY * 0.0012));
     }, { passive: false });
   }
 
@@ -70,7 +70,7 @@ export class GestureController {
     if (g.type === 'two') {
       if (this.pointers.size < 2) return;
       const n = this.twoInfo() as Extract<Gesture, { type: 'two' }>;
-      this.cam.zoomTo(clamp((g.dist0 * g.len) / n.len, DIST_MIN, DIST_MAX));
+      this.cam.zoomTo((g.dist0 * g.len) / n.len);
       const o = this.cam.orbit;
       this.cam.rotateBy(g.bearing0 + (n.ang - g.ang) / DEG - o.bearing, clamp(g.pitch0 - (n.midY - g.midY) * 0.3, PITCH_MIN, PITCH_MAX) - o.pitch);
       return;
