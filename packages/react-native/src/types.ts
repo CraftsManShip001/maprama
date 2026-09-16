@@ -147,7 +147,21 @@ export interface MapramaViewProps {
   theme?: ThemeSpec;
   /** Label configuration. Changes send `setLabels`; a `content` function sends `setLabelContent`. */
   labels?: MapramaLabelsProps;
-  /** Map UI elements drawn by the engine. Changes send `setUi`. */
+  /**
+   * Map UI elements drawn by the engine, plus `contentInset`. Changes send `setUi`.
+   *
+   * `ui.contentInset` (dp) is the space app chrome covers — a bottom sheet, a
+   * top bar. The map keeps drawing across the whole view, but everything that
+   * means "where the user is looking" moves into the rest: the camera centre,
+   * `follow` centring, the ornaments (so a sheet can never cover the
+   * attribution), label and marker placement, `ScreenPoint.visible` and the
+   * `bounds` / `radiusMeters` of `camera:idle`. `project` / `unproject` keep
+   * working in full-view screen coordinates.
+   *
+   * ```tsx
+   * <MapramaView ui={{ attribution: true, contentInset: { bottom: sheetHeight } }} … />
+   * ```
+   */
   ui?: MapUiSpec;
   /**
    * Declarative camera. Only fields that changed since the last update are sent
@@ -241,7 +255,11 @@ export interface FitBoundsOptions extends RequestOptions, Omit<FitBoundsParams, 
 export interface SubscribeOptions {
   /** Character id for `character:position` / `travel:progress`; all characters when absent. */
   id?: string;
-  /** Minimum interval between deliveries in ms. Default 250. */
+  /**
+   * Minimum interval between deliveries in ms. Default 250. For `camera:idle`
+   * this is a floor between idle events, not a delay before one: the engine
+   * waits the engine's idle delay (150 ms) of stillness either way.
+   */
   throttleMs?: number;
 }
 
@@ -250,6 +268,7 @@ export interface SubscriptionEventMap {
   'character:position': EngineEventOf<'character:position'>;
   'camera:change': EngineEventOf<'camera:change'>;
   'travel:progress': EngineEventOf<'travel:progress'>;
+  'camera:idle': EngineEventOf<'camera:idle'>;
 }
 
 /** Imperative map API, available through `ref` on `MapramaView` and `useMapramaView()`. */
