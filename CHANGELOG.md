@@ -195,6 +195,22 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   source geometry, so they are stable and cannot collide with OSM ids. The build
   stats gained `buildingsFromOsm`, `buildingsFilled` and `krFillSkipped`. Off by
   default: existing pipelines are unchanged.
+- `@maprama/osm`: **OSM PBF input.** `maprama-osm build --pbf area.osm.pbf
+  --bbox s,w,n,e` builds a world straight from an `.osm.pbf` extract (Geofabrik
+  and friends), so bulk and repeated generation no longer goes through the
+  Overpass API, whose usage policy asks for exactly the opposite. `buildWorld`
+  is untouched: the reader is an adapter that produces the same Overpass-shaped
+  raw payload — the same features (the selector mirrors the Overpass query line
+  for line) in the same order (nodes, ways, relations, ascending by id),
+  including ways that cross the bbox without a vertex inside it. Verified by
+  building the same bbox both ways: Seongsu-dong and Jeonju come out
+  **byte-identical**, and `test/pbf.test.ts` keeps a committed PBF slice and the
+  Overpass response for one block of Seongsu side by side so the two paths
+  cannot drift silently. A national extract is never loaded into memory — three
+  streaming passes, ~380 MB peak RSS and ~25 s for one area out of the 287 MB
+  South Korea file — and the library entry point `extractFromPbf(file, bboxes)`
+  serves any number of areas from a single scan (five areas in 46 s rather than
+  five times 24 s).
 - Release tooling: package metadata, per-package READMEs, `LICENSE` / `NOTICE`
   in every tarball, GitHub Actions CI, `CONTRIBUTING.md` and `SECURITY.md`.
 

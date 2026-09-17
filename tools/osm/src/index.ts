@@ -52,6 +52,8 @@ export {
   parseBBox,
 } from './overpass.js';
 export type { FetchOverpassOptions } from './overpass.js';
+export { PBF_GENERATOR, extractFromPbf, extractOneFromPbf, selectsPbfElement } from './pbf.js';
+export type { ExtractFromPbfOptions, PbfExtractResult, PbfExtractStats } from './pbf.js';
 export { SAMPLES } from './samples.js';
 export type { SampleArea } from './samples.js';
 export type {

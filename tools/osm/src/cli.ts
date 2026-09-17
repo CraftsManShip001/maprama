@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { validateWorldData, type LngLat } from '@maprama/protocol';
 import { buildWorldWithStats, stringifyWorld, type BuildWorldOptions } from './build.js';
 import { fetchOverpass, parseBBox } from './overpass.js';
+import { extractOneFromPbf } from './pbf.js';
 import { PACKAGE_ROOT, SAMPLES } from './samples.js';
 import type { OverpassResponse } from './types.js';
 
@@ -36,12 +37,21 @@ Usage:
                     [--kr-buildings kr.geojson] [--kr-fill-missing]
                     [--simplify-meters 0.5] [--poi-snap-meters 20]
                     [--precision 2] [--include-sidewalks]
+  maprama-osm build --pbf area.osm.pbf --bbox s,w,n,e --out world.json --name <name>
+                    [--save-raw raw.json] [... the same build options]
   maprama-osm sample <${Object.keys(SAMPLES).join('|')}> [--out world.json] [--raw raw.json]
                     [--endpoint url]... [--no-cache] [--kr-buildings kr.geojson]
                     [--kr-fill-missing]
   maprama-osm help
 
 Options:
+  --pbf <file>           Build straight from an .osm.pbf extract (Geofabrik and
+                         friends) instead of an Overpass response. Requires
+                         --bbox; the file is read in three streaming passes and
+                         never held in memory. Use Overpass for one small area,
+                         a PBF for bulk or repeated builds.
+  --save-raw <file>      With --pbf: also write the extracted Overpass-shaped
+                         raw JSON, so the two paths can be diffed
   --kr-buildings <file>  Korean national building GeoJSON (국가공간정보포털
                          GIS건물통합정보, EPSG:4326): a height source for OSM buildings
   --kr-fill-missing      Also emit buildings for polygons in that file that OSM
@@ -171,16 +181,38 @@ export async function main(argv: string[], io: CliIO = defaultIO): Promise<numbe
           options: {
             ...buildOptions,
             raw: { type: 'string' },
+            pbf: { type: 'string' },
+            'save-raw': { type: 'string' },
             out: { type: 'string' },
             name: { type: 'string' },
             bbox: { type: 'string' },
           },
           strict: true,
         });
-        if (!values.raw || !values.out || !values.name) throw new UsageError('build requires --raw, --out and --name');
-        const raw = (await readJson(resolve(values.raw))) as OverpassResponse;
+        if (values.raw && values.pbf) throw new UsageError('build takes either --raw or --pbf, not both');
+        if (!values.raw && !values.pbf) throw new UsageError('build requires --raw or --pbf');
+        if (!values.out || !values.name) throw new UsageError('build requires --out and --name');
+        if (values['save-raw'] && !values.pbf) throw new UsageError('--save-raw only applies to --pbf');
         const options = await toBuildOptions(values, values.name);
-        if (values.bbox) options.bbox = parseBBox(values.bbox);
+        let raw: OverpassResponse;
+        if (values.pbf) {
+          if (!values.bbox) throw new UsageError('build --pbf requires --bbox s,w,n,e');
+          const bbox = parseBBox(values.bbox);
+          const started = Date.now();
+          const extract = await extractOneFromPbf(resolve(values.pbf), bbox, { log: io.stderr });
+          raw = extract.raw;
+          io.stderr(
+            `pbf: ${extract.stats.elements} elements ` +
+              `(${extract.stats.nodes} nodes, ${extract.stats.ways} ways, ${extract.stats.relations} relations` +
+              `${extract.stats.missingNodes > 0 ? `, ${extract.stats.missingNodes} unresolved vertices` : ''}) ` +
+              `in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+          );
+          if (values['save-raw']) await writeText(resolve(values['save-raw']), JSON.stringify(raw));
+          options.bbox = bbox;
+        } else {
+          raw = (await readJson(resolve(values.raw!))) as OverpassResponse;
+          if (values.bbox) options.bbox = parseBBox(values.bbox);
+        }
         await runBuild(raw, resolve(values.out), options, io);
         return 0;
       }

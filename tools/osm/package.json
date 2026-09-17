@@ -60,7 +60,8 @@
   "dependencies": {
     "@maprama/protocol": "^0.1.0",
     "@turf/helpers": "7.4.0",
-    "@turf/intersect": "7.4.0"
+    "@turf/intersect": "7.4.0",
+    "osm-pbf-parser-node": "1.1.4"
   },
   "devDependencies": {
     "@types/node": "26.5.1",
