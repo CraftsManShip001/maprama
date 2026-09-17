@@ -100,6 +100,18 @@ Draco (draco3dgltf) - Apache License 2.0
   Used by tools/assets. @maprama/engine-web loads the Draco decoder at runtime
   from gstatic.com only for Draco-compressed models; it is not bundled.
 
+osm-pbf-parser-node (osm-pbf-parser-node) - MIT License
+  Copyright (c) 2019-2023 Boris Gontar.
+  https://github.com/borisgontar/osm-pbf-parser-node
+  Used by tools/osm to stream OpenStreetMap PBF extracts. It bundles the
+  OSM-binary .proto definitions (fileformat.proto, osmformat.proto), which the
+  OpenStreetMap project publishes for interoperability.
+
+pbf (pbf) - BSD 3-Clause License
+  Copyright (c) 2017, Mapbox. https://github.com/mapbox/pbf
+  Protocol-buffer codec used by osm-pbf-parser-node, and by tools/osm's
+  fixture-generation script.
+
 PMTiles (pmtiles) - BSD 3-Clause License
   https://github.com/protomaps/PMTiles
   Used by services/api.

@@ -5,6 +5,10 @@ OpenStreetMap data (via the Overpass API). It can optionally add building
 heights from the Korean national building dataset, and — where OSM has no
 building at all — the buildings themselves.
 
+Two inputs produce the same world: the **Overpass API** for a single small area,
+and an **`.osm.pbf` extract** (Geofabrik and friends) for bulk or repeated
+builds. See [Which input to use](#which-input-to-use).
+
 - CLI: `maprama-osm` (`fetch`, `build`, `sample`)
 - Library: `buildWorld(raw, options)`, a pure function you can unit-test without network access
 - Sample world: [`samples/seongsu.world.json`](samples/seongsu.world.json) (Seongsu-dong, Seoul), licensed under ODbL 1.0 (see [Licenses and attribution](#licenses-and-attribution))
@@ -36,6 +40,10 @@ maprama-osm build --raw raw.json --out world.json --name "Seongsu-dong, Seoul"
 
 # Both steps for a built-in sample area
 maprama-osm sample seongsu
+
+# Or skip the network: build straight from an .osm.pbf extract
+maprama-osm build --pbf south-korea-latest.osm.pbf \
+  --bbox 37.5410,127.0520,37.5480,127.0610 --out world.json --name "Seongsu-dong, Seoul"
 ```
 
 Regenerate the checked-in sample from the repository root:
@@ -61,10 +69,12 @@ payload to `tools/osm/.cache/samples/seongsu.raw.json`.
 
 | Option | Default | |
 | --- | --- | --- |
-| `--raw <file>` | required | Output of `fetch` (any Overpass `[out:json]` + `out geom` payload works) |
+| `--raw <file>` | one of `--raw`/`--pbf` | Output of `fetch` (any Overpass `[out:json]` + `out geom` payload works) |
+| `--pbf <file>` | one of `--raw`/`--pbf` | An `.osm.pbf` extract ([building from a PBF](#building-from-an-osmpbf-extract)). Requires `--bbox` |
+| `--save-raw <file>` | | With `--pbf`: also write the Overpass-shaped payload the reader produced |
 | `--out <file>` | required | WorldData JSON |
 | `--name <name>` | required | World name |
-| `--bbox s,w,n,e` | `raw.maprama.bbox`, else the data extent | Clip box |
+| `--bbox s,w,n,e` | `raw.maprama.bbox`, else the data extent (required with `--pbf`) | Clip box |
 | `--origin lat,lng` | bbox center | Geographic point mapped to world `(0, 0)` |
 | `--unit-meters <m>` | `8` | Meters per world unit |
 | `--simplify-meters <m>` | `0.5` | Douglas–Peucker tolerance |
@@ -97,6 +107,121 @@ retryable. HTTP 400 (a bad query) is never retried.
 - `MAPRAMA_OVERPASS_ENDPOINT` takes a comma-separated list that overrides the defaults. `MAPRAMA_OSM_USER_AGENT` overrides the User-Agent.
 - Responses are cached in `tools/osm/.cache/overpass-<sha256(query)>.json` (gitignored). Delete the cache or pass `--no-cache` to refresh.
 - Please respect the [Overpass usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html): keep bboxes small and rely on the cache.
+
+## Which input to use
+
+| | Overpass (`fetch` → `build --raw`) | PBF (`build --pbf`) |
+| --- | --- | --- |
+| Best for | **one small area**, a quick look, a one-off world | **bulk and repeated builds**: many areas, re-runs, anything scripted |
+| Needs | network, and a bbox small enough to be polite | a downloaded `.osm.pbf` (South Korea is ~290 MB) |
+| Cost per area | one API request | one pass over the file — but **one pass serves any number of bboxes** (see below) |
+| Freshness | minutes | the extract's own timestamp (Geofabrik rebuilds daily) |
+
+Overpass is a shared volunteer service. Scraping a country through it, one bbox
+at a time, is exactly what its [usage
+policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html) asks
+you not to do — that is what the PBF path is for. Download the extract once and
+build from it as often as you like.
+
+## Building from an `.osm.pbf` extract
+
+```sh
+# Download an extract once (Geofabrik publishes one per country/region)
+curl -O https://download.geofabrik.de/asia/south-korea-latest.osm.pbf
+
+maprama-osm build --pbf south-korea-latest.osm.pbf \
+  --bbox 37.5410,127.0520,37.5480,127.0610 \
+  --out world.json --name "Seongsu-dong, Seoul"
+```
+
+Every other `build` option works unchanged — `--kr-buildings`, `--unit-meters`,
+`--simplify-meters`, and the rest. `--save-raw <file>` additionally writes the
+Overpass-shaped payload the reader produced, which is what you diff when you
+want to see *why* two worlds differ.
+
+**The same builder, the same world.** `--pbf` does not add a second world
+builder. The reader is an adapter that produces the same raw payload shape
+Overpass returns (`[out:json]` with `out geom`) and hands it to the same
+`buildWorld`. Two things make the outputs match:
+
+- **The same features.** `selectsPbfElement` mirrors, line for line, the
+  Overpass QL in `buildOverpassQuery`: `building=*` ways and multipolygon
+  relations, `highway=*` ways, `natural=water` / `waterway=riverbank` /
+  `water=river`, `leisure=park|garden`, `landuse=grass|recreation_ground`, the
+  POI categories, station and `place=*` nodes, and `place=square` ways.
+- **The same order.** Overpass writes nodes, then ways, then relations, each
+  ascending by id, and `buildWorld` breaks a few ties by first-seen (duplicate
+  footprints, station ids, the plaza). The reader emits elements in that order.
+
+`test/pbf.test.ts` holds both sides of a real block of Seongsu-dong — a small
+committed `.osm.pbf` slice and the Overpass response for the same bbox — and
+asserts the two worlds are identical. A change to the Overpass query fails that
+test until the selector is updated too.
+
+### Memory
+
+A national extract is never loaded into memory. The file is read in three
+streaming passes and only what a bbox needs is retained:
+
+1. **Whole file** — which node ids fall inside the bbox, which way ids touch it,
+   the node refs of the selected ways, and the members of the selected relations.
+2. **Way section** — the node refs of relation-member ways the first pass had no
+   reason to keep (a multipolygon's member ways carry no tags). Stops as soon as
+   the last one is seen.
+3. **Node section** — the coordinates of every referenced node, *including the
+   ones outside the bbox*: Overpass returns a way's full geometry and
+   `buildWorld` clips it, so dropping the outside vertices would move the clipped
+   edge. Stops as soon as the last needed id is past.
+
+Passes 2 and 3 skip the sections they do not need without decompressing them.
+
+Measured on the 287 MB Geofabrik South Korea extract (2026-09-16), Node 22,
+Apple silicon laptop:
+
+| Area | Result | Time | Peak RSS |
+| --- | --- | --- | --- |
+| Seongsu-dong, 0.6 km² | 428 buildings, 101 roads | 24 s | 386 MB |
+| Jeonju, 0.6 km² | 1 639 buildings, 241 roads | 24 s | 364 MB |
+| Gangnam, 10.2 km² | 10 132 buildings, 2 091 roads | 29 s | 377 MB |
+| Five areas at once (those three + Haeundae + Gurye) | | 46 s | 446 MB |
+
+Most of that is the fixed cost of reading the file, which is why the size of the
+bbox barely moves the number, and why pulling five areas out in one call costs
+46 s instead of five times 24 s.
+
+### Several areas from one pass
+
+The library entry point takes a list of bboxes and serves all of them from a
+single scan, which is what makes bulk generation practical:
+
+```js
+import { extractFromPbf } from '@maprama/osm';
+
+const results = await extractFromPbf('south-korea-latest.osm.pbf', [seongsu, haeundae, jeonju]);
+for (const { bbox, raw, stats } of results) { /* buildWorld(raw, { name, bbox }) */ }
+```
+
+The CLI's `build --pbf` is the one-bbox case, so **calling it N times reads the
+file N times**. For a handful of areas that is fine; for a tile pipeline, use
+`extractFromPbf` with the whole list.
+
+### Known differences from the Overpass path
+
+- **Ways that cross without touching.** Overpass returns a way that intersects
+  the bbox even when no vertex of it is inside — not a corner case: a 280 m test
+  box in Seongsu-dong already contains one. The reader tracks node ids out to
+  `PBF_CROSSING_PAD_DEG` (0.005°, ~550 m) past the bbox and tests the real
+  geometry, so it finds them too. A *single straight segment* that spans the
+  bbox with both endpoints more than 550 m outside it would still be missed;
+  raise `crossingPadDeg` if your data has such segments.
+- **A feature that swallows the bbox whole.** A polygon large enough to contain
+  the entire box, with no edge crossing it (a bbox in the middle of a lake), is
+  not found by either path.
+- **Freshness.** An extract is a snapshot. Two worlds built from Overpass and
+  from a PBF of different dates differ wherever the map was edited in between;
+  that is data, not a bug. `raw.maprama.fetchedAt` carries the extract's
+  replication timestamp, and `raw.maprama.source` says which path produced the
+  payload.
 
 ## Mapping rules
 
@@ -338,6 +463,14 @@ removed. See [Licenses and attribution](#licenses-and-attribution).
   terms apply to that database. **This includes
   `samples/seongsu.world.json`, which is licensed under ODbL 1.0, not under the
   repository's Apache-2.0 license.**
+- **PBF extracts** (Geofabrik, BBBike, osm.pbf files you cut yourself) are
+  *extracts of OpenStreetMap*, so the ODbL applies to them exactly as it does to
+  an Overpass response: same attribution, same share-alike terms on the worlds
+  you build. Providers can attach terms of their own on top — Geofabrik states
+  that its downloads are OpenStreetMap data under the ODbL and asks that you
+  read its [download terms](https://download.geofabrik.de/) (they cover things
+  like rate of access, not the data licence). Check the page you download from,
+  and keep `© OpenStreetMap contributors` in `attribution[]` either way.
 - **Korean national building data** is distributed under the terms shown on the
   국가공간정보포털 download page (Korean public data is typically released under
   KOGL/공공누리 terms that require source attribution — usually 제1유형, 출처표시).
