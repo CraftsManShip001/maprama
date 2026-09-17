@@ -1,0 +1,15 @@
+{
+  "name": "@maprama/tile-spike",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Throwaway spike backing docs/design/tile-format.md: WorldData -> tiles -> PMTiles, size/time measurement, and an HTTP Range probe.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "tile": "node src/cli.mjs",
+    "probe": "node src/range-probe-server.mjs"
+  },
+  "dependencies": {
+    "pmtiles": "4.5.0"
+  }
+}
