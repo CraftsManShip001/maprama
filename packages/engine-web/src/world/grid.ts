@@ -105,6 +105,7 @@ export function buildGridWorld(seed = 0): WorldModel {
     graph,
     buildings,
     water: [],
+    waterRims: null,
     waterRibbons: [],
     banks: [],
     pads: [],

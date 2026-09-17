@@ -114,7 +114,10 @@ pbf (pbf) - BSD 3-Clause License
 
 PMTiles (pmtiles) - BSD 3-Clause License
   https://github.com/protomaps/PMTiles
-  Used by services/api.
+  Used by services/api, and bundled into @maprama/engine-web, which reads a
+  streamed tile world's archive (`WorldSource { kind: 'tiles' }`) with HTTP
+  range requests. It depends on fflate (MIT, https://github.com/101arrowz/fflate)
+  for gzip where DecompressionStream is unavailable; fflate is bundled with it.
 
 Hono (hono) - MIT License
   Copyright (c) 2021 - present, Yusuke Wada and Hono contributors. https://github.com/honojs/hono

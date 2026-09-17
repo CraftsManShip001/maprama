@@ -669,6 +669,19 @@ export class CharacterManager {
   }
 
   /**
+   * Shifts every character and its trip by a world-unit delta (a tile world's
+   * re-base). Unlike {@link CharacterManager.rebase} this keeps trips running:
+   * the frame moved, the journey did not.
+   */
+  translate(dx: number, dz: number): void {
+    for (const ch of this.chars.values()) {
+      ch.x += dx;
+      ch.z += dz;
+      ch.follower.translate(dx, dz);
+    }
+  }
+
+  /**
    * True while any character still needs frames (movement, a turn, a vehicle
    * tween, a glTF mixer or idle breathing). Computed by {@link step}, so it
    * describes the frame that was just stepped.

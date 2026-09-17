@@ -85,8 +85,12 @@ export class StaticWorldRenderer {
     for (const bank of W.banks) flat(ribbonGeo(bank.pts, bank.width, 0.02, false), parkMat);
     const wm = mats.make(T.water, { roughness: 0.1, metalness: 0.3 });
     for (const rib of W.waterRibbons) flat(ribbonGeo(rib.pts, rib.width, 0.03), wm);
+    // The rim is the closed ring of every water polygon — unless the world
+    // supplies its own rim polylines. A tile world does, because a river cut at
+    // a tile edge must not grow a bank along the cut (`WorldModel.waterRims`).
+    if (W.waterRims) for (const rim of W.waterRims) if (rim.length >= 2) flat(ribbonGeo(rim, 2.4, 0.02), parkMat);
     for (const poly of W.water) {
-      flat(ribbonGeo([...poly, poly[0]!], 2.4, 0.02), parkMat);
+      if (!W.waterRims) flat(ribbonGeo([...poly, poly[0]!], 2.4, 0.02), parkMat);
       flat(polyGeo(poly, 0.03), wm);
     }
 

@@ -22,6 +22,17 @@ export const WORLD_URL: string =
   process.env.EXPO_PUBLIC_MAPRAMA_WORLD_URL ??
   (API_KEY ? `${API_BASE_URL}/v1/worlds/seongsu.json?key=${encodeURIComponent(API_KEY)}` : '');
 
+/**
+ * PMTiles archive for `world.kind: 'tiles'` (the nation-wide streaming screen).
+ *
+ * There is no default: an archive is a gigabyte-scale file that has to be built
+ * with the tile pipeline and hosted somewhere that answers HTTP range requests
+ * with `Access-Control-Allow-Origin: *` and
+ * `Access-Control-Expose-Headers: Content-Range, Content-Length, ETag, Accept-Ranges`.
+ * Without it the screen says so instead of failing.
+ */
+export const TILES_URL: string = process.env.EXPO_PUBLIC_MAPRAMA_TILES_URL ?? '';
+
 /** Probes the API (`GET /v1/usage`) with a short timeout. Resolves `true` when it answered 2xx. */
 export async function probeApi(timeoutMs = 2500): Promise<boolean> {
   if (!API_KEY) return false;

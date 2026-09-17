@@ -2,6 +2,8 @@ import { createProjection, type WorldData } from '@maprama/protocol';
 import { describe, expect, it } from 'vitest';
 import { loadWorldData, resolveWorldSource, WorldLoadError } from './data.js';
 import { asRectangle, normalizeRing, offsetRing, signedArea } from './polygon.js';
+import { buildGridWorld } from './grid.js';
+import { buildTownWorld } from './town.js';
 
 function sampleWorld(): WorldData {
   return {
@@ -143,5 +145,27 @@ describe('polygon helpers', () => {
     expect(Math.max(r.w, r.d)).toBeCloseTo(4);
     expect(Math.min(r.w, r.d)).toBeCloseTo(2);
     expect(asRectangle(normalizeRing([[0, 0], [4, 0], [5, 3], [0, 3]]))).toBeNull();
+  });
+});
+
+describe('non-tile worlds are untouched by tile support', () => {
+  it('leaves every world source that existed before tiles without water rims', () => {
+    // A `null` here is what makes the static renderer take exactly the code
+    // path it took before tile worlds existed (one closed ring per water
+    // polygon, interleaved with the water fill in the same order). Only a tile
+    // world supplies its own rims, because only a tile world has cut edges that
+    // are not banks.
+    expect(loadWorldData(sampleWorld()).waterRims).toBeNull();
+    expect(buildTownWorld(0).waterRims).toBeNull();
+    expect(buildGridWorld(0).waterRims).toBeNull();
+  });
+
+  it('still numbers a data world\u2019s buildings by their position in the document', () => {
+    // Tile worlds seed a building's look from its id (their array order depends
+    // on which tiles are loaded). A `data` world must keep the old behaviour, or
+    // every existing world would change appearance.
+    const world = loadWorldData(sampleWorld());
+    expect(world.buildings.map((b) => b.idx)).toEqual(world.buildings.map((_, i) => i));
+    expect(world.kind).toBe('data');
   });
 });

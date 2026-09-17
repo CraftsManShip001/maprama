@@ -48,10 +48,16 @@ _Last updated: 2026-09-17._
   far zoom band and dropped facade details/roof furniture at high zoom-out factors, no street scenery or
   trees, no cinematic grading/post pass, no drop note sprites or chime, colours read slightly flatter than
   the web engine's PBR-lite shading.
-- **No tile-backed worlds *in the engine*.** `WorldSource` is `data | url | procedural`; `{ kind: 'tiles' }`
-  from DESIGN.md §7 is still design only, so a world an engine renders is one city-sized area. The build
-  side exists: `@maprama/tiles` produces the nationwide MTIL v1 / PMTiles archive
-  (`design/tile-format.md`), and what is missing is the engine that streams it.
+- **Tile worlds are web-only, and re-assembling them stutters.** `WorldSource` now has
+  `{ kind: 'tiles', url, center }` (MTIL v1 over PMTiles, `design/tile-format.md`). The build side is
+  `@maprama/tiles`, which produces the nationwide archive; **engine-web streams it**; the native engine
+  decodes the payload format (`maprama/TileFormat.hpp`, conformance-tested) but does not render it and
+  answers `unsupported`. The web engine re-assembles its whole `WorldModel` whenever the loaded tile set
+  changes, so the frame that crosses a tile boundary is long — measured on a 185-building synthetic
+  fixture under headless software GL: ~1.3 s per re-assemble, 7–9 frames of 240 over 3× the median
+  while panning. Splitting the assemble and the renderer rebuild across frames, or keeping per-tile
+  scene groups instead of one aggregate world, is the next step. Ambient traffic cars are also
+  rebuilt (and therefore teleport) when the road graph changes shape.
 - **`world` is read once at `init`.** Changing worlds means remounting the view (`key`), which rebuilds the
   style and geometry.
 - Compressed glTF (Draco, meshopt) and models with more than 63 joints are rejected with
@@ -59,7 +65,9 @@ _Last updated: 2026-09-17._
 
 ## In progress
 
-Nothing is in flight. The native engine has no capability gap left against the parity matrix; what remains
+`feat/tile-streaming` (unmerged): streamed tile worlds in engine-web, the MTIL v1 reader in
+`@maprama/protocol` and in the C++ core, and the `docs/guide/tile-worlds.md` guide. See the limitation
+above for what is left. The native engine has no capability gap left against the parity matrix; what remains
 are the visual deviations and limitations listed above, real-device measurements, and the M5 work below.
 
 ## Next milestone — M5: app-integration API

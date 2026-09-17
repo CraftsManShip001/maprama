@@ -46,6 +46,40 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+describe('world sources', () => {
+  const TILES: WorldSource = {
+    kind: 'tiles',
+    url: 'https://cdn.example.com/south-korea.pmtiles',
+    center: PLAZA,
+    detailZoom: 15,
+    overviewZoom: 13,
+    tileBudget: 64,
+  };
+
+  it('passes a streamed tile world through to init unchanged', async () => {
+    await render(<MapramaView world={TILES} />);
+    await emit(READY);
+    // The host does not interpret a world source, it forwards it — and
+    // `commands()` decodes every posted command against the protocol, so this
+    // also proves the protocol accepts the shape the host sent.
+    expect(commands()[0]).toMatchObject({ type: 'init', world: TILES });
+  });
+
+  it('forwards a tile world that carries only the required fields', async () => {
+    const minimal: WorldSource = { kind: 'tiles', url: 'https://cdn.example.com/kr.pmtiles', center: PLAZA };
+    await render(<MapramaView world={minimal} />);
+    await emit(READY);
+    expect(commands()[0]).toMatchObject({ type: 'init', world: minimal });
+  });
+
+  it('still forwards a url world exactly as before', async () => {
+    const url: WorldSource = { kind: 'url', url: 'https://example.com/world.json' };
+    await render(<MapramaView world={url} />);
+    await emit(READY);
+    expect(commands()[0]).toMatchObject({ type: 'init', world: url });
+  });
+});
+
 describe('engine host', () => {
   it('renders the web engine in a transparent, non-scrolling WebView', async () => {
     await render(<Map />);

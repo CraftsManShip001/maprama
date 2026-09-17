@@ -1058,6 +1058,8 @@ console.log(`export-fixtures: wrote ${Object.keys(files).length} files (${(total
   } catch (e) {
     throw new Error(`export-fixtures: cannot resolve tsx (run \`npm install\` at the repository root): ${e.message}`);
   }
-  const script = fileURLToPath(new URL('./export-game-fixtures.mjs', import.meta.url));
-  execFileSync(process.execPath, ['--import', tsx, script, outDir], { stdio: 'inherit' });
+  for (const name of ['./export-game-fixtures.mjs', './export-tile-fixtures.mjs']) {
+    const script = fileURLToPath(new URL(name, import.meta.url));
+    execFileSync(process.execPath, ['--import', tsx, script, outDir], { stdio: 'inherit' });
+  }
 }

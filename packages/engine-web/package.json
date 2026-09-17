@@ -62,6 +62,7 @@
   },
   "dependencies": {
     "@maprama/protocol": "^0.1.0",
+    "pmtiles": "4.5.0",
     "three": "0.186.0"
   },
   "devDependencies": {

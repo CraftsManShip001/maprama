@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { BuildingKind, District, LngLat, Poi, Station, Vec2, WorldBounds } from '@maprama/protocol';
+import type { BuildingKind, District, LngLat, Poi, Projection, Station, Vec2, WorldBounds } from '@maprama/protocol';
 import type { RoadGraph } from './graph.js';
 
 /** Massing variants for rectangular lots (prototype `massesFor`). */
@@ -80,7 +80,12 @@ export interface SceneryTree {
   noOutline?: boolean;
 }
 
-export type WorldKind = 'grid' | 'town' | 'data';
+/**
+ * Where a world came from. `tiles` is a streamed PMTiles archive
+ * (`WorldSource { kind: 'tiles' }`): the model is re-assembled from whichever
+ * tiles are loaded, around a render anchor that follows the camera.
+ */
+export type WorldKind = 'grid' | 'town' | 'data' | 'tiles';
 
 /** Source-independent world. */
 export interface WorldModel {
@@ -89,11 +94,33 @@ export interface WorldModel {
   /** Geographic coordinate of world (0, 0). */
   origin: LngLat;
   unitMeters: number;
+  /**
+   * The world's own coordinate conversion, when the equirectangular tangent
+   * plane of `origin` + `unitMeters` is not it.
+   *
+   * Only a tile world sets this. Its frame is Web Mercator (see
+   * `tiles/mercator.ts`): the tangent plane would place tiles kilometres apart
+   * from each other across a country, which is a seam you can see. `origin` and
+   * `unitMeters` stay meaningful — they are the render anchor and the ground
+   * metres per unit *there* — so anything that only reads them keeps working.
+   */
+  projection?: Projection;
   bounds: WorldBounds;
   graph: RoadGraph;
   buildings: BuildingModel[];
   /** Water polygons. */
   water: Vec2[][];
+  /**
+   * Polylines to draw the water rim (bank) along, when it is **not** simply the
+   * closed ring of every `water` polygon.
+   *
+   * Only a tile world sets this. A river clipped at a tile edge gets a straight
+   * cut that is not a bank, and drawing a rim along it puts a green stripe down
+   * the middle of the river (`design/tile-format.md` §3.2). The assembler drops
+   * those edges and passes what is left. `null` means "use the closed rings",
+   * which is what every other world does.
+   */
+  waterRims: Vec2[][] | null;
   /** Water drawn as wide ribbons (procedural river). */
   waterRibbons: Ribbon[];
   /** Park-colored banks along water. */

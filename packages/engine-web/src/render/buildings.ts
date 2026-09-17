@@ -473,7 +473,7 @@ export class BuildingRenderer {
       top = 10.9;
     } else {
       const facadeOn = P.facadeOn && st.facade !== false;
-      const explicitKinds = ctx.world.kind === 'data';
+      const explicitKinds = ctx.world.kind === 'data' || ctx.world.kind === 'tiles';
       const ukey = b.h * P.heightScale > 6.5 || b.kind === 'glass' ? 'glass' : explicitKinds ? b.kind : (['office', 'apartment', 'glass', 'brick'] as const)[b.idx % 4]!;
       const fk = (fstyle === 'real' ? b.kind : fstyle === 'modern' ? 'm_' + MODERN_MAP[b.kind] : fstyle === 'urban' ? 'u_' + URBAN_MAP[ukey] : fstyle === 'soft' ? 'soft' : 'toy') as FacadeKey;
       const F = tex.facade[fk];

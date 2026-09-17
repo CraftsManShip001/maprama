@@ -816,9 +816,14 @@ drawing: `MarkerSystem` (`cpp/src/MarkerSystem.cpp`) is a port of engine-web's `
   release; if absent, a patch adds a `PMTilesFileSource` range-request resource loader].
 - **Two roles.**
   1. The base map (flat, beyond the diorama).
-  2. WorldData carried as vector tiles for large areas, so `init` does not ship multi-megabyte JSON. v1
-     `WorldSource` has no tile kind, so this is a protocol addition (`{kind: "tiles", url, …}`) that
-     engine-web must also implement before either engine exposes it (§11).
+  2. WorldData carried as vector tiles for large areas, so `init` does not ship multi-megabyte JSON.
+     **`WorldSource { kind: "tiles", url, center, … }` now exists** in `@maprama/protocol` and is
+     implemented by engine-web (`design/tile-format.md`, MTIL v1). The C++ core validates the command
+     with the same schema and **decodes the payload** (`maprama/TileFormat.hpp`, conformance-tested
+     against `@maprama/protocol`'s reader in `cpp/tests/tile_tests.cpp`), but nothing streams or draws
+     tiles here yet: `init` with `kind: "tiles"` emits `error{unsupported, fatal: true}` naming
+     `engine="web"`. The MVT schema below is the **superseded** earlier sketch; the shipped format is
+     MTIL over PMTiles, not MVT.
 - **Vector-tile schema carrying WorldData** (MVT v2, extent 4096, zoom 12–16, geometry in lng/lat mercator;
   the core converts it to world units with `Projection`):
 

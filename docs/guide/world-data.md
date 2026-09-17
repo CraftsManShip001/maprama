@@ -127,9 +127,18 @@ CLI는 결과가 3 MB를 넘으면 경고합니다. 넓은 지역은 여러 월�
 
 헤더를 붙일 수 없는 지도 클라이언트는 이 두 경로에서만 `?key=`를 쓸 수 있습니다. 과금 단위는 월드 요청 20, 타일 1입니다. [호스팅 서비스](/service/)를 보세요.
 
-### 타일 기반 WorldData <span class="mpr-badge planned">계획</span>
+### 전국은 타일 월드로
 
-v1 `WorldSource`에는 타일 종류가 없습니다. 넓은 지역을 위해 WorldData를 벡터 타일 레이어(`maprama_roads`, `maprama_buildings`, `maprama_water`, `maprama_parks`, `maprama_pois`, `maprama_stations`, `maprama_districts`)로 싣는 `{ kind: 'tiles', url }` 프로토콜 추가를 설계했습니다. 웹 엔진과 네이티브 엔진이 같은 릴리스에서 함께 지원할 예정입니다. 스키마는 [엔진 구조와 로드맵](./architecture#타일)에 있어요.
+`WorldData` 한 덩어리는 도시 하나 크기까지입니다. 그보다 넓은 지역은 **네 번째 `WorldSource`**를 쓰세요.
+
+```ts
+{ kind: 'tiles', url: 'https://cdn.example.com/south-korea.pmtiles', center: { lng, lat } }
+```
+
+PMTiles 아카이브 하나에서 카메라가 보는 타일만 HTTP Range로 받습니다. 형식은 MTIL v1이고,
+`origin`·`bounds`·`plaza`가 없는 대신 렌더 앵커가 카메라를 따라다닙니다. 쓰는 법, CDN이 보내야 하는
+헤더, `data` 월드와 달라지는 API 표는 **[타일 월드](./tile-worlds)**에 있습니다. 지금은 `engine="web"`만
+지원합니다.
 
 ## 라이선스와 출처 표기
 
