@@ -61,12 +61,22 @@ export interface OverpassRelation {
 
 export type OverpassElement = OverpassNode | OverpassWay | OverpassRelation;
 
-/** Metadata `maprama-osm fetch` stores next to the Overpass payload. */
+/** Metadata `maprama-osm` stores next to the raw payload it writes. */
 export interface RawMeta {
   bbox: BBox;
+  /** Which input produced this payload. Absent means Overpass (the original path). */
+  source?: 'overpass' | 'pbf';
+  /** Overpass endpoint the payload came from. */
   endpoint?: string;
+  /**
+   * When the data was obtained: the request time for Overpass, the extract's
+   * replication timestamp for a PBF.
+   */
   fetchedAt?: string;
+  /** Overpass QL that produced the payload. */
   query?: string;
+  /** Path of the `.osm.pbf` the payload was extracted from. */
+  pbfFile?: string;
 }
 
 /** An Overpass JSON response (optionally with `maprama` metadata). */
