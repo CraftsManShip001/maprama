@@ -198,6 +198,48 @@ function longEdges(m: Mass): EdgeInfo[] {
 const fits = (ring: readonly Vec2[], cx: number, cz: number, w: number, d: number): boolean =>
   [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].every(([u, v]) => pointInPolygon(cx + u!, cz + v!, ring));
 
+/**
+ * True when two `BuildingModel`s with the same id would produce **identical
+ * meshes** — i.e. they differ at most by where their anchor sits.
+ *
+ * `buildOne` reads the footprint only through `localRing`, which subtracts the
+ * anchor and un-rotates by `yaw`, so a pure translation (what a re-base is)
+ * leaves every vertex it generates unchanged. Everything else `buildOne`
+ * branches on is compared here: the seed (`idx`), the height, the rectangle,
+ * the palette index, the kind, the roof, the decorations, the auto massing and
+ * the landmark flag.
+ *
+ * Everything continuous is compared **to a tolerance**, and the ring is
+ * compared relative to the anchor. The reason is arithmetic rather than
+ * sloppiness: the same tile assembled around two different anchors runs the
+ * same values through different float subtractions, so the ring offsets — and
+ * with them the centroid, the fitted rectangle and the yaw derived from them —
+ * agree to the float64 round-off of a world coordinate and not exactly. The
+ * tolerances are far below anything that could reach a pixel: {@link SHAPE_EPS}
+ * world units is 8 µm of ground, and {@link YAW_EPS} radians is 0.02 arcsec.
+ */
+export function sameShape(a: BuildingModel, b: BuildingModel): boolean {
+  if (a.idx !== b.idx || a.ci !== b.ci || a.levels !== b.levels) return false;
+  if (a.kind !== b.kind || a.roof !== b.roof || a.autoShape !== b.autoShape || a.landmark !== b.landmark) return false;
+  if (a.decos.sign !== b.decos.sign || a.decos.antenna !== b.decos.antenna || a.decos.garden !== b.decos.garden) return false;
+  if (!near(a.h, b.h, SHAPE_EPS) || !near(a.yaw, b.yaw, YAW_EPS)) return false;
+  if ((a.rect === null) !== (b.rect === null)) return false;
+  if (a.rect && b.rect && (!near(a.rect.w, b.rect.w, SHAPE_EPS) || !near(a.rect.d, b.rect.d, SHAPE_EPS))) return false;
+  if (a.footprint.length !== b.footprint.length) return false;
+  for (let i = 0; i < a.footprint.length; i++) {
+    const p = a.footprint[i]!, q = b.footprint[i]!;
+    if (!near(p[0] - a.x, q[0] - b.x, SHAPE_EPS) || !near(p[1] - a.z, q[1] - b.z, SHAPE_EPS)) return false;
+  }
+  return true;
+}
+
+/** Largest difference in world units two shapes may have and still count as one. */
+const SHAPE_EPS = 1e-6;
+/** Largest difference in radians two yaws may have and still count as one. */
+const YAW_EPS = 1e-7;
+
+const near = (x: number, y: number, eps: number): boolean => Math.abs(x - y) <= eps;
+
 export type ModelLoader = (uri: string) => Promise<Object3D>;
 
 export class BuildingRenderer {
@@ -217,22 +259,87 @@ export class BuildingRenderer {
     this.group.name = 'buildings';
   }
 
-  /** (Re)creates all buildings of the context's world. Styles survive rebuilds for the same world. */
-  build(ctx: RenderContext): void {
-    const sameWorld = this.ctx?.world === ctx.world;
+  /**
+   * (Re)creates all buildings of the context's world. Styles survive rebuilds
+   * for the same world.
+   *
+   * ### `incremental`
+   *
+   * A streamed tile world hands the renderer a **new `WorldModel` on every tile
+   * change**, and rebuilding 4,345 buildings from scratch is what turns a pan
+   * across a tile boundary into a multi-second stall (measured: 452 ms of CPU
+   * to rebuild, plus the GPU upload of every buffer it just replaced, plus a
+   * full shadow-map redraw over brand-new meshes).
+   *
+   * But a tile change adds and drops *tiles*, not buildings: the several
+   * thousand buildings that were already there come back byte-identical, and a
+   * re-base translates every one of them by the same delta. Both cases are
+   * handled here by keeping the built `Group` and moving it:
+   *
+   * - a building whose id is still present and whose **shape** is unchanged
+   *   ({@link sameShape}, which compares everything `buildOne` reads *except*
+   *   the anchor) keeps its meshes, and only `group.position` is re-set — which
+   *   is exactly what a re-base needs, since the group's contents are in the
+   *   building's own local frame;
+   * - a building that arrived is built;
+   * - a building that left is disposed.
+   *
+   * Reuse is refused outright when the *theme* moved (a different
+   * `RenderParams`, `MaterialFactory` or `TextureSet` object, or a different
+   * `buildingBaseY`), because every mesh was built in a material generation
+   * that `applyTheme` is about to drop. So `setTheme` still rebuilds
+   * everything, and only the tile path asks for reuse.
+   */
+  build(ctx: RenderContext, incremental = false): void {
+    const prev = this.ctx;
+    const sameWorld = prev?.world === ctx.world;
+    // The theme owns the materials every mesh holds: reuse across a theme
+    // change would draw with a disposed generation.
+    const reuse = incremental && prev !== null
+      && prev.params === ctx.params && prev.mats === ctx.mats && prev.tex === ctx.tex
+      && prev.world.buildingBaseY === ctx.world.buildingBaseY;
     this.ctx = ctx;
-    const oldStyles = sameWorld ? new Map([...this.entries].map(([id, e]) => [id, e.style])) : new Map<string, BuildingOverride>();
-    if (!sameWorld) this.styleMap.clear();
-    clearGroup(this.group);
-    this.entries.clear();
+    // Per-building style overrides are keyed by id and survive a tile update
+    // for the same reason a marker does: the world grew, it did not reload.
+    const oldStyles = sameWorld || reuse ? new Map([...this.entries].map(([id, e]) => [id, e.style])) : new Map<string, BuildingOverride>();
+    if (!sameWorld && !reuse) this.styleMap.clear();
+    const old = this.entries;
+    if (!reuse) {
+      clearGroup(this.group);
+      old.clear();
+    }
+    const next = new Map<string, Entry>();
     for (const b of ctx.world.buildings) {
+      const kept = reuse ? old.get(b.id) : undefined;
+      if (kept && sameShape(kept.b, b)) {
+        old.delete(b.id);
+        kept.b = b;
+        // `topX`/`topZ` are in the building's own local frame (see `info`), so
+        // they survive the move untouched; only the group's anchor changes.
+        kept.group.position.set(b.x, ctx.world.buildingBaseY, b.z);
+        next.set(b.id, kept);
+        continue;
+      }
+      if (kept) {
+        old.delete(b.id);
+        this.disposeEntry(kept);
+      }
       const group = new Group();
       group.userData.buildingId = b.id;
       this.group.add(group);
       const e: Entry = { b, group, glow: [], spin: null, top: 0, topX: 0, topZ: 0, bounce: 0, style: oldStyles.get(b.id) ?? {}, model: null, modelUri: null };
-      this.entries.set(b.id, e);
+      next.set(b.id, e);
       this.buildOne(e);
     }
+    for (const e of old.values()) this.disposeEntry(e);
+    old.clear();
+    this.entries = next;
+  }
+
+  /** Removes one building's group from the scene and releases its geometries. */
+  private disposeEntry(e: Entry): void {
+    this.group.remove(e.group);
+    clearGroup(e.group);
   }
 
   has(id: string): boolean {

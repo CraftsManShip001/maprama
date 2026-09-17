@@ -129,6 +129,16 @@ export class TileStreamer {
   }
 
   /**
+   * True while the streamer is covering with the **overview** level — the state
+   * in which the camera is far enough out that a per-tile feature budget
+   * applies (`OVERVIEW_BUILDINGS_PER_TILE`). False for an archive whose two
+   * levels coincide, where there is no "pulled back" state to distinguish.
+   */
+  get isOverview(): boolean {
+    return this.opts.overviewZoom < this.opts.detailZoom && this.currentZoom === this.opts.overviewZoom;
+  }
+
+  /**
    * Chooses a level for a viewport `spanMeters` wide, and returns the tiles
    * needed to cover `coverage` at it.
    *

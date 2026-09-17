@@ -108,6 +108,22 @@ export interface WorldModel {
   bounds: WorldBounds;
   graph: RoadGraph;
   buildings: BuildingModel[];
+  /**
+   * Buildings that exist in the data but are **not** in `buildings`: plain
+   * footprint + height, to be drawn as one merged block instead of as a
+   * modelled building.
+   *
+   * Only a tile world at the overview level sets this. A z13 Seoul view is
+   * 7,641 buildings, and the 2.5D renderer gives each of them its own `Group`
+   * of walls, storefront band, roof, parapet, trims and a contact-shadow decal
+   * — seconds per frame for a picture in which most of them are a few pixels
+   * of roof. So the overview models the ones that carry the skyline
+   * (`OVERVIEW_BUILDINGS_PER_TILE`) and passes the rest here, where the static
+   * renderer extrudes them into **one mesh**: the same silhouettes and the same
+   * shadows for one draw call in the colour pass and one in the shadow pass.
+   * `null` for every other world.
+   */
+  buildingFills: { ring: Vec2[]; h: number }[] | null;
   /** Water polygons. */
   water: Vec2[][];
   /**

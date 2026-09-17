@@ -144,6 +144,20 @@ export class FlatBuildings {
       else byColor.set(color, [cap]);
       outlines.push(ribbonGeo(closed(ring), FLAT_OUTLINE_WIDTH, world.buildingBaseY + OUTLINE_Y));
     }
+    // The overview's un-modelled buildings (`WorldModel.buildingFills`) are
+    // buildings on the map too — the 2D view is where they cost the least and
+    // where leaving them out would show most, since nothing else is drawn in
+    // their blocks. They take the first palette colour, having no `ci` of their
+    // own, and the same outline as everything else.
+    for (const f of world.buildingFills ?? []) {
+      if (f.ring.length < 3) continue;
+      const color = buildingColor(params, 0, undefined);
+      const bucket = byColor.get(color);
+      const cap = capGeometry(f.ring, y);
+      if (bucket) bucket.push(cap);
+      else byColor.set(color, [cap]);
+      outlines.push(ribbonGeo(closed(f.ring), FLAT_OUTLINE_WIDTH, world.buildingBaseY + OUTLINE_Y));
+    }
     let order = 10;
     for (const [color, geos] of byColor) {
       const c = flatColorsFor(color);

@@ -13,6 +13,8 @@ const EXTENT = 8192;
 const BUFFER = 256;
 
 const seoulTile = tileOf(SEOUL.lng, SEOUL.lat, 15);
+/** The overview-level tile over the same place (the budget tests are about z13). */
+const seoulTile13 = tileOf(SEOUL.lng, SEOUL.lat, 13);
 
 /** A tile with a river band clipped at the east and west clip edges. */
 const riverTile = (): MtilTile =>
@@ -131,6 +133,71 @@ describe('assembleTileWorld', () => {
     // 300 dm = 30 m; one world unit is 8 m at the reference latitude, and the
     // tile sits essentially at it.
     expect(w.buildings.find((x) => x.id === 'edge')!.h).toBeCloseTo(30 / 8, 2);
+  });
+
+  /** `n` small buildings plus one tower, all in one tile. */
+  const crowdedTile = (n: number): MtilTile =>
+    decodeTile(
+      encodeTile({
+        extent: EXTENT,
+        buffer: BUFFER,
+        layers: {
+          buildings: [
+            ...Array.from({ length: n }, (_, i) => {
+              const x = 100 + (i % 40) * 120, y = 100 + Math.floor(i / 40) * 120;
+              return { id: `small#${i}`, heightDm: 60, footprint: [[x, y], [x + 60, y], [x + 60, y + 60], [x, y + 60]] as [number, number][] };
+            }),
+            // Small on the ground but 120 m tall: the frontal term has to save it.
+            { id: 'tower', heightDm: 1200, footprint: [[7000, 7000], [7080, 7000], [7080, 7080], [7000, 7080]] },
+            // Large on the ground but one storey: the area term has to save it.
+            { id: 'shed', heightDm: 40, footprint: [[5000, 5000], [5900, 5000], [5900, 5900], [5000, 5900]] },
+          ],
+        },
+      }),
+    );
+
+  it('keeps every building when no budget is given', () => {
+    const w = assembleTileWorld([{ z: 13, x: seoulTile13.x, y: seoulTile13.y, tile: crowdedTile(300) }], { frame: frame(), attribution: [], name: 'x' });
+    expect(w.buildings).toHaveLength(302);
+    expect(w.buildingFills).toBeNull();
+  });
+
+  it('hands what the budget dropped to the merged-block layer, with its height', () => {
+    const w = assembleTileWorld([{ z: 13, x: seoulTile13.x, y: seoulTile13.y, tile: crowdedTile(300) }], { frame: frame(), attribution: [], name: 'x', buildingsPerTile: 20 });
+    // Nothing is lost: what is not modelled is drawn as a block.
+    expect(w.buildings).toHaveLength(20);
+    expect(w.buildingFills).toHaveLength(282);
+    for (const f of w.buildingFills!) {
+      expect(f.ring.length).toBeGreaterThanOrEqual(3);
+      // 60 dm = 6 m, and a world unit is 8 m at the reference latitude.
+      expect(f.h).toBeCloseTo(6 / 8, 2);
+    }
+  });
+
+  it('holds a per-tile building budget, keeping what carries the picture', () => {
+    const tiles = [
+      { z: 13, x: seoulTile13.x, y: seoulTile13.y, tile: crowdedTile(300) },
+      { z: 13, x: seoulTile13.x + 1, y: seoulTile13.y, tile: crowdedTile(300) },
+    ];
+    const w = assembleTileWorld(tiles, { frame: frame(), attribution: [], name: 'x', buildingsPerTile: 20 });
+    // Per tile, not for the world: two tiles keep twice the budget.
+    expect(w.buildings).toHaveLength(40);
+    // Both the tall-and-thin and the low-and-wide outliers survive; the
+    // identical infill is what goes.
+    expect(w.buildings.filter((b) => b.id === 'tower')).toHaveLength(2);
+    expect(w.buildings.filter((b) => b.id === 'shed')).toHaveLength(2);
+  });
+
+  it('gives a tile the same buildings whichever neighbours are loaded', () => {
+    const opts = { frame: frame(), attribution: [], name: 'x', buildingsPerTile: 20 };
+    const alone = assembleTileWorld([{ z: 13, x: seoulTile13.x, y: seoulTile13.y, tile: crowdedTile(300) }], opts);
+    const withNeighbour = assembleTileWorld(
+      [{ z: 13, x: seoulTile13.x, y: seoulTile13.y, tile: crowdedTile(300) }, { z: 13, x: seoulTile13.x + 1, y: seoulTile13.y, tile: crowdedTile(50) }],
+      opts,
+    );
+    const first = new Set(alone.buildings.map((b) => b.id));
+    const again = new Set(withNeighbour.buildings.slice(0, 20).map((b) => b.id));
+    expect([...again].sort()).toEqual([...first].sort());
   });
 
   it('keeps a POI whose building lives in a tile that is not loaded', () => {
