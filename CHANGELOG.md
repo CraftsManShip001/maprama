@@ -15,6 +15,32 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
 
 ### Added
 
+- **Streamed tile worlds** (`WorldSource { kind: 'tiles', url, center, … }`): a
+  map the size of a country, served as **one PMTiles archive** on a CDN, of
+  which the engine reads only the tiles the camera is looking at over HTTP
+  range requests. The payload format is **MTIL v1** (`design/tile-format.md`);
+  `@maprama/protocol` ships its reader (`decodeTile`) and the archive metadata
+  contract, and the C++ core decodes the same bytes (conformance-tested against
+  the TypeScript reader) even though it does not render tile worlds yet — a
+  tile world on `engine="native"` is refused with `unsupported` rather than
+  drawn empty. **`engine="web"` implements it.**
+
+  What the web engine does with it: a Web-Mercator world frame (the
+  equirectangular tangent plane of `data` worlds is out by 48 m at 20 km, which
+  is a visible seam at every tile edge); a **render anchor** that follows the
+  camera so the renderer's `Float32Array` vertex buffers never hold a
+  coordinate large enough to quantise — re-basing it is a pure translation
+  applied to the camera, the geometry, characters and their trips, markers,
+  info cards, geofences, overlay anchors and labels in the same frame (measured
+  across a re-base with the scene otherwise untouched: **no pixel differs by
+  more than 2 of 255**); a 128 m halo so anchor-owned buildings that stick out
+  of their tile are not culled; an LRU tile budget; a detail / overview level
+  switch; the synthetic-edge rule that keeps a clipped river from growing a
+  bank down its middle; attribution read from the archive's string table; and
+  **0 idle frames** — waiting for the network never wakes the render loop.
+  Known cost: the world is re-assembled whenever the tile set changes, which
+  makes that frame long. See the [tile worlds guide](docs/guide/tile-worlds.md),
+  including a table of what changes meaning in a tile world.
 - **2D ⇄ 2.5D view modes** (`view` prop / `ref.setView` / `setView` command /
   `init.view`): the same map drawn either as the tilted diorama (`'2.5d'`, the
   default) or as a flat map (`'2d'`). The engine **never** switches on its own —

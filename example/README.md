@@ -104,6 +104,17 @@ EXPO_PUBLIC_MAPRAMA_API_KEY=mpr_... npx expo run:ios
 | `EXPO_PUBLIC_MAPRAMA_API_KEY` | empty (service features are skipped) | service drops, world URL |
 | `EXPO_PUBLIC_MAPRAMA_WORLD_URL` | `<API_URL>/v1/worlds/seongsu.json?key=<KEY>` | world screen, `url` source |
 | `EXPO_PUBLIC_MAPRAMA_DROPS_CHANNEL` | `coins` | service drops |
+| `EXPO_PUBLIC_MAPRAMA_TILES_URL` | empty (the tile screen says so and skips) | tile world screen |
+
+The **tile world** screen (17) needs a PMTiles archive built with the tile
+pipeline and hosted somewhere that answers HTTP range requests with
+`Access-Control-Allow-Origin: *` and
+`Access-Control-Expose-Headers: Content-Range, Content-Length, ETag, Accept-Ranges`
+— the engine document's origin is `null`, so every request is cross-origin.
+There is no default, because an archive is a gigabyte-scale file that cannot
+live in this repository (it is also OpenStreetMap-derived, so ODbL and not
+Apache-2.0). See [the guide](../docs/guide/tile-worlds.md). The screen is
+`engine="web"` only; the native engine answers `unsupported` for a tile world.
 
 - The dev server keeps everything in memory and has no campaigns until you create one with the admin key (`POST /v1/drops/campaigns`, see `services/api/openapi.yaml`). Until then `GET /v1/drops/nearby` returns no drops.
 - The drops screen probes `GET /v1/usage` first. It mounts the service layer only when the API answers, and otherwise logs "unreachable, skipped". Fetch failures are reported through `onError` (`drops_fetch_failed`) and retried by the library after 2 s, 5 s, then every 15 s.

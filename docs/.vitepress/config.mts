@@ -29,6 +29,7 @@ const guide: DefaultTheme.SidebarItem[] = [
     text: '지도 만들기',
     items: [
       { text: '월드 데이터와 타일', link: '/guide/world-data' },
+      { text: '타일 월드 (전국 스트리밍)', link: '/guide/tile-worlds' },
       { text: '카메라', link: '/guide/camera' },
       { text: '2D ⇄ 2.5D 뷰 모드', link: '/guide/view-modes' },
       { text: '콘텐츠 인셋 (바텀시트)', link: '/guide/content-inset' },
