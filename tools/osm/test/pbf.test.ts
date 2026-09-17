@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorldData } from '@maprama/protocol';
 import { buildWorldWithStats, type BuildWorldOptions } from '../src/build.js';
 import { buildOverpassQuery } from '../src/overpass.js';
-import { extractFromPbf, extractOneFromPbf, selectsPbfElement } from '../src/pbf.js';
+import { extractFromPbf, extractOneFromPbf, selectsPbfElement, surveyPbfNodes } from '../src/pbf.js';
 import type { BBox, OverpassResponse, Tags } from '../src/types.js';
 
 const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -179,5 +179,36 @@ describe('PBF ↔ Overpass parity', () => {
 
   it('rejects an empty bbox list', async () => {
     await expect(extractFromPbf(fixture('seongsu-slice.osm.pbf'), [])).rejects.toThrow(/at least one bbox/);
+  });
+});
+
+describe('surveyPbfNodes', () => {
+  it('counts every node of the file into the cell it falls in', async () => {
+    const counts = await surveyPbfNodes(fixture('seongsu-slice.osm.pbf'), 12);
+    expect(counts.size).toBeGreaterThan(0);
+
+    // The fixture is one small block, so the cells it touches must be the ones
+    // its bbox covers — this is the property a nationwide plan relies on when it
+    // decides a cell is empty and skips it.
+    const n = 2 ** 12;
+    const merc = (lat: number): number => {
+      const s = Math.sin((lat * Math.PI) / 180);
+      return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+    };
+    const x = Math.floor(((FIXTURE_BBOX.west + 180) / 360) * n);
+    const y = Math.floor(merc(FIXTURE_BBOX.north) * n);
+    expect(counts.get(`${x}/${y}`)).toBeGreaterThan(0);
+    expect(counts.get('0/0')).toBeUndefined();
+
+    // Every node, not just the selected ones: the survey is about where data is.
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    const { raw } = await extractOneFromPbf(fixture('seongsu-slice.osm.pbf'), FIXTURE_BBOX);
+    expect(total).toBeGreaterThan(raw.elements.filter((e) => e.type === 'node').length);
+  });
+
+  it('is deterministic', async () => {
+    const a = await surveyPbfNodes(fixture('seongsu-slice.osm.pbf'), 10);
+    const b = await surveyPbfNodes(fixture('seongsu-slice.osm.pbf'), 10);
+    expect([...a].sort()).toEqual([...b].sort());
   });
 });

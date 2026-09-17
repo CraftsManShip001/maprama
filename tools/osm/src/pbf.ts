@@ -574,6 +574,48 @@ export async function extractFromPbf(
   });
 }
 
+/**
+ * Counts the nodes of a `.osm.pbf` per slippy tile at zoom `z`, in one pass over
+ * the node section.
+ *
+ * A nationwide tiling run has to decide two things before it does any work: which
+ * chunks of the grid are worth visiting at all, and how many chunks it can safely
+ * extract in one scan. Both are answered by where the nodes are — South Korea's
+ * grid is mostly sea and ridge line, and {@link extractFromPbf}'s memory is
+ * driven by how many node coordinates a batch has to resolve.
+ *
+ * The scan stops at the first way, because a PBF stores all nodes before them.
+ *
+ * @returns node counts keyed `"<x>/<y>"` at zoom `z`; absent means zero.
+ */
+export async function surveyPbfNodes(
+  file: string,
+  z: number,
+  options: ExtractFromPbfOptions = {},
+): Promise<Map<string, number>> {
+  const log = options.log ?? ((): void => {});
+  const counts = new Map<string, number>();
+  const n = 2 ** z;
+  const t0 = Date.now();
+  await scanPbf(file, (items) => {
+    for (const el of items) {
+      if (el.type !== 'node') return el.type === 'way' ? STOP : undefined;
+      const lat = el.lat!;
+      const lon = el.lon!;
+      const s = Math.sin((lat * Math.PI) / 180);
+      const mx = (lon + 180) / 360;
+      const my = 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+      const x = Math.min(n - 1, Math.max(0, Math.floor(mx * n)));
+      const y = Math.min(n - 1, Math.max(0, Math.floor(my * n)));
+      const key = `${x}/${y}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return undefined;
+  });
+  log(`pbf: survey at z${z} found ${counts.size} non-empty cells in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  return counts;
+}
+
 /** Single-bbox {@link extractFromPbf}. */
 export async function extractOneFromPbf(
   file: string,

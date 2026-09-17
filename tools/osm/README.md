@@ -203,7 +203,27 @@ for (const { bbox, raw, stats } of results) { /* buildWorld(raw, { name, bbox })
 
 The CLI's `build --pbf` is the one-bbox case, so **calling it N times reads the
 file N times**. For a handful of areas that is fine; for a tile pipeline, use
-`extractFromPbf` with the whole list.
+`extractFromPbf` with the whole list. `@maprama/tiles` is built on this entry
+point.
+
+### Finding where the data is
+
+Bulk generation also has to decide *which* areas are worth extracting, and how
+many it can ask for at once. `surveyPbfNodes` answers both in one pass over the
+node section:
+
+```js
+import { surveyPbfNodes } from '@maprama/osm';
+
+const counts = await surveyPbfNodes('south-korea-latest.osm.pbf', 10);
+// Map "<x>/<y>" -> node count, at zoom 10. Absent means the cell has no nodes
+// at all — sea, or the ridge lines that are most of the country.
+```
+
+Most of a national grid is empty, and skipping those cells is the difference
+between hundreds of extractions and a couple of hundred. The counts are also a
+good proxy for what one `extractFromPbf` call will cost in memory, since that
+cost is driven by how many node coordinates it has to resolve.
 
 ### Known differences from the Overpass path
 
