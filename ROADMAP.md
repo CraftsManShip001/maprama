@@ -48,16 +48,40 @@ _Last updated: 2026-09-17._
   far zoom band and dropped facade details/roof furniture at high zoom-out factors, no street scenery or
   trees, no cinematic grading/post pass, no drop note sprites or chime, colours read slightly flatter than
   the web engine's PBR-lite shading.
-- **Tile worlds are web-only, and re-assembling them stutters.** `WorldSource` now has
+- **Tile worlds are web-only, and the overview level is heavy.** `WorldSource` has
   `{ kind: 'tiles', url, center }` (MTIL v1 over PMTiles, `design/tile-format.md`). The build side is
-  `@maprama/tiles`, which produces the nationwide archive; **engine-web streams it**; the native engine
-  decodes the payload format (`maprama/TileFormat.hpp`, conformance-tested) but does not render it and
-  answers `unsupported`. The web engine re-assembles its whole `WorldModel` whenever the loaded tile set
-  changes, so the frame that crosses a tile boundary is long — measured on a 185-building synthetic
-  fixture under headless software GL: ~1.3 s per re-assemble, 7–9 frames of 240 over 3× the median
-  while panning. Splitting the assemble and the renderer rebuild across frames, or keeping per-tile
-  scene groups instead of one aggregate world, is the next step. Ambient traffic cars are also
-  rebuilt (and therefore teleport) when the road graph changes shape.
+  `@maprama/tiles`, which has produced the **nationwide South Korea archive: 126.9 MiB, 109,455 tiles,
+  29.5 min** — measured, not extrapolated; **engine-web streams it** and was driven across the whole
+  country end to end (Gangnam, Seongsu, Busan, a Han-river tile seam, Gurye, Namwon, Odaesan, open sea);
+  the native engine decodes the payload format (`maprama/TileFormat.hpp`, conformance-tested) but does
+  not render it and answers `unsupported`.
+
+  What is fixed: crossing a tile boundary no longer stalls — the assemble is incremental (unchanged
+  buildings keep their meshes and only move), which on **real Seoul data (4,345 buildings)** took the
+  240-frame panning p99 from 4,352 ms to 1,401 ms, max 6,042 → 1,457 ms, and frames over 3× the median
+  from 5 to **0**. Entering the overview no longer freezes either: `chooseZoom` used to hand over on
+  tile *count*, which let 45 z15 tiles (17,906 buildings) assemble at once and block the main thread for
+  ~29 s, and now hands over on a geometric bound.
+
+  What remains: **the overview is reachable but not cheap.** A z13 view is ~7,641 buildings; a per-tile
+  budget models the top 200 by size and merges the rest into one extruded block mesh, which took entry
+  from 61.1 s to 13.5 s and the frame from 7,236 ms to 1,761 ms (`realistic`; `urban` 150.2 s → 18.6 s),
+  but **the overview picture is deliberately not the detail picture** — merged blocks have no facades,
+  roof furniture or outlines. The road graph and the static world are still rebuilt on every tile change
+  (~70 ms together), and ambient traffic cars still teleport when the road graph changes shape. All of
+  these numbers are headless software GL: treat them as ratios, not device figures.
+
+- **Layer sources can be swapped, and parks already are.** `@maprama/tiles` routes each `WorldData`
+  layer through a `TileSource` (`tools/tiles/src/sources.ts`), and `--kr-parks` replaces OSM parks with
+  the Korean 토지이음 (도시계획)시설정보 dataset (공공누리 제1유형). Doing it touched **no pipeline code** —
+  one source implementation and one routing line — which is the evidence that buildings, roads and water
+  can follow the same way. It roughly doubles park area (Seoul 61.3 → 146.2 km², because OSM barely maps
+  도시자연공원 like 남산 as park polygons) and **makes labels worse** (Seoul 1,666 → 937 distinct names;
+  `DGM_NM` is often a category such as 근린공원, not a name), so the next step there is Korean geometry
+  joined to OSM names. Default routing is unchanged, so a build without the file is byte-identical to
+  before. Attribution is per tile and was verified to split correctly. See
+  `design/korea-data-sources.md` for what each layer can legally come from — including the traps, such
+  as the same UPIS source being 제1유형 down one path and 제4유형 down another.
 - **`world` is read once at `init`.** Changing worlds means remounting the view (`key`), which rebuilds the
   style and geometry.
 - Compressed glTF (Draco, meshopt) and models with more than 63 joints are rejected with
@@ -129,10 +153,13 @@ Driven by the first integrator (a location-based game app). Their priority order
    (fixture-conformance tested) and then warn-logs and ignores them; the native flat renderer,
    the pitch lock and the transition are the remaining work.
 
-Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds (the
-PMTiles pipeline is `tools/tiles`; the engine side is not built) and a flat basemap outside the diorama. Full replacement of a nationwide map
-needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far as the app's
-`maxDistanceMeters` allows (the renderer serves up to 1,000 world units, 8 km at 8 m per unit).
+Also requested, lower priority: `ref.setWorld(source)` without a remount, and a flat basemap outside the
+diorama. **Tile-backed worlds are no longer on this list — they are built**: `@maprama/tiles` produces
+the nationwide archive and engine-web streams it (see the gap entry above for what is still rough).
+Replacing a nationwide map now needs `setWorld` only if the app wants to change world *source* without a
+remount; a tile world already covers the whole country in one `init`. A single-city "diorama view"
+screen reaches as far as the app's `maxDistanceMeters` allows — note that the **default 1,200 m ceiling
+never reaches the overview level**, so an app that wants the zoomed-out view has to raise it.
 
 ### Backlog from the same integration review
 
