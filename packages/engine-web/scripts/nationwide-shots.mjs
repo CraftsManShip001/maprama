@@ -339,6 +339,46 @@ if (want('fly')) {
   console.log('       (headless software GL — relative, not a device number)');
 }
 
+/* ------------------------------------------------------------ overview */
+
+if (want('overview')) {
+  console.log('\noverview (z13) — pulling back from Gangnam to 7.2 km');
+  // `realistic` and `urban` are measured separately because they are the two
+  // ends of what the overview costs: `urban` adds facade details and outlines
+  // to every building, so it is the preset that hurts.
+  for (const preset of ['realistic', 'urban']) {
+    await load(`${BASE.replace('preset=urban', `preset=${preset}`)}&lng=127.0276&lat=37.4979&maxDist=8000&dist=70&pitch=40&bearing=0`);
+    const ov = await evaluate(`(async () => {
+      const e = window.__engine, s = e.scene;
+      const hold = s.addActiveSource('overview-measure');
+      const quiet = async () => { let q = 0; await new Promise((r) => { const off = s.onFrame(() => { q = s.activeSources().includes('tiles') ? 0 : q + 1; if (q > 6) { off(); r(); } }); }); };
+      const frames = (n) => new Promise((r) => { let i = 0; const off = s.onFrame(() => { if (++i >= n) { off(); r(); } }); });
+      try {
+        const t0 = performance.now();
+        await e.dispatch({ type: 'setCamera', camera: { distance: 7200 } });
+        await quiet();
+        const enter = performance.now() - t0;
+        // Then 12 settled frames, with nothing streaming, to time the view itself.
+        const times = []; let last = performance.now();
+        const off = s.onFrame(() => { const now = performance.now(); times.push(now - last); last = now; });
+        await frames(8);
+        off();
+        const sorted = [...times].sort((a, b) => a - b);
+        const w = s.world(), t = s.tileWorld();
+        return { enter, frame: sorted[Math.floor(sorted.length / 2)], worst: sorted[sorted.length - 1],
+                 buildings: w.buildings.length, edges: w.graph.edges.length, stats: t.stats(),
+                 distanceMeters: s.camera.orbit.distance * w.unitMeters };
+      } finally { hold(); }
+    })()`);
+    await shot(`overview-${preset}`);
+    console.log(`  ${preset}: entered in ${ov.enter.toFixed(0)} ms — ${ov.buildings} buildings, ${ov.edges} road edges over ${ov.stats.loaded} tiles at z${ov.stats.zoom}, camera ${ov.distanceMeters.toFixed(0)} m`);
+    console.log(`       settled frame time: median ${ov.frame.toFixed(0)} ms, worst ${ov.worst.toFixed(0)} ms   (headless software GL)`);
+    check(ov.stats.zoom === 13, `  ${preset}: the streamer is at the overview level (z${ov.stats.zoom})`);
+    check(ov.buildings > 200, `  ${preset}: the overview still has a city in it (${ov.buildings} buildings)`);
+    check(consoleErrors.length === 0, `  ${preset}: no console errors${consoleErrors.length ? ` — ${consoleErrors[0]}` : ''}`);
+  }
+}
+
 /* ------------------------------------------------------- idle + memory */
 
 if (want('idle')) {
