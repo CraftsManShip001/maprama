@@ -142,7 +142,21 @@ export class TileStreamer {
     const overview = this.opts.overviewZoom;
     if (overview >= detail) return detail;
     const budget = Math.max(4, Math.floor(this.opts.budget * ZOOM_FIT_FRACTION));
-    return tilesNeeded(coverage, detail) <= budget ? detail : overview;
+    // The budget alone is not a safe hand-over point, because it counts tiles
+    // and what costs is what is *in* them. Measured on the nationwide archive
+    // (Gangnam, camera pulled out to 7.2 km): the budget rule kept the detail
+    // level until 45 z15 tiles were wanted, which assemble into a world of
+    // 17,906 buildings and 25,957 road edges — one synchronous re-assemble and
+    // renderer rebuild that blocked the main thread for ~29 s on headless
+    // software GL. The same view at the overview level is 6 tiles, 7,641
+    // buildings, and a few seconds.
+    //
+    // So the hand-over is capped by geometry as well: once the detail level
+    // needs more ground than a single overview tile covers, the overview level
+    // is by definition the right resolution for what is on screen, and it is
+    // also the last point at which one re-assemble is still affordable.
+    const perOverviewTile = 4 ** (detail - overview);
+    return tilesNeeded(coverage, detail) <= Math.min(budget, perOverviewTile) ? detail : overview;
   }
 
   /**
