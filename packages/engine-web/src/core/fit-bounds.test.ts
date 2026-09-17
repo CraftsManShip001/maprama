@@ -216,4 +216,32 @@ describe('elevated points (the focusOn prism)', () => {
       }
     }
   });
+
+  // A roof-anchored `<InfoCard>` frames a slab that floats at the building's roof rather than a
+  // column standing on the ground. Re-centring used to sample the ground plane under the slab's
+  // screen centre, which for a tall building lands far behind it: the camera walked away and the
+  // next iteration collapsed the distance onto `minDistance` and reported `fitted: false`.
+  const slab = (baseY: number, height = 1.5, half = 6) => [
+    ...box(half).map((p) => ({ ...p, y: baseY })),
+    ...box(half).map((p) => ({ ...p, y: baseY + height })),
+  ];
+
+  it('frames a slab floating over a tall building instead of collapsing onto the near limit', () => {
+    // 0–20 units is 0–160 m at `unitMeters: 8` — ordinary Seoul / Busan tower heights.
+    for (const pad of [0, 8, 24]) {
+      for (const baseY of [0, 2, 4, 8, 10, 12, 14, 16, 20]) {
+        const padding = { top: pad, right: pad, bottom: pad, left: pad };
+        const out = fitBoundsOrbit(base({ corners: slab(baseY), padding, pitch: 55, bearing: 0, startDistance: 40 }));
+        const at = `pad ${pad}, baseY ${baseY}`;
+        expect(out.fitted, at).toBe(true);
+        expect(out.distanceLimited, at).toBe(false);
+        expect(out.distance, `${at} is not wedged against the near limit`).toBeGreaterThan(DIST_MIN + 1e-6);
+      }
+    }
+    // Not asserted, and deliberately so: the chosen distance is **not** monotonic in `baseY`. The
+    // search still lands raggedly for elevated boxes (it returns the closest iterate that enclosed
+    // the box, not the closest view that could), so a higher slab is sometimes framed from further
+    // away than a lower one. The camera always frames the card; it is not always as tight as it
+    // could be. See ROADMAP for the structural fix (an orbit target that can leave the ground).
+  });
 });

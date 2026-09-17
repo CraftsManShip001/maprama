@@ -128,11 +128,22 @@ needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far
 
 Each of these is a real gap found while answering an integrator's questions against the code:
 
-- **`focusOn({ infoCardId })` answers `fitted: false`.** Observed on both platforms while running
-  Maestro flow 14 (iOS 135 m, Android 167 m), where the same screen's first `focusOn` by coordinate
-  answers `fitted: true`. Framing a card by its own anchor and float height is the case the request
-  exists for, so "could not fit" there is either a real solver miss or a wrong success criterion.
-  Nothing asserts `fitted` today, so this went unnoticed until someone read the readout.
+- **`focusOn` framing of elevated boxes is still ragged** (the collapse itself is fixed). Chasing the
+  `fitted: false` that Maestro flow 14 reported found a real defect: `fitBoundsOrbit`'s re-centring
+  step sampled the **ground** plane under the box's screen centre, which for a slab floating at a
+  roof lands far behind it, so the camera walked away and the next iterate wedged the distance
+  against `minDistance` — the camera slammed to the near limit instead of framing the card. Fixed by
+  sampling the box's own mid-height plane and by keeping the closest iterate that actually enclosed
+  the box. What is **not** fixed: the search is a fixed point that does not settle for elevated
+  corners (moving the target moves the camera, and an elevated box slides on screen faster than a
+  ground one), so the chosen distance is not monotonic in the anchor height — a card on a 112 m roof
+  can be framed from further away than one on a 160 m roof. It always frames the card; it is not
+  always as tight as it could be. The structural fix is an orbit target that can leave the ground,
+  which touches all of `CameraController`.
+  **Engine parity:** the fallback changes what `fitted` reports in the "search failed but an earlier
+  iterate was good" case, and the C++ port (`camera_math::fitBounds`) does not have it yet, so the
+  native engine can answer `fitted: false` where the web engine answers `true`. No fixture covers
+  that path today — port it with the native `focusOn`.
 - **A ground-anchored info card is clamped over the app's own header.** With `anchor: 'ground'` the
   card lands at the top-left of the viewport and its title sits under the example app's "engine
   ready" badge. Card clamping knows the engine's ornaments and `ui.contentInset`, but an app's own

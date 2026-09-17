@@ -130,6 +130,7 @@ export function groundAt(
   basis: Basis,
   px: number, py: number,
   width: number, height: number, tanHalf: number,
+  planeY = 0,
 ): WorldPoint | null {
   const aspect = width / height;
   const ndcX = (px / width) * 2 - 1, ndcY = -(py / height) * 2 + 1;
@@ -138,7 +139,7 @@ export function groundAt(
   const dy = basis.ry * dcx + basis.uy * dcy + basis.by * dcz;
   const dz = basis.rz * dcx + basis.uz * dcy + basis.bz * dcz;
   if (Math.abs(dy) < 1e-9) return null;
-  const t = -basis.cy / dy;
+  const t = (planeY - basis.cy) / dy;
   if (!(t > 0)) return null;
   return { x: basis.cx + dx * t, z: basis.cz + dz * t };
 }
@@ -158,13 +159,29 @@ export function fitBoundsOrbit(input: FitBoundsInput): FitBoundsOutput {
   const rh = Math.max(1, height - padding.top - padding.bottom);
   const rectCx = x0 + rw / 2, rectCy = y0 + rh / 2;
 
-  let cx = 0, cz = 0;
-  for (const c of corners) { cx += c.x; cz += c.z; }
+  let cx = 0, cz = 0, loY = Infinity, hiY = -Infinity;
+  for (const c of corners) {
+    cx += c.x; cz += c.z;
+    const y = heightOf(c);
+    if (y < loY) loY = y;
+    if (y > hiY) hiY = y;
+  }
   cx /= Math.max(1, corners.length);
   cz /= Math.max(1, corners.length);
+  const midY = corners.length === 0 ? 0 : (loY + hiY) / 2;
 
   let d = clamp(input.startDistance, minDistance, maxDistance);
   let raw = d;
+  // The scale/re-centre iteration is a fixed point, and for corners that float above the ground it
+  // does not always settle: moving the target also moves the camera, and an elevated box shifts on
+  // screen faster than a ground one, so the pair can oscillate and leave the last iterate wedged
+  // against `minDistance`. Keep the closest iterate that actually enclosed the box and fall back to
+  // it, so a ragged search reports the view it genuinely found instead of a collapsed one.
+  let best: { x: number; z: number; d: number } | null = null;
+  const remember = (): void => {
+    if (!enclosed(corners, cx, cz, d, input, tanHalf, x0, y0, rw, rh)) return;
+    if (best === null || d < best.d) best = { x: cx, z: cz, d };
+  };
   for (let i = 0; i < FIT_ITERATIONS; i++) {
     const basis = basisFor(cx, cz, d, input.pitch, input.bearing);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, behind = false;
@@ -186,17 +203,30 @@ export function fitBoundsOrbit(input: FitBoundsInput): FitBoundsOutput {
     const scale = Math.min(rw / Math.max(1e-6, maxX - minX), rh / Math.max(1e-6, maxY - minY));
     raw = d / scale;
     d = clamp(raw, minDistance, maxDistance);
-    // Re-centre: put the ground point currently under the box's screen centre under the rectangle's.
+    // Re-centre: put the point currently under the box's screen centre under the rectangle's.
+    // The sampling plane is the box's own mid height, not the ground: for a box floating in the air
+    // (a roof-anchored info card) the ground ray through its screen centre lands far behind it, so
+    // sampling at y = 0 walks the camera away and the next iteration collapses the distance onto
+    // `minDistance`. With no heights (plain `fitBounds`) `midY` is 0 and this is the old behaviour.
     const moved = basisFor(cx, cz, d, input.pitch, input.bearing);
-    const at = groundAt(moved, (minX + maxX) / 2, (minY + maxY) / 2, width, height, tanHalf);
-    const want = groundAt(moved, rectCx, rectCy, width, height, tanHalf);
+    const at = groundAt(moved, (minX + maxX) / 2, (minY + maxY) / 2, width, height, tanHalf, midY);
+    const want = groundAt(moved, rectCx, rectCy, width, height, tanHalf, midY);
     if (at && want) {
       cx += at.x - want.x;
       cz += at.z - want.z;
     }
+    remember();
   }
 
-  const fitted = enclosed(corners, cx, cz, d, input, tanHalf, x0, y0, rw, rh);
+  let fitted = enclosed(corners, cx, cz, d, input, tanHalf, x0, y0, rw, rh);
+  if (!fitted && best !== null) {
+    const b: { x: number; z: number; d: number } = best;
+    cx = b.x;
+    cz = b.z;
+    d = b.d;
+    raw = d;
+    fitted = true;
+  }
   return {
     x: cx,
     z: cz,
