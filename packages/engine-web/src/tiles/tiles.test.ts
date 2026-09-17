@@ -237,6 +237,24 @@ describe('TileStreamer', () => {
     expect(s.step(boxAround(SEOUL.lng, SEOUL.lat, 0.2)).zoom).toBe(13);
   });
 
+  it('drops to the overview level once the detail level spans more than one overview tile, however big the budget', () => {
+    // The budget alone is not enough. On the nationwide archive a generous
+    // budget kept the detail level until 45 z15 tiles were wanted over Gangnam,
+    // which assemble into 17,906 buildings — one synchronous re-assemble that
+    // blocked the main thread for ~29 s. The area of a single overview tile is
+    // the hard ceiling on how much detail is ever assembled at once.
+    const s = new TileStreamer(fakeArchive(), { detailZoom: 15, overviewZoom: 13, budget: 4096, onChange: () => {} });
+    const perOverviewTile = 4 ** (15 - 13);
+    const small = boxAround(SEOUL.lng, SEOUL.lat, 0.002);
+    expect(tilesNeeded(small, 15)).toBeLessThanOrEqual(perOverviewTile);
+    expect(s.step(small).zoom).toBe(15);
+    // Roughly the 7 km the camera sees pulled out to the overview distance.
+    const wide = boxAround(SEOUL.lng, SEOUL.lat, 0.04);
+    expect(tilesNeeded(wide, 15)).toBeGreaterThan(perOverviewTile);
+    expect(tilesNeeded(wide, 15)).toBeLessThanOrEqual(4096 * 0.5);
+    expect(s.step(wide).zoom).toBe(13);
+  });
+
   it('throws away tiles the camera left behind, budget or no budget', async () => {
     const archive = fakeArchive();
     const s = new TileStreamer(archive, { detailZoom: 15, overviewZoom: 13, budget: 1000, onChange: () => {} });
