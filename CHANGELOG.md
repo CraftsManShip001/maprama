@@ -38,9 +38,26 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   switch; the synthetic-edge rule that keeps a clipped river from growing a
   bank down its middle; attribution read from the archive's string table; and
   **0 idle frames** — waiting for the network never wakes the render loop.
-  Known cost: the world is re-assembled whenever the tile set changes, which
-  makes that frame long. See the [tile worlds guide](docs/guide/tile-worlds.md),
-  including a table of what changes meaning in a tile world.
+  A tile change and a re-base **do not rebuild the buildings**: a building
+  whose id and shape came back unchanged keeps its meshes and only its group
+  moves, so only what arrived is built and only what left is dropped. On the
+  nationwide archive, panning 240 frames over a real 4,345-building Seoul, this
+  takes the 99th-percentile frame from 4,352 ms to 1,282 ms, the worst frame
+  from 6,042 ms to 1,543 ms, and the number of frames over three times the
+  median from 5 to **0** (headless software GL — a ratio, not a device number).
+  Still rebuilt on every tile change: the road graph, the static world and the
+  world model itself (measured at 70 ms together, against 452 ms for the
+  buildings).
+
+  At the **overview level** the engine holds a per-tile building budget
+  (`OVERVIEW_BUILDINGS_PER_TILE`, 200): a z13 Seoul view is 7,641 buildings, of
+  which the largest by ground and frontal area are modelled and the rest are
+  extruded to their real heights and merged into **one mesh** — one draw call
+  in the colour pass and one in the shadow pass. Pulling back to 7.2 km over
+  Gangnam goes from 61.1 s to 13.5 s to enter and from 7,236 ms to 1,791 ms per
+  frame (`realistic`), and from 150.2 s / 13,179 ms to 18.7 s / 2,427 ms
+  (`urban`). See the [tile worlds guide](docs/guide/tile-worlds.md), including a
+  table of what changes meaning in a tile world.
 - **2D ⇄ 2.5D view modes** (`view` prop / `ref.setView` / `setView` command /
   `init.view`): the same map drawn either as the tilted diorama (`'2.5d'`, the
   default) or as a flat map (`'2d'`). The engine **never** switches on its own —
