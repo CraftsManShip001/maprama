@@ -1,13 +1,20 @@
 /**
  * engine-web playground. Hash parameters (all optional):
  *
- * `layout=grid|town|sample` · `preset=realistic|toy|minimal|modern|urban|soft` ·
+ * `layout=grid|town|sample|tiles` · `preset=realistic|toy|minimal|modern|urban|soft` ·
  * `tod=day|golden|dusk|night` · `cine=0|1` · `zo=none|mapColors|keepGameView` ·
  * `dist` (world units) · `pitch` · `bearing` · `x`,`z` (world units center) ·
  * `massing=box|varied` · `details=0|1` · `facade=0|1` · `outline=0|1` ·
  * `shadows=0|1` · `lanes=0|1` · `crosswalks=0|1` · `props=0|1` · `parked=0|1` ·
  * `panel=0` (hide controls) · `frames` (frames to render before signalling ready) ·
- * `world=<url>` (WorldData JSON for `layout=sample`, default `./sample-world.json`).
+ * `world=<url>` (WorldData JSON for `layout=sample`, default `./sample-world.json`) ·
+ * `tiles=<url>` (PMTiles archive for `layout=tiles`, default
+ * `/fixtures/streaming.pmtiles`) · `lng`,`lat` (where a tile world opens;
+ * default the fixture's Seoul block) · `budget=<n>` (`tileBudget`) ·
+ * `tileSettle=<ms>` (wait for tiles to arrive before signalling ready; the
+ * default waits until the streamer goes quiet) · `maxDist=<m>` (raises
+ * `camera.maxDistanceMeters`; the engine default caps at 1,200 m, which a tile
+ * world has to lift to reach its overview level).
  *
  * Part 2: `labels=off|app|minimal|clean|sticker|ground|sign|holo` (default off) ·
  * `icons=auto|white|black|color` · `content=nameAndType|nameOnly|textOnly|custom`
@@ -87,12 +94,12 @@ const pick = <T extends string>(k: string, allowed: readonly T[]): T | undefined
   return v && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
 };
 
-type Layout = 'grid' | 'town' | 'sample';
+type Layout = 'grid' | 'town' | 'sample' | 'tiles';
 type TravelChoice = TravelMode | 'mixed';
 const TRAVEL_CHOICES: readonly TravelChoice[] = ['walk', 'bike', 'car', 'plane', 'subway', 'mixed'];
 const MUSIC_DROPS: readonly DropType[] = ['coin', 'cd', 'vinyl', 'note'];
 const state = {
-  layout: (pick<Layout>('layout', ['grid', 'town', 'sample']) ?? 'town') as Layout,
+  layout: (pick<Layout>('layout', ['grid', 'town', 'sample', 'tiles']) ?? 'town') as Layout,
   preset: pick<PresetName>('preset', PRESET_NAMES) ?? 'urban',
   tod: pick<TimeOfDay>('tod', TIMES_OF_DAY) ?? 'day',
   zo: pick<ZoomOutBehavior>('zo', ZOOM_OUT_BEHAVIORS) ?? 'keepGameView',
@@ -401,7 +408,7 @@ async function demoTravel(choice: TravelChoice): Promise<void> {
 async function init(world?: WorldSource): Promise<void> {
   window.__MAPRAMA_READY__ = false;
   hasPlayer = false;
-  const source: WorldSource = world ?? (state.layout === 'sample' ? { kind: 'url', url: params.get('world') || './sample-world.json' } : { kind: 'procedural', layout: state.layout });
+  const source: WorldSource = world ?? sourceForLayout();
   await engine.dispatch({ type: 'init', world: source, theme: theme(), labels: labelsSpec(), ui: uiSpec(), locationSource: state.loc, view: state.view });
   const scene = engine.scene;
   if (!scene) return;
@@ -418,7 +425,53 @@ async function init(world?: WorldSource): Promise<void> {
   window.__MAPRAMA_READY__ = true;
 }
 
-async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel): Promise<void> {
+/** The `WorldSource` the current `layout` means. */
+function sourceForLayout(): WorldSource {
+  if (state.layout === 'tiles') {
+    const budget = num('budget');
+    return {
+      kind: 'tiles',
+      url: params.get('tiles') || '/fixtures/streaming.pmtiles',
+      center: { lng: num('lng') ?? 127.056, lat: num('lat') ?? 37.5445 },
+      ...(budget && budget > 0 ? { tileBudget: Math.round(budget) } : {}),
+    };
+  }
+  if (state.layout === 'sample') return { kind: 'url', url: params.get('world') || './sample-world.json' };
+  return { kind: 'procedural', layout: state.layout };
+}
+
+/**
+ * Waits until the streamed world has stopped changing: the engine holds the
+ * `tiles` render source while requests are in flight, so "quiet" is simply that
+ * source being gone for a few frames in a row. Waiting on the engine's own
+ * state rather than on a timer keeps the capture deterministic on a slow
+ * software-GL run.
+ */
+async function waitForTiles(scene: NonNullable<typeof engine.scene>): Promise<void> {
+  const explicit = num('tileSettle');
+  if (explicit !== undefined) {
+    await new Promise((r) => setTimeout(r, explicit));
+    return;
+  }
+  let quiet = 0;
+  await new Promise<void>((resolve) => {
+    const off = scene.onFrame(() => {
+      quiet = scene.activeSources().includes('tiles') ? 0 : quiet + 1;
+      if (quiet >= 8) {
+        off();
+        resolve();
+      }
+    });
+  });
+}
+
+async function setUpScene(scene: NonNullable<typeof engine.scene>, world: WorldModel): Promise<void> {
+  let w = world;
+  if (state.layout === 'tiles') {
+    await waitForTiles(scene);
+    // A tile world replaces its model as tiles arrive: frame the settled one.
+    w = scene.world() ?? w;
+  }
   const x = num('x') ?? w.start.x, z = num('z') ?? w.start.z;
   await engine.dispatch({
     type: 'setCamera',
@@ -429,6 +482,7 @@ async function setUpScene(scene: NonNullable<typeof engine.scene>, w: WorldModel
       // `view_pitch_locked` error, so the playground does not ask for one there.
       ...(state.view === '2d' ? {} : { pitch: num('pitch') ?? 40 }),
       bearing: num('bearing') ?? 28,
+      ...(num('maxDist') !== undefined ? { maxDistanceMeters: num('maxDist')! } : {}),
     },
   });
   if (state.content === 'custom') await engine.dispatch({ type: 'setLabelContent', entries: sampleContent(lastIndex) });
@@ -547,7 +601,7 @@ function buildPanel(): void {
     send({ type: 'setLabels', labels: labelsSpec() });
     if (state.content === 'custom') send({ type: 'setLabelContent', entries: sampleContent(lastIndex) });
   };
-  select('layout', ['grid', 'town', 'sample'] as const, () => state.layout, (v) => { state.layout = v; updateHash(); void init(); });
+  select('layout', ['grid', 'town', 'sample', 'tiles'] as const, () => state.layout, (v) => { state.layout = v; updateHash(); void init(); });
   select('preset', PRESET_NAMES, () => state.preset, (v) => {
     state.preset = v;
     for (const k of ['cine', 'details', 'massing', 'lanes', 'crosswalks', 'props', 'parked'] as const) (state as Record<string, unknown>)[k] = undefined;

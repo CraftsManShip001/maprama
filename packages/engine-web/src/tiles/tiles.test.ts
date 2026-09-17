@@ -376,9 +376,10 @@ describe('TileWorld', () => {
     w.dispose();
   });
 
-  it('re-bases onto the camera once it drifts too far, by a pure translation', async () => {
+  it('re-bases onto the camera once it drifts far enough that it cannot wait', async () => {
     const w = await open();
-    const farUnits = (REBASE_METERS / 8) * 1.5;
+    // Beyond twice the threshold the re-base stops waiting for a tile change.
+    const farUnits = (REBASE_METERS / 8) * 2.5;
     const before = w.frame.toLngLat({ x: farUnits, z: 0 });
     const step = w.step({ x: farUnits, z: 0 }, corners(farUnits, 0, 40));
     expect(step.rebase).not.toBeNull();
@@ -386,6 +387,21 @@ describe('TileWorld', () => {
     expect(farUnits + step.rebase!.dx).toBeCloseTo(0, 6);
     expect(w.frame.anchor.lng).toBeCloseTo(before.lng, 9);
     expect(w.frame.anchor.lat).toBeCloseTo(before.lat, 9);
+    w.dispose();
+  });
+
+  it('waits for a tile change before re-basing, so the two share one rebuild', async () => {
+    const w = await open();
+    const farUnits = (REBASE_METERS / 8) * 1.5;
+    const c = corners(farUnits, 0, 40);
+    // Past the threshold, but the streamer has nothing new yet: no re-base, and
+    // therefore no second rebuild of the world in the same second.
+    expect(w.step({ x: farUnits, z: 0 }, c).rebase).toBeNull();
+    await flush();
+    // The tiles arrived, so this step rebuilds anyway — and takes the re-base with it.
+    const step = w.step({ x: farUnits, z: 0 }, c);
+    expect(step.changed).toBe(true);
+    expect(step.rebase).not.toBeNull();
     w.dispose();
   });
 

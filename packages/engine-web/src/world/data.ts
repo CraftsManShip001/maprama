@@ -23,7 +23,14 @@ export class WorldLoadError extends Error {
   }
 }
 
-const hashId = (id: string): number => {
+/**
+ * FNV-1a over a building id. Everything a building's *look* is randomised from
+ * has to hang off this rather than off its position in an array, so the same
+ * building looks the same however it got into the world.
+ *
+ * @internal
+ */
+export const hashId = (id: string): number => {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
   return h >>> 0;

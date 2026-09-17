@@ -36,7 +36,7 @@ import {
   type Vec2,
 } from '@maprama/protocol';
 import { buildGraph, type GraphRoad } from '../world/graph.js';
-import { convertBuilding } from '../world/data.js';
+import { convertBuilding, hashId } from '../world/data.js';
 import type { BuildingModel, WorldModel } from '../world/model.js';
 import { normalizeRing } from '../world/polygon.js';
 import { lngLatToMercator, mercatorToLngLat, metresPerUnitAt, tileBounds, type TileFrame } from './mercator.js';
@@ -222,7 +222,13 @@ export function assembleTileWorld(tiles: readonly LoadedTile[], opts: AssembleOp
   for (let i = 0; i < footprints.length; i++) {
     const src = footprints[i]!;
     src.height = heightMeters[i]! / buildingUnitMeters[i]!;
-    const b = convertBuilding(src, buildings.length);
+    // The index seeds a building's massing, facade scheme and roof furniture.
+    // In a `data` world it is the position in the document, which never
+    // changes. In a tile world it would be the position in *whatever set of
+    // tiles happens to be loaded* — so the same building would change shape as
+    // its neighbours stream in, and again after every re-base. Seeding from the
+    // id instead makes a building look the same however it got here.
+    const b = convertBuilding(src, hashId(src.id));
     if (b) buildings.push(b);
   }
 

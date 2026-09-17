@@ -988,6 +988,7 @@ export class Engine implements EngineHandle {
       frames: () => core.frames,
       params: () => self.params,
       world: () => self.worldModel,
+      tileWorld: () => self.tileWorld,
       projection: () => self.proj,
       toWorld: (ll) => self.proj.toWorld(ll),
       toLngLat: (p) => self.proj.toLngLat(p),

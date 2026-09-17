@@ -56,6 +56,7 @@ import type { RenderParams } from './theme/params.js';
 import type { TextureSet } from './theme/textures.js';
 import type { SnapResult } from './world/graph.js';
 import type { WorldModel } from './world/model.js';
+import type { TileWorldHandle } from './tiles/world.js';
 import type { EngineCommandType } from '@maprama/protocol';
 
 /** Handler for one subscription topic. */
@@ -164,6 +165,12 @@ export interface SceneApi {
    * re-base becomes visible.
    */
   onWorldLoad(hook: (world: WorldModel, rebase?: { dx: number; dz: number } | null) => void): () => void;
+
+  /**
+   * The streamed tile world behind a `kind: 'tiles'` map — diagnostics and the
+   * re-base threshold — or `null` for every other world source.
+   */
+  tileWorld(): TileWorldHandle | null;
 
   /** Ground point under CSS pixel coordinates (relative to the container). */
   groundAt(px: number, py: number): { x: number; z: number } | null;

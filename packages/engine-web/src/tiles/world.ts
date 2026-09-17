@@ -9,7 +9,8 @@
  * geographic position of world `{ x: 0, z: 0 }`, and it follows the camera:
  * whenever the camera gets further than {@link REBASE_METERS} from it, the
  * anchor jumps to the camera and everything in the world is shifted by the
- * opposite amount.
+ * opposite amount — timed, where it can be, to coincide with a tile change so
+ * that the two share one rebuild instead of paying for two.
  *
  * The anchor exists for one reason: **the vertex buffers the renderers bake are
  * `Float32Array`**. A float32 near magnitude *m* resolves to `m · 2⁻²³`, so a
@@ -23,9 +24,15 @@
  * is created and never changes, so `newCoord = oldCoord + delta` holds for
  * every coordinate without exception. If the camera, the geometry, the
  * characters, the markers, the labels and the info cards all take the same
- * delta in the same frame, the image is identical — that is not an aspiration,
- * it is arithmetic. The engine applies the delta inside one `frame()` call, and
- * `scripts/tile-rebase.mjs` proves the before/after frames are byte-identical.
+ * delta in the same frame, the image does not change — that is not an
+ * aspiration, it is arithmetic. The engine applies the delta inside one
+ * `frame()` call, and `scripts/tile-shots.mjs` moves the anchor with the scene
+ * otherwise untouched and compares the frames on either side. What it measures,
+ * on the fixture world: **no pixel differs by more than 2 of 255**, which is
+ * the float32 re-rounding of vertices that now sit at different numbers, not
+ * anything moving. (With the shadow pass on, the shadow map is re-sampled on
+ * its own world-space texel grid and the difference rises to ~30 of 255 — the
+ * same artefact any sub-texel pan produces.)
  *
  * @module
  */
@@ -50,6 +57,12 @@ import type { WorldModel } from '../world/model.js';
  * re-assembled on every tile change anyway.
  */
 export const REBASE_METERS = 5000;
+
+/**
+ * Multiple of {@link REBASE_METERS} at which a re-base stops waiting for a tile
+ * change to share the rebuild with and simply happens.
+ */
+const HARD_REBASE_FACTOR = 2;
 
 /** Metres per world unit of a tile world (the engine's usual 8 m per unit). */
 export const TILE_UNIT_METERS = 8;
@@ -76,7 +89,29 @@ export interface TileStep {
   loading: boolean;
 }
 
-export class TileWorld {
+/**
+ * The part of a tile world the scene API hands out: diagnostics, and the one
+ * knob a harness needs. Deliberately tiny — the streaming itself is the
+ * engine's business.
+ */
+export interface TileWorldHandle {
+  /**
+   * How far the camera may drift from the render anchor before the anchor
+   * moves, in metres. Defaults to {@link REBASE_METERS}.
+   *
+   * Writable so a test can make a re-base happen on demand and compare the
+   * frames on either side of it, which is the only way to check the claim that
+   * a re-base is invisible *without* also changing the tile set. Lowering it in
+   * an app only makes the world re-assemble more often.
+   */
+  rebaseMeters: number;
+  /** Tiles held, empty tiles, requests in flight, failures, level, anchor. */
+  stats(): { loaded: number; empty: number; inflight: number; failed: number; zoom: number; anchor: LngLat };
+}
+
+export class TileWorld implements TileWorldHandle {
+  /** See {@link TileWorldHandle.rebaseMeters}. */
+  rebaseMeters = REBASE_METERS;
   private model: WorldModel;
   private lastZoom: number;
 
@@ -129,18 +164,22 @@ export class TileWorld {
    * Both are in the **current** frame, i.e. before any re-base this call makes.
    */
   step(centre: { x: number; z: number }, corners: readonly { x: number; z: number }[]): TileStep {
-    let rebase: { dx: number; dz: number } | null = null;
-    const driftUnits = Math.hypot(centre.x, centre.z);
-    if (driftUnits * this.frame.unitMeters > REBASE_METERS) {
-      const next = this.frame.toLngLat(centre);
-      const d = this.frame.rebase(next);
-      rebase = d;
-    }
-    // Coverage is computed *after* the re-base, in the new frame, so the tile
-    // set and the world are always consistent with the anchor they were built
-    // for. The corners move with everything else.
-    const shifted = corners.map((c) => ({ x: c.x + (rebase?.dx ?? 0), z: c.z + (rebase?.dz ?? 0) }));
-    const result = this.streamer.step(this.coverageFor(shifted));
+    // Tile addresses are geographic, so the streamer runs first, in the frame
+    // the caller handed its corners in. Nothing it does depends on the anchor.
+    const result = this.streamer.step(this.coverageFor(corners));
+    const driftMeters = Math.hypot(centre.x, centre.z) * this.frame.unitMeters;
+
+    // Re-basing costs one full re-assemble of the world, and so does a tile
+    // change — so a re-base that *waits for* a tile change costs nothing at all.
+    // The camera cannot drift `rebaseMeters` without crossing tile boundaries on
+    // the way (a z15 tile is under a kilometre), so in practice the wait is
+    // short; `HARD_REBASE_FACTOR` is the safety net for the case that it is not,
+    // such as a camera teleported by `setCamera` into an empty region.
+    const wants = driftMeters > this.rebaseMeters;
+    const rebase = wants && (result.changed || driftMeters > this.rebaseMeters * HARD_REBASE_FACTOR)
+      ? this.frame.rebase(this.frame.toLngLat(centre))
+      : null;
+
     const changed = result.changed || rebase !== null || result.zoom !== this.lastZoom;
     this.lastZoom = result.zoom;
     if (changed) this.model = this.assemble(rebase ? { x: 0, z: 0 } : this.model.start);
