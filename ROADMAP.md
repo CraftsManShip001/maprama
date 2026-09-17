@@ -49,9 +49,10 @@ _Last updated: 2026-09-17._
   trees, no cinematic grading/post pass, no drop note sprites or chime, colours read slightly flatter than
   the web engine's PBR-lite shading.
 - **Tile worlds are web-only, and re-assembling them stutters.** `WorldSource` now has
-  `{ kind: 'tiles', url, center }` (MTIL v1 over PMTiles, `design/tile-format.md`) and **engine-web
-  streams it**; the native engine decodes the payload format but does not render it and answers
-  `unsupported`. The web engine re-assembles its whole `WorldModel` whenever the loaded tile set
+  `{ kind: 'tiles', url, center }` (MTIL v1 over PMTiles, `design/tile-format.md`). The build side is
+  `@maprama/tiles`, which produces the nationwide archive; **engine-web streams it**; the native engine
+  decodes the payload format (`maprama/TileFormat.hpp`, conformance-tested) but does not render it and
+  answers `unsupported`. The web engine re-assembles its whole `WorldModel` whenever the loaded tile set
   changes, so the frame that crosses a tile boundary is long — measured on a 185-building synthetic
   fixture under headless software GL: ~1.3 s per re-assemble, 7–9 frames of 240 over 3× the median
   while panning. Splitting the assemble and the renderer rebuild across frames, or keeping per-tile
@@ -128,8 +129,8 @@ Driven by the first integrator (a location-based game app). Their priority order
    (fixture-conformance tested) and then warn-logs and ignores them; the native flat renderer,
    the pitch lock and the transition are the remaining work.
 
-Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
-PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
+Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds (the
+PMTiles pipeline is `tools/tiles`; the engine side is not built) and a flat basemap outside the diorama. Full replacement of a nationwide map
 needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far as the app's
 `maxDistanceMeters` allows (the renderer serves up to 1,000 world units, 8 km at 8 m per unit).
 

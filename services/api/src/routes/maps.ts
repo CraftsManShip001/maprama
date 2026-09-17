@@ -5,7 +5,7 @@ import { ApiError, badRequest } from '../errors.js';
 import { authenticate } from '../middleware/auth.js';
 import { meter } from '../middleware/usage.js';
 import { acceptsEncoding, type AppEnv } from '../util/http.js';
-import { TileArchives, TileType, TilesetNotFoundError, buildTileJson, tileContentType, tileTypeExt } from '../tiles/pmtiles.js';
+import { TileArchives, TileType, TilesetNotFoundError, buildTileJson, tileContentType, tileExtension } from '../tiles/pmtiles.js';
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Authenticated, metered content: cache in the client only, for a long time. */
@@ -73,7 +73,7 @@ export function registerMapRoutes(app: Hono<AppEnv>, deps: ServiceDeps): void {
     }
     const url = new URL(c.req.url);
     const queryKey = c.req.header('authorization') === undefined ? c.req.query('key') : undefined;
-    const tilesUrl = `${url.origin}/v1/tiles/${tileset}/{z}/{x}/{y}${tileTypeExt(header.tileType) || '.mvt'}${queryKey ? `?key=${encodeURIComponent(queryKey)}` : ''}`;
+    const tilesUrl = `${url.origin}/v1/tiles/${tileset}/{z}/{x}/{y}${tileExtension(header.tileType)}${queryKey ? `?key=${encodeURIComponent(queryKey)}` : ''}`;
     c.header('Cache-Control', 'private, max-age=3600');
     return c.json(buildTileJson(tileset, header, metadata, tilesUrl));
   });
@@ -81,10 +81,11 @@ export function registerMapRoutes(app: Hono<AppEnv>, deps: ServiceDeps): void {
   app.get('/v1/tiles/:tileset/:z/:x/:file', auth, meter(deps, 'tile'), async (c) => {
     const tileset = c.req.param('tileset');
     if (!NAME_RE.test(tileset)) throw badRequest('Invalid tileset name');
-    const ym = /^(\d{1,8})\.mvt$/.exec(c.req.param('file'));
+    // `.mvt` for a vector tileset, `.mtil` for a Maprama world archive (design/tile-format.md).
+    const ym = /^(\d{1,8})\.(mvt|mtil)$/.exec(c.req.param('file'));
     const zs = c.req.param('z');
     const xs = c.req.param('x');
-    if (!ym || !/^\d{1,2}$/.test(zs) || !/^\d{1,8}$/.test(xs)) throw badRequest('Tile path must be /v1/tiles/<tileset>/<z>/<x>/<y>.mvt');
+    if (!ym || !/^\d{1,2}$/.test(zs) || !/^\d{1,8}$/.test(xs)) throw badRequest('Tile path must be /v1/tiles/<tileset>/<z>/<x>/<y>.mvt or .mtil');
     const z = Number(zs);
     const x = Number(xs);
     const y = Number(ym[1]);
@@ -99,7 +100,15 @@ export function registerMapRoutes(app: Hono<AppEnv>, deps: ServiceDeps): void {
       if (err instanceof TilesetNotFoundError) throw new ApiError(404, 'NOT_FOUND', `Tileset "${tileset}" not found`);
       throw err;
     }
-    if (header.tileType !== TileType.Mvt) throw new ApiError(404, 'NOT_FOUND', `Tileset "${tileset}" is not a vector tileset`);
+    // Vector tilesets and Maprama world archives are both served; anything else (raster) is not.
+    if (header.tileType !== TileType.Mvt && header.tileType !== TileType.Unknown) {
+      throw new ApiError(404, 'NOT_FOUND', `Tileset "${tileset}" is not a vector tileset`);
+    }
+    // The extension has to name what the archive actually holds, so a wrong URL fails loudly
+    // instead of handing back bytes the caller cannot parse.
+    if (`.${ym[2]}` !== tileExtension(header.tileType)) {
+      throw new ApiError(404, 'NOT_FOUND', `Tileset "${tileset}" is served as ${tileExtension(header.tileType)}`);
+    }
 
     const cacheHeaders = { 'Cache-Control': LONG_CACHE, Vary: 'Accept-Encoding' };
     const tile = z < header.minZoom || z > header.maxZoom ? undefined : await archive.getZxy(z, x, y);
