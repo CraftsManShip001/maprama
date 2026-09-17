@@ -281,6 +281,23 @@ export class Follower {
     if (first && this.body.setMode(first.mode) && first.mode !== 'walk') this.wait = MODE_SWITCH_WAIT_START;
   }
 
+  /**
+   * Shifts the whole trip by a world-unit delta.
+   *
+   * Used by a tile world's re-base, which moves the render anchor: the
+   * character, its path and everything else in the world take the same delta in
+   * the same frame, so the move is invisible. Re-projecting the path instead
+   * would be equivalent but slower and, for a pure translation, less exact.
+   */
+  translate(dx: number, dz: number): void {
+    for (const leg of this.legs) {
+      for (const p of leg.pts) {
+        p.x += dx;
+        p.z += dz;
+      }
+    }
+  }
+
   /** Advances by `dt` seconds. */
   step(dt: number, speeds: Readonly<Record<TravelMode, number>> = this.speeds): void {
     const b = this.body;

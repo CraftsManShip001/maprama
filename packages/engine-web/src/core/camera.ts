@@ -343,6 +343,31 @@ export class CameraController {
     this.markChanged('gesture');
   }
 
+  /**
+   * Moves the camera's coordinate frame, not the camera: the anchor and any
+   * running transition take the same world-unit delta, so the camera keeps
+   * looking at the same ground.
+   *
+   * This is how a tile world's re-base reaches the camera. It deliberately does
+   * **not** cancel a transition or a follow, and does **not** mark the camera as
+   * changed: nothing moved on screen, so a `camera:change` here would be a lie
+   * and would restart the idle timer for no reason. {@link apply} is called so
+   * the three camera is in the new frame before this frame draws.
+   */
+  shift(dx: number, dz: number): void {
+    if (dx === 0 && dz === 0) return;
+    this.orbit.x += dx;
+    this.orbit.z += dz;
+    const tr = this.transition;
+    if (tr) {
+      tr.from.x += dx;
+      tr.from.z += dz;
+      tr.to.x += dx;
+      tr.to.z += dz;
+    }
+    this.apply();
+  }
+
   rotateBy(dBearing: number, dPitch: number): void {
     this.transition = null;
     this.toNorthActive = false;

@@ -153,7 +153,17 @@ export interface SceneApi {
   /** Called after a theme was applied and the static world rebuilt (before old materials are disposed). */
   onThemeChange(hook: (params: RenderParams) => void): () => void;
   /** Called after a world was loaded and rendered. Fires immediately when a world is already loaded. */
-  onWorldLoad(hook: (world: WorldModel) => void): () => void;
+  /**
+   * Called when a world is loaded, and again whenever a **tile world** replaces
+   * its model.
+   *
+   * `rebase` distinguishes the two: `undefined` is a load (start over), while a
+   * value — `null`, or a world-unit delta when the render anchor moved — is an
+   * update of the world already on screen. A delta is a pure translation:
+   * everything positioned in world units must take it in the same frame, or the
+   * re-base becomes visible.
+   */
+  onWorldLoad(hook: (world: WorldModel, rebase?: { dx: number; dz: number } | null) => void): () => void;
 
   /** Ground point under CSS pixel coordinates (relative to the container). */
   groundAt(px: number, py: number): { x: number; z: number } | null;

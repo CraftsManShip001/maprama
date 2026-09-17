@@ -29,7 +29,17 @@ const hashId = (id: string): number => {
   return h >>> 0;
 };
 
-function convertBuilding(src: BuildingFootprint, idx: number): BuildingModel | null {
+/**
+ * `BuildingFootprint` → {@link BuildingModel}: near-rectangles get oriented-rect
+ * massing, everything else stacked massing, and the per-building randomness is
+ * seeded from the id so the same building always looks the same.
+ *
+ * Exported for the tile world assembler (`tiles/assemble.ts`), which must
+ * produce buildings that are indistinguishable from a `data` world's.
+ *
+ * @internal
+ */
+export function convertBuilding(src: BuildingFootprint, idx: number): BuildingModel | null {
   const ring = normalizeRing(src.footprint);
   if (ring.length < 3 || Math.abs(signedArea(ring)) < 0.01) return null;
   const rect = asRectangle(ring);
@@ -99,6 +109,7 @@ export function loadWorldData(world: WorldData): WorldModel {
     graph,
     buildings,
     water: world.water.map((p) => normalizeRing(p)).filter((p) => p.length >= 3),
+    waterRims: null,
     waterRibbons: [],
     banks: [],
     pads: [[[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]]],
@@ -148,5 +159,11 @@ export async function resolveWorldSource(source: WorldSource, fetchImpl?: FetchL
       if (!v.ok) throw new WorldLoadError(`invalid WorldData from ${source.url}: ${v.error}`);
       return loadWorldData(json as WorldData);
     }
+    case 'tiles':
+      // A streamed world is not a value you can resolve once: it owns an
+      // archive, a render anchor and a tile budget for as long as the map is
+      // up. The engine builds it through `TileWorld.open` instead (see
+      // `tiles/world.ts`); reaching this line means a host bypassed the engine.
+      throw new WorldLoadError("world source kind 'tiles' must be opened by the engine (TileWorld.open), not resolved");
   }
 }

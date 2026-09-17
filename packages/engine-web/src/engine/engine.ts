@@ -28,6 +28,7 @@ import {
   type Projection,
   type SubscriptionTopic,
   type ThemeSpec,
+  type TileWorldSource,
   type ViewMode,
   type WorldSource,
 } from '@maprama/protocol';
@@ -53,6 +54,8 @@ import { createTextures, type TextureSet } from '../theme/textures.js';
 import { DEG } from '../util/math.js';
 import { route as graphRoute, snap } from '../world/graph.js';
 import { resolveWorldSource, WorldLoadError } from '../world/data.js';
+import { TileArchiveError } from '../tiles/archive.js';
+import { TileWorld } from '../tiles/world.js';
 import type { WorldModel } from '../world/model.js';
 import { ENGINE_NAME, ENGINE_VERSION } from '../version.js';
 import { createRequestHandlers, projectionFor } from './requests.js';
@@ -118,6 +121,13 @@ export const CAMERA_LIMITS_CLAMPED = 'camera_limits_clamped';
  */
 export const VIEW_PITCH_LOCKED = 'view_pitch_locked';
 
+/**
+ * Error code of the non-fatal event emitted when one tile of a streamed world
+ * could not be read. The map keeps running: a hole in the data is ground, and
+ * one unreachable tile is not a reason to take a country-sized map down.
+ */
+export const TILE_LOAD_FAILED = 'tile_load_failed';
+
 /** Normalises `FitBoundsParams.padding` (dp) to four sides. */
 function fitPadding(padding: FitBoundsParams['padding']): FitPadding {
   if (typeof padding === 'number') return { top: padding, right: padding, bottom: padding, left: padding };
@@ -138,6 +148,10 @@ export class Engine implements EngineHandle {
   private tex: TextureSet | null = null;
   private params: RenderParams = renderParamsFor({});
   private worldModel: WorldModel | null = null;
+  /** The streamed tile world, when `init.world.kind` was `tiles`. */
+  private tileWorld: TileWorld | null = null;
+  /** Set by the tile streamer when a tile arrives outside a frame; consumed by {@link frame}. */
+  private tilesDirty = false;
   private proj: Projection = projectionFor(null);
   private readonly staticR = new StaticWorldRenderer();
   private readonly buildingsR = new BuildingRenderer();
@@ -155,7 +169,7 @@ export class Engine implements EngineHandle {
   private labels: LabelsSpec = {};
   private locationSource: LocationSourceKind = 'simulated';
   private themeHooks = new Set<(p: RenderParams) => void>();
-  private worldHooks = new Set<(w: WorldModel) => void>();
+  private worldHooks = new Set<(w: WorldModel, rebase?: { dx: number; dz: number } | null) => void>();
   private topics = new Map<SubscriptionTopic, SubscriptionHandler>();
   private followResolver: ((id: string) => FollowTarget | null) | null = null;
   private features: Features | null = null;
@@ -260,6 +274,8 @@ export class Engine implements EngineHandle {
     this.holds.clear();
     this.features?.dispose();
     this.features = null;
+    this.tileWorld?.dispose();
+    this.tileWorld = null;
     this.options.transport.close?.();
     this.staticR.clear();
     this.buildingsR.dispose();
@@ -388,9 +404,9 @@ export class Engine implements EngineHandle {
     this.requireScene();
     let world: WorldModel;
     try {
-      world = await resolveWorldSource(source);
+      world = source.kind === 'tiles' ? await this.openTileWorld(source) : await resolveWorldSource(source);
     } catch (e) {
-      if (e instanceof WorldLoadError) throw new EngineError('world_load_failed', e.message);
+      if (e instanceof WorldLoadError || e instanceof TileArchiveError) throw new EngineError('world_load_failed', e.message);
       throw e;
     }
     if (this.destroyed) return;
@@ -401,6 +417,77 @@ export class Engine implements EngineHandle {
     this.cam.set({ x: world.start.x, z: world.start.z, ...DEFAULT_ORBIT });
     this.applyTheme();
     for (const h of [...this.worldHooks]) h(world);
+  }
+
+  /**
+   * Opens a streamed tile world. The archive's header and metadata are read
+   * here (one range request); no tile is fetched until the first frame knows
+   * where the camera is looking, so `init` does not wait on map data.
+   */
+  private async openTileWorld(source: TileWorldSource): Promise<WorldModel> {
+    this.tileWorld?.dispose();
+    this.tileWorld = null;
+    const tiles = await TileWorld.open(source, {
+      // A tile that arrives while the map is idle has to wake the loop for one
+      // frame — and only for one. The loop is never held *waiting* for the
+      // network (see `frame`), which is what keeps a static tile map at 0 idle
+      // frames like every other world.
+      onChange: () => {
+        this.tilesDirty = true;
+        this.core?.requestRender();
+      },
+      onWarning: (message) => this.emit({ type: 'error', code: TILE_LOAD_FAILED, message, fatal: false }),
+    });
+    if (this.destroyed) {
+      tiles.dispose();
+      throw new WorldLoadError('engine was destroyed while the tile archive was opening');
+    }
+    this.tileWorld = tiles;
+    return tiles.world;
+  }
+
+  /**
+   * One streaming step for a tile world: which tiles the camera needs, whether
+   * the render anchor has to move, and — if either changed — a rebuild.
+   *
+   * ### Why the re-base is invisible
+   *
+   * `TileWorld.step` may move the anchor, and it reports the world-unit delta.
+   * The delta is applied **here, in one frame, to everything at once**: the
+   * camera anchor and any camera transition still running, then the rebuilt
+   * geometry (which is assembled around the new anchor), then every world hook
+   * (characters and their trips, drops, markers, info cards, geofences, overlay
+   * anchors, labels). Since the tile frame's scale is fixed for the life of the
+   * world, the move is a pure translation of the whole scene *and* the camera
+   * that looks at it, so the rendered image cannot change.
+   * `scripts/tile-rebase.mjs` captures the frames on both sides and compares
+   * them pixel by pixel.
+   */
+  private stepTiles(): boolean {
+    const tiles = this.tileWorld;
+    const core = this.core;
+    if (!tiles || !core) return false;
+    this.tilesDirty = false;
+    const o = this.cam.orbit;
+    const corners = this.cam.groundCorners(CAMERA_IDLE_HORIZON_FACTOR * o.distance);
+    const step = tiles.step({ x: o.x, z: o.z }, corners);
+    // Held only while requests are in flight: waiting for the network must not
+    // by itself keep the render loop awake (`scripts/idle-frames.mjs`).
+    this.hold('tiles', step.loading);
+    if (!step.changed) return false;
+    const r = step.rebase;
+    if (r) {
+      // The camera first, so the rebuilt world and the eye that looks at it
+      // move together within this frame.
+      this.cam.shift(r.dx, r.dz);
+    }
+    this.worldModel = tiles.world;
+    this.proj = projectionFor(this.worldModel);
+    this.applyDistanceLimits();
+    this.applyTheme();
+    for (const h of [...this.worldHooks]) h(this.worldModel, r);
+    core.requestShadowUpdate();
+    return true;
   }
 
   private setTheme(theme: ThemeSpec): void {
@@ -785,6 +872,9 @@ export class Engine implements EngineHandle {
   private frame(dt: number, t: number): void {
     const core = this.core!;
     this.cam.update(0);
+    // Streaming runs before anything reads the world: a tile that arrived (or a
+    // re-base) is fully applied by the time this frame draws, never half of it.
+    if (this.tileWorld) this.stepTiles();
     // The view transition is advanced first: everything below reads its flatness for this frame.
     const wasAnimating = this.view.animating;
     if (this.view.update(dt) || this.appliedView !== this.view.t) this.applyView();

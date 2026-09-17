@@ -86,6 +86,22 @@ export class AmbientTraffic {
     }
   }
 
+  /**
+   * Points the cars at a new world without rebuilding them, when the road graph
+   * is the same shape (a tile world re-assembles its model on every re-base and
+   * every tile change; the cars hold edge indices into it).
+   *
+   * Returns false when the graph changed and the caller must {@link build}.
+   * Rebuilding on a re-base would teleport every car, which is exactly the kind
+   * of visible jump a re-base must not cause.
+   */
+  retarget(world: WorldModel): boolean {
+    const cur = this.world;
+    if (!cur || cur.graph.edges.length !== world.graph.edges.length || cur.graph.nodes.length !== world.graph.nodes.length) return false;
+    this.world = world;
+    return true;
+  }
+
   step(dt: number, visible: boolean, night: boolean): void {
     this.group.visible = visible && this.cars.length > 0;
     const w = this.world;

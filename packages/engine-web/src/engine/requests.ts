@@ -48,8 +48,15 @@ export interface RequestServices {
   groundY?(): number;
 }
 
-/** Projection for a world (procedural worlds use {@link PROCEDURAL_ORIGIN}). */
+/**
+ * Projection for a world (procedural worlds use {@link PROCEDURAL_ORIGIN}).
+ *
+ * A world may bring its own — a tile world does, because its frame is Web
+ * Mercator and not the equirectangular tangent plane (`tiles/mercator.ts`).
+ * Everything else keeps the projection it always had, byte for byte.
+ */
 export function projectionFor(world: WorldModel | null): Projection {
+  if (world?.projection) return world.projection;
   return world ? createProjection({ origin: world.origin, unitMeters: world.unitMeters }) : createProjection({ origin: PROCEDURAL_ORIGIN, unitMeters: 8 });
 }
 

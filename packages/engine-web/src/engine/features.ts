@@ -138,7 +138,7 @@ export class Features {
     scene.groups.dynamic.add(this.traffic.group, this.fenceVisuals.group, this.routes, this.chars.group, this.dropVisuals.group, this.puck.group);
 
     this.offs.push(
-      scene.onWorldLoad((w) => this.worldLoaded(w)),
+      scene.onWorldLoad((w, rebase) => (rebase === undefined ? this.worldLoaded(w) : this.worldUpdated(w, rebase))),
       scene.onThemeChange((p) => {
         this.chars.applyOutline(p.outline);
         this.chars.onThemeChange();
@@ -411,6 +411,38 @@ export class Features {
     this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
     this.lastPosition.clear();
     // A new world means a new projection: the cached anchor positions are in the old one.
+    this.placeAnchors();
+    this.overlayTracker.invalidate();
+    this.scene.emit({ type: 'labelsIndex', labels: this.labels.worldChanged(world, newProj) });
+  }
+
+  /**
+   * A tile world replaced its {@link WorldModel} — tiles arrived or were
+   * dropped, and possibly the render anchor moved by `rebase` world units.
+   *
+   * This is deliberately **not** {@link worldLoaded}: loading a world means
+   * starting over (travel is cancelled, characters are re-projected onto the
+   * new ground), while a tile update means the same world grew or shifted.
+   * Everything whose position comes from a geographic spec — drops, markers,
+   * info cards, geofences, overlay anchors — is simply re-derived in the new
+   * frame, which for a pure translation gives exactly the translated position.
+   * Characters carry state a spec cannot describe (where along a trip they
+   * are), so they are translated instead, trip and all.
+   */
+  private worldUpdated(world: WorldModel, rebase: { dx: number; dz: number } | null): void {
+    const newProj = this.scene.projection();
+    this.proj = newProj;
+    if (rebase) this.chars.translate(rebase.dx, rebase.dz);
+    for (const cmd of this.dropLayers.values()) this.applyDropLayer(cmd, world);
+    this.markers.reproject(newProj, this.anchorContext());
+    this.infoCards.reproject();
+    this.applyGeofences(world);
+    // The cars hold edge indices into the road graph. While the graph has the
+    // same shape (a re-base re-assembles the identical tiles), pointing them at
+    // the new model keeps every car exactly where it was; a changed graph
+    // leaves no choice but to rebuild.
+    if (!this.traffic.retarget(world)) this.traffic.build(world, this.scene.materials, this.scene.textures().glow);
+    this.lastPosition.clear();
     this.placeAnchors();
     this.overlayTracker.invalidate();
     this.scene.emit({ type: 'labelsIndex', labels: this.labels.worldChanged(world, newProj) });
