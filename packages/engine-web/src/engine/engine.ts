@@ -484,7 +484,7 @@ export class Engine implements EngineHandle {
     this.worldModel = tiles.world;
     this.proj = projectionFor(this.worldModel);
     this.applyDistanceLimits();
-    this.applyTheme();
+    this.rebuildWorldGeometry();
     for (const h of [...this.worldHooks]) h(this.worldModel, r);
     core.requestShadowUpdate();
     return true;
@@ -575,6 +575,36 @@ export class Engine implements EngineHandle {
       });
     }
     return allowed;
+  }
+
+  /**
+   * Rebuilds the world's geometry for a **world that changed under an unchanged
+   * theme** — which is what a tile arriving, a tile dropping or a re-base is.
+   *
+   * This is deliberately not {@link applyTheme}. `applyTheme` starts a new
+   * material generation and drops the old one, re-applies lights, fog,
+   * overlays and the view, and hands the renderers a world they must rebuild
+   * from nothing — all of it correct for `setTheme`, and all of it wasted on a
+   * tile change, where the lights, the fog and the materials are the ones
+   * already in force. Keeping the material generation is also what lets the
+   * building renderer **reuse** the meshes of every building that did not
+   * change (`BuildingRenderer.build(ctx, true)`), which is where the cost of a
+   * tile change actually was.
+   */
+  private rebuildWorldGeometry(): void {
+    const core = this.core;
+    const world = this.worldModel;
+    if (!core || !world || !this.tex) return;
+    const ctx: RenderContext = { params: this.params, mats: this.mats, tex: this.tex, world };
+    this.staticR.build(ctx);
+    this.buildingsR.build(ctx, true);
+    this.zoomOut.buildOverlay(world, this.mats);
+    // The overlay's materials are new objects, so the opacity and visibility
+    // the current zoom-out factor implies have to be written to them again.
+    this.zoomOut.invalidate();
+    // The flat layer is merged geometry over the whole world: a changed world
+    // means it has to be merged again (lazily, only if the view still wants it).
+    this.flatBuildings.invalidate();
   }
 
   /** Applies render params: lights, fog, overlays, materials; rebuilds the static world and buildings. */
