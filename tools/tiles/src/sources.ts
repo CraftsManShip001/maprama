@@ -1,12 +1,17 @@
 /**
  * Where each layer's data comes from — the one place the pipeline decides that.
  *
- * Today every layer comes from OpenStreetMap. The Korean national building
- * dataset (GIS건물통합정보, CC BY / 공공누리 제1유형) is expected to replace or
- * reinforce `buildings`, and the point of this module is that doing so is a
- * change to {@link LayerRouting} plus one new {@link TileSource} — not a change
- * to the tiler, the encoder, the archive writer or the driver, none of which
- * know what a source is beyond its id.
+ * By default every layer comes from OpenStreetMap. The point of this module is
+ * that changing that is a change to {@link LayerRouting} plus one new
+ * {@link TileSource} — not a change to the tiler, the encoder, the archive
+ * writer or the driver, none of which know what a source is beyond its id.
+ *
+ * That claim has now been tested once, by moving `parks` to the Korean national
+ * city-planning dataset (`kr-parks.ts`, `maprama-tiles build --kr-parks`). It
+ * held: the swap is a new `TileSource` file, one routing entry in the CLI, and
+ * nothing else. The remaining candidate is the Korean national building dataset
+ * (GIS건물통합정보), which today reaches `buildings` the other way — as a height
+ * join *inside* the OSM source rather than as a source of its own.
  *
  * Two things follow from routing being per layer:
  *
