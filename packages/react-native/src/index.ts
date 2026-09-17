@@ -166,6 +166,7 @@ export type {
   SnapToBuildingResult,
   SnapToRoadResult,
   ThemeSpec,
+  TileWorldSource,
   TravelMode,
   ViewChangeEvent,
   ViewMode,

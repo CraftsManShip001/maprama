@@ -150,7 +150,17 @@ export interface MapramaBuildingPressEvent {
 
 /** Props of `MapramaView`. */
 export interface MapramaViewProps {
-  /** The world to load: `{kind:'url', url}`, `{kind:'data', world}` or `{kind:'procedural', layout}`. Read at init. */
+  /**
+   * The world to load, read once at init: `{kind:'url', url}`,
+   * `{kind:'data', world}`, `{kind:'procedural', layout}`, or
+   * `{kind:'tiles', url, center}` — a streamed PMTiles archive that can cover a
+   * whole country, of which the engine keeps only what the camera is looking at.
+   *
+   * A tile world is only implemented by `engine="web"`, and a few things mean
+   * something slightly different in one (`project` / `unproject` world units
+   * move as the render anchor follows the camera, and there is no `plaza` or
+   * `bounds`) — see the "Tile worlds" guide for the full list.
+   */
   world: WorldSource;
   /** Visual theme. Changes send `setTheme`. */
   theme?: ThemeSpec;
