@@ -70,14 +70,18 @@ export interface AssembleOptions {
  * be separated by a green stripe. The rule costs no bytes because it is purely
  * geometric, and the price of a false positive is one missing metre of bank.
  *
- * Both the tile rectangle (`0 … extent`) and the clip rectangle
- * (`-buffer … extent + buffer`, which is where the spike's tiler actually cuts)
- * count, so a producer that cuts at either one is handled.
+ * The boundary to test against is the **clip rectangle**, `-buffer … extent +
+ * buffer`, and not the tile rectangle `0 … extent`: geometry is cut to the tile
+ * *plus* its buffer, so the cut edges lie at −256 and 8448. The spec was wrong
+ * about this at first and was corrected once the pipeline measured it — on four
+ * z15 tiles of the Han river the clip-rectangle rule finds 12 synthetic edges
+ * and the `0`/`extent` rule finds **none**, which would put a wall across the
+ * river while looking like it was handled.
  */
 function isSyntheticEdge(a: Vec2, b: Vec2, extent: number, buffer: number): boolean {
   const lo = -buffer, hi = extent + buffer;
   const onSame = (i: 0 | 1, v: number): boolean => a[i] === v && b[i] === v;
-  return onSame(0, lo) || onSame(0, hi) || onSame(1, lo) || onSame(1, hi) || onSame(0, 0) || onSame(0, extent) || onSame(1, 0) || onSame(1, extent);
+  return onSame(0, lo) || onSame(0, hi) || onSame(1, lo) || onSame(1, hi);
 }
 
 /**

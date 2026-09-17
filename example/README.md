@@ -106,8 +106,9 @@ EXPO_PUBLIC_MAPRAMA_API_KEY=mpr_... npx expo run:ios
 | `EXPO_PUBLIC_MAPRAMA_DROPS_CHANNEL` | `coins` | service drops |
 | `EXPO_PUBLIC_MAPRAMA_TILES_URL` | empty (the tile screen says so and skips) | tile world screen |
 
-The **tile world** screen (17) needs a PMTiles archive built with the tile
-pipeline and hosted somewhere that answers HTTP range requests with
+The **tile world** screen (17) needs a PMTiles archive built with
+`@maprama/tiles` (`maprama-tiles build --pbf korea.osm.pbf --out korea.pmtiles`)
+and hosted somewhere that answers HTTP range requests with
 `Access-Control-Allow-Origin: *` and
 `Access-Control-Expose-Headers: Content-Range, Content-Length, ETag, Accept-Ranges`
 — the engine document's origin is `null`, so every request is cross-origin.

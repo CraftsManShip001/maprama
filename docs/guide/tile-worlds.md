@@ -5,7 +5,11 @@ CDN에 PMTiles 아카이브 하나로 올려두고, 카메라가 보는 조각�
 그것이 `WorldSource`의 네 번째 종류인 `kind: 'tiles'`입니다.
 
 형식은 [`design/tile-format.md`](https://github.com/CraftsManShip001/maprama/blob/main/design/tile-format.md)(MTIL v1)이고,
-`@maprama/protocol`의 `decodeTile`이 그 명세의 리더입니다.
+`@maprama/protocol`의 `decodeTile`이 그 명세의 리더, **`@maprama/tiles`가 아카이브를 만드는 도구**입니다
+(`maprama-tiles build --pbf korea.osm.pbf --out korea.pmtiles`). 파이프라인이 쓴 바이트를 엔진이 그대로
+읽는지는 `packages/engine-web/scripts/tile-interop.mjs`가 매번 확인합니다 — 저장소의 성수동 샘플을
+파이프라인의 타일러·아카이브 라이터로 묶어 range 서버에 올리고 엔진으로 열어, 건물 좌표가
+**0.05 m 안에서** 왕복하는 것까지 봅니다.
 
 ::: warning 지금 지원하는 엔진
 `engine="web"`만 타일 월드를 그립니다. 네이티브 엔진(C++ 코어)은 명령과 **타일 페이로드 디코드**까지는
