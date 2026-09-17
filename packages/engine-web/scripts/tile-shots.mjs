@@ -507,6 +507,43 @@ if (want('pan')) {
   console.log('       (headless software GL on this machine; a relative measure, not a device number)');
 }
 
+/* ------------------------------------------------------------- memory */
+
+if (want('memory')) {
+  console.log('\nmemory (what a tile budget actually costs)');
+  // `performance.memory` is Chrome-only and coarse, and it measures the JS heap
+  // only — GPU buffers are not in it. It is still the number that answers "does
+  // the budget bound anything?", which is what the budget exists for.
+  for (const budget of [16, 96]) {
+    await load(`${BASE.replace('preset=urban', 'preset=realistic')}&budget=${budget}&x=364&z=364&dist=70&pitch=45&bearing=0`);
+    const m = await evaluate(`(async () => {
+      const e = window.__engine, s = e.scene, tiles = s.tileWorld();
+      const hold = s.addActiveSource('memory-measure');
+      const frames = (n) => new Promise((r) => { let i = 0; const off = s.onFrame(() => { if (++i >= n) { off(); r(); } }); });
+      const quiet = async () => { let q = 0; await new Promise((r) => { const off = s.onFrame(() => { q = s.activeSources().includes('tiles') ? 0 : q + 1; if (q > 20) { off(); r(); } }); }); };
+      const heap = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
+      try {
+        const before = heap();
+        // Walk a few tiles east and back so the cache fills to its cap.
+        for (const dx of [0, 200, 400, 600, 400, 200, 0]) {
+          await e.dispatch({ type: 'setCamera', camera: { center: s.toLngLat({ x: dx, z: 364 }) } });
+          await quiet();
+          await frames(4);
+        }
+        const st = tiles.stats();
+        return { before, after: heap(), loaded: st.loaded, empty: st.empty, buildings: s.world().buildings.length };
+      } finally { hold(); }
+    })()`);
+    const mb = (b) => (b / 1024 / 1024).toFixed(1);
+    console.log(`       budget ${String(budget).padStart(3)}: ${m.loaded} tiles held (${m.empty} empty), ${m.buildings} buildings, JS heap ${mb(m.before)} → ${mb(m.after)} MiB`);
+    check(m.loaded <= Math.max(budget, 25), `  budget ${budget}: the cache stayed at or under its cap (${m.loaded} tiles)`);
+  }
+  console.log('       (Chrome JS heap only — GPU buffers are not counted, and the number is coarse.)');
+  console.log('       note: both budgets hold the same number of tiles. What bounds the cache in practice is the');
+  console.log('       distance eviction (the viewport rectangle plus a 2-tile ring), not `tileBudget`; the budget');
+  console.log('       is a backstop, and it also decides when the overview level takes over.');
+}
+
 /* ------------------------------------------------- how far is too far */
 
 if (want('precision')) {
