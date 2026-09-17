@@ -48,8 +48,10 @@ _Last updated: 2026-09-17._
   far zoom band and dropped facade details/roof furniture at high zoom-out factors, no street scenery or
   trees, no cinematic grading/post pass, no drop note sprites or chime, colours read slightly flatter than
   the web engine's PBR-lite shading.
-- **No tile-backed worlds.** `WorldSource` is `data | url | procedural`; `{ kind: 'tiles' }` from DESIGN.md
-  §7 is design only, and there is no PMTiles build pipeline. A world is one city-sized area.
+- **No tile-backed worlds *in the engine*.** `WorldSource` is `data | url | procedural`; `{ kind: 'tiles' }`
+  from DESIGN.md §7 is still design only, so a world an engine renders is one city-sized area. The build
+  side exists: `@maprama/tiles` produces the nationwide MTIL v1 / PMTiles archive
+  (`design/tile-format.md`), and what is missing is the engine that streams it.
 - **`world` is read once at `init`.** Changing worlds means remounting the view (`key`), which rebuilds the
   style and geometry.
 - Compressed glTF (Draco, meshopt) and models with more than 63 joints are rejected with
@@ -119,8 +121,8 @@ Driven by the first integrator (a location-based game app). Their priority order
    (fixture-conformance tested) and then warn-logs and ignores them; the native flat renderer,
    the pitch lock and the transition are the remaining work.
 
-Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds with a
-PMTiles pipeline in `tools/osm` and a flat basemap outside the diorama. Full replacement of a nationwide map
+Also requested, lower priority: `ref.setWorld(source)` without a remount, then tile-backed worlds (the
+PMTiles pipeline is `tools/tiles`; the engine side is not built) and a flat basemap outside the diorama. Full replacement of a nationwide map
 needs tiles + `setWorld`; a single-city "diorama view" screen now reaches as far as the app's
 `maxDistanceMeters` allows (the renderer serves up to 1,000 world units, 8 km at 8 m per unit).
 
