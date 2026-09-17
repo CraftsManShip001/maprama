@@ -12,13 +12,22 @@
  * opposite amount — timed, where it can be, to coincide with a tile change so
  * that the two share one rebuild instead of paying for two.
  *
- * The anchor exists for one reason: **the vertex buffers the renderers bake are
+ * The anchor exists because **the vertex buffers the renderers bake are
  * `Float32Array`**. A float32 near magnitude *m* resolves to `m · 2⁻²³`, so a
- * building 400 km from the origin would be quantised to a 3 cm grid — its
- * corners visibly shimmer as the camera moves, and coplanar surfaces z-fight.
- * With the anchor never further than a few kilometres, the same quantisation is
- * well under a millimetre. (See `docs/guide/tile-worlds.md` for the measured
- * numbers.)
+ * building 400 km from the origin sits on a 3 cm grid; with the anchor never
+ * further than a few kilometres the same grid is under a millimetre.
+ *
+ * What that is actually worth was measured rather than assumed
+ * (`scripts/tile-shots.mjs --only precision`, and the table in
+ * `docs/guide/tile-worlds.md`): identical content rendered at growing distances
+ * from a pinned anchor starts to differ from the reference frame at about 8 km
+ * and saturates near 45 of 255 on edge pixels. **It was not visible to the eye,
+ * and no z-fighting appeared at any distance tested, up to 931 km** — the
+ * engine's default camera limits stop at 1,200 m, where a 0.1 m displacement is
+ * under a pixel. So the honest case for the anchor is not "the map falls apart
+ * without it" but that it keeps the numbers small enough for the degradation to
+ * be zero rather than merely small, keeps the world's `bounds` and its ground
+ * plane sane, and is what a float32 CPU path (engine-native) will need.
  *
  * A re-base is a **pure translation**: the frame's scale is fixed when the world
  * is created and never changes, so `newCoord = oldCoord + delta` holds for

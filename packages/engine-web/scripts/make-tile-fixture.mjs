@@ -43,10 +43,37 @@ const BUFFER = 256;
 const DETAIL_Z = 15;
 const OVERVIEW_Z = 13;
 
-/** The two cities, and how many detail tiles each gets on a side. */
+/**
+ * The blocks the archive contains.
+ *
+ * `Seoul` and `Busan` are the travel pair (325 km apart). The `probe-*` blocks
+ * exist for one measurement: they carry **byte-identical content** to each other
+ * at the **same latitude**, at growing distances east. Rendering them with the
+ * render anchor pinned to the first one shows what distance from the anchor
+ * actually does to the picture — which is the empirical answer to "where does
+ * the float32 vertex grid start to show?", and the reason the re-base threshold
+ * is the number it is.
+ */
+const PROBE_LAT = 37.5445;
+/**
+ * Probe blocks are placed a **whole number of tiles** apart, so each one sits at
+ * exactly the same position inside its own tile as the others. Otherwise the
+ * camera would land on a different fraction of a tile in each block and the
+ * comparison would measure tile coverage instead of distance.
+ */
+const TILE_DEG = 360 / 2 ** DETAIL_Z;
+export const PROBE_TILE_OFFSETS = [64, 72, 80, 96, 128, 192, 256, 512, 1024];
 const REGIONS = [
-  { name: 'Seoul', lng: 127.056, lat: 37.5445, tiles: 6, river: true },
+  { name: 'Seoul', lng: 127.056, lat: PROBE_LAT, tiles: 6, river: true },
   { name: 'Busan', lng: 129.056, lat: 35.1575, tiles: 4, river: false },
+  ...PROBE_TILE_OFFSETS.map((n) => ({
+    name: `probe-${n}`,
+    lng: 127.056 + n * TILE_DEG,
+    lat: PROBE_LAT,
+    tiles: 3,
+    river: true,
+    probe: true,
+  })),
 ];
 
 const ATTRIBUTION = ['© OpenStreetMap contributors', 'Synthetic fixture — not real map data'];
@@ -177,8 +204,13 @@ function detailLayers(region, gi, gj) {
   }
   layers.parks.push({ name: `Park ${gi}-${gj}`, poly: [[400, 400], [2200, 400], [2200, 2200], [400, 2200]] });
   layers.pois.push({ id: `poi-${gi}-${gj}`, name: `Cafe ${gi}-${gj}`, cat: 'cafe', u: 700, v: 700, buildingId: `b-${gi}-${gj}-0-0` });
-  if (gi === 0 && gj === 0) layers.stations.push({ id: `stn-${region.name}`, name: `${region.name} Station`, u: 4096, v: 4096 });
-  if (gi === 0 && gj === 0) layers.districts.push({ name: region.name, u: 4096, v: 3000 });
+  // A probe block carries nothing that names it: its tiles must be identical to
+  // every other probe block's, so that a difference on screen can only come from
+  // where it sits relative to the render anchor.
+  if (gi === 0 && gj === 0 && !region.probe) {
+    layers.stations.push({ id: `stn-${region.name}`, name: `${region.name} Station`, u: 4096, v: 4096 });
+    layers.districts.push({ name: region.name, u: 4096, v: 3000 });
+  }
   return layers;
 }
 

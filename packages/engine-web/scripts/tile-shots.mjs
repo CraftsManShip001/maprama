@@ -507,6 +507,68 @@ if (want('pan')) {
   console.log('       (headless software GL on this machine; a relative measure, not a device number)');
 }
 
+/* ------------------------------------------------- how far is too far */
+
+if (want('precision')) {
+  console.log('\nprecision — what distance from the render anchor does to the picture');
+  // The fixture has four `probe-*` blocks with byte-identical content at the
+  // same latitude, 44 / 175 / 350 / 700 km east of Seoul. With the re-base
+  // threshold pushed out of reach, the anchor stays put and each block is drawn
+  // at a different distance from the world origin. Any difference between the
+  // frames is what the distance did — which is the empirical version of the
+  // float32 argument, and the number the re-base threshold should follow.
+  const TILE_DEG = 360 / 2 ** 15;
+  // The blocks are a whole number of tiles apart (see make-tile-fixture.mjs), so
+  // the camera lands at the same position inside a tile in every one of them and
+  // the loaded tile set is the same shape each time.
+  // The list starts with the reference block twice: the second capture of the
+  // same block on the same route is the floor of the measurement, and anything
+  // the other blocks show has to be read against it.
+  const PROBES = [64, 64, 72, 80, 96, 128, 192, 256, 512, 1024].map((n) => ({ tiles: n, lng: 127.056 + n * TILE_DEG }));
+  const shots = [];
+  for (const probe of PROBES) {
+    // Each run opens the world *at* the probe block, so the block is right in
+    // front of the camera; the drift is created afterwards by loading with the
+    // anchor set to the first block and flying east without re-basing.
+    await load(`${BASE.replace('preset=urban', 'preset=realistic')}&shadows=0&labels=off&lng=${PROBES[0].lng}&lat=37.5445&x=60&z=60&dist=60&pitch=45&bearing=0`);
+    const info = await evaluate(`(async () => {
+      const e = window.__engine, s = e.scene, tiles = s.tileWorld();
+      // Pin the anchor: this is the whole experiment.
+      tiles.rebaseMeters = 1e9;
+      const hold = s.addActiveSource('precision');
+      const frames = (n) => new Promise((r) => { let i = 0; const off = s.onFrame(() => { if (++i >= n) { off(); r(); } }); });
+      const quiet = async () => { let q = 0; await new Promise((r) => { const off = s.onFrame(() => { q = s.activeSources().includes('tiles') ? 0 : q + 1; if (q > 30) { off(); r(); } }); }); };
+      try {
+        // Every run takes the same route: out to an empty region first, then in
+        // to its probe block. Without the detour the reference run would never
+        // evict its start-up tiles and would end up with a different set loaded
+        // than the runs that flew, which would swamp the thing being measured.
+        await e.dispatch({ type: 'setCamera', camera: { center: { lng: 128.0, lat: 36.4 } } });
+        await quiet();
+        await frames(5);
+        await e.dispatch({ type: 'setCamera', camera: ${JSON.stringify({ center: { lng: probe.lng + 0.0044, lat: 37.5445 - 0.0035 } })} });
+        await quiet();
+        await frames(10);
+        const o = s.camera.orbit, w = s.world();
+        return { orbitX: o.x, orbitZ: o.z, anchor: w.origin, buildings: w.buildings.length,
+                 driftKm: +((Math.hypot(o.x, o.z) * 8) / 1000).toFixed(1) };
+      } finally { hold(); }
+    })()`);
+    const shot1 = await shot(`precision-${shots.length === 0 ? 'ref' : `${probe.tiles}tiles-${shots.length}`}`);
+    shots.push({ probe, info, data: shot1.data });
+    console.log(`       block +${String(probe.tiles).padStart(4)} tiles: anchor drift ${String(info.driftKm).padStart(6)} km, ${info.buildings} buildings, world x ${info.orbitX.toFixed(0)}`);
+  }
+  const ref = shots[0];
+  shots.slice(1).forEach((s2, i) => {
+    const d = comparePng(Buffer.from(ref.data, 'base64'), Buffer.from(s2.data, 'base64'));
+    const pct = ((d.pixels / d.total) * 100).toFixed(2);
+    const label = i === 0 ? 'the SAME block again (control)' : `a block ${String(s2.info.driftKm).padStart(6)} km out`;
+    console.log(`       vs ${label.padEnd(32)}: ${String(d.pixels).padStart(6)} px differ (${pct.padStart(5)} %), max channel difference ${String(d.maxDelta).padStart(3)} of 255`);
+  });
+  console.log('       (identical content, identical framing, identical route: the only variable is the distance from the anchor.');
+  console.log('        the pixel *count* depends on where edges happen to fall and is noisy; the max channel difference is the signal.)');
+}
+
 console.log(`\narchive traffic: ${httpRequests} requests (${rangeRequests} ranged), ${(httpBytes / 1024).toFixed(1)} KiB transferred of a ${(statSync(FIXTURE).size / 1024).toFixed(1)} KiB archive`);
 console.log(`screenshots: ${outDir}`);
 
