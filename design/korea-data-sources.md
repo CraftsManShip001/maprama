@@ -135,7 +135,53 @@ Conversion notes learned by opening it:
 - Licence text on the page: "데이터는 공공누리 출처표시 조건에 따라 자유이용이 가능합니다."
 
 **Open question:** the 토지이음 site-wide copyright notice also says "내용을 변경하지 않아야 합니다", which
-contradicts 제1유형. Worth a written confirmation to 국토교통부 before a commercial launch.
+contradicts 제1유형. Worth a written confirmation to 국토교통부 before a commercial launch. The
+conversion below *does* modify the data (reprojects it, splits multiparts, drops holes and slivers),
+so this question is live, not academic.
+
+### Wired up: `maprama-tiles --kr-parks`
+
+```sh
+maprama-tiles kr-parks --src <dir of unpacked per-province dirs> --out kr-parks.json
+maprama-tiles build --pbf korea.osm.pbf --work .work --out korea.pmtiles --kr-parks kr-parks.json
+```
+
+`tools/tiles/src/kr-parks.ts` reads the shapefiles directly (`src/shapefile.ts`, CP949 via
+`TextDecoder('euc-kr')`) and does the datum shift in-process (`src/kr-proj.ts`, pinned to PROJ's
+own numbers to under a millimetre), so no GDAL and no new npm dependency. Conversion of all 18
+provinces takes about 4 seconds.
+
+**Which groups are drawn as parks: `UQT2` 공원 and `UQT4` 유원지, and that is the default.** 녹지
+(`UQT3`) and 공공공지 (`UQT5`) are available via `--groups` but are off, because they are legal
+designations rather than places: 완충녹지 is the strip of planting a road is required to have.
+Shot side by side at 서울 노원 and 은평, including them scatters small green flecks along every
+street without adding anywhere a player could go — 82,311 polygons instead of 32,148 for 1,060 km²
+instead of 835 km², nearly all of the extra being roadside slivers. 광장 (`UQT1`) is excluded for a
+different reason: a 광장 is paved, and painting it green would be simply wrong.
+
+**Minimum area 200 m² (≈ a 14 m square).** It drops 5,866 of 38,143 rings but only 0.4 km² of
+835.6 km² — 15 % of the count, 0.05 % of the area. The distribution's first percentile is 3 m²:
+these are slivers left by parcel edits and multipart decomposition, not parks.
+
+**Blank classifications are rescued by name** (`--no-rescue` to turn it off): 2,227 of the 7,827
+uncoded rows have a `DGM_NM` naming a chosen group, and they are real parks.
+
+What it buys, measured on two regional archives at z15:
+
+| | OSM parks | KR parks |
+| --- | ---: | ---: |
+| 서울 (126.80–127.18, 37.42–37.70) | 8,022 pieces / 61.3 km² | 6,901 pieces / **146.2 km²** |
+| 대전 (127.28–127.52, 36.24–36.42) | 2,647 pieces / 8.7 km² | 983 pieces / **19.9 km²** |
+
+The area roughly doubles because 도시자연공원 — 남산, 관악산, 북한산 — is a planning designation that
+OSM largely does not carry as a park polygon. In the 남산 shot OSM renders bare ground where the KR
+build renders the mountain park.
+
+**The cost is names.** OSM has 1,666 distinct park names in the Seoul box; the KR data has 937, and
+its commonest are the category words themselves (`근린공원` 1,567 times, `공원` 875, `어린이공원` 646).
+In 대전 it is starker: 253 distinct OSM names against 45. `DGM_NM` is the facility *type* far more
+often than the park's name, so label quality goes backwards where park geometry goes forwards. A
+future build probably wants KR geometry with OSM names joined onto it.
 
 ## Water: blocked
 
