@@ -23,6 +23,8 @@ export interface PmtilesFixtureOptions {
   tileCompression?: 1 | 2;
   /** 1 = none, 2 = gzip (default). */
   internalCompression?: 1 | 2;
+  /** 1 = MVT (default), 0 = Unknown, which is what a Maprama world archive declares. */
+  tileType?: 0 | 1;
 }
 
 function varint(n: number, out: number[]): void {
@@ -95,7 +97,7 @@ export function buildPmtiles(opts: PmtilesFixtureOptions): Uint8Array {
   dv.setUint8(96, 1);
   dv.setUint8(97, ic);
   dv.setUint8(98, tc);
-  dv.setUint8(99, 1); // MVT
+  dv.setUint8(99, opts.tileType ?? 1); // 1 = MVT, 0 = Unknown (Maprama MTIL)
   dv.setUint8(100, opts.minZoom);
   dv.setUint8(101, opts.maxZoom);
   const e7 = (pos: number, v: number) => dv.setInt32(pos, Math.round(v * 1e7), true);

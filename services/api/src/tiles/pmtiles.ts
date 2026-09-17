@@ -81,6 +81,19 @@ export function tileContentType(tileType: TileType): string {
   }
 }
 
+/**
+ * URL extension for a pmtiles tile type.
+ *
+ * `pmtiles`' own `tileTypeExt` returns `''` for `TileType.Unknown`, which is what a Maprama world
+ * archive (MTIL, `design/tile-format.md`) declares — the format deliberately leaves `tile_type`
+ * unset because PMTiles has no enum value for it. Serve those as `.mtil` so a tile URL still names
+ * what it carries.
+ */
+export function tileExtension(tileType: TileType): string {
+  if (tileType === TileType.Unknown) return '.mtil';
+  return tileTypeExt(tileType) || '.mvt';
+}
+
 export interface TileJson {
   tilejson: '3.0.0';
   name: string;
