@@ -923,6 +923,14 @@ export class Engine implements EngineHandle {
     // leaves the flat view must show the group before it is stepped back to its real height.
     this.buildingsR.setHidden(this.view.flat);
     this.buildingsR.step(dt, t, this.zoomOut.scaleY * (1 - vt), this.reduceMotion);
+    // The overview's merged blocks are buildings too: they take the same height
+    // factor, so `mapColors` squashes them with the rest and the 2D view drops
+    // them where the flat layer takes over.
+    const blocks = this.staticR.blocks;
+    if (blocks) {
+      blocks.scale.y = Math.max(1e-4, this.zoomOut.scaleY * (1 - vt));
+      blocks.visible = !this.view.flat;
+    }
     this.flatBuildings.update(vt, this.worldModel, this.params, this.mats, this.buildingsR.styles);
     const sub = this.cameraSub;
     if (sub && sub.pending && this.worldModel) {

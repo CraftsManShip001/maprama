@@ -76,6 +76,30 @@ const HARD_REBASE_FACTOR = 2;
 /** Metres per world unit of a tile world (the engine's usual 8 m per unit). */
 export const TILE_UNIT_METERS = 8;
 
+/**
+ * Buildings kept per **overview** tile. The detail level has no budget.
+ *
+ * An overview tile covers 16× the ground of a detail tile, and the camera that
+ * asks for one is kilometres out — a z13 Seoul view is 6 tiles and **7,641
+ * buildings**, every one of them individually extruded, facaded, roofed and
+ * shadow-cast. Measured on headless software GL that is ~13 s per frame with
+ * `urban` and ~3 s with `realistic`, for a picture in which most of those
+ * buildings are a few pixels of roof.
+ *
+ * So the overview keeps the buildings that carry the picture and drops the
+ * rest, ranked by {@link overviewScore}. 200 per tile is where the measured
+ * frame time comes back into the same range as a detail view (see
+ * `scripts/nationwide-shots.mjs --only overview`) while Seoul still reads as
+ * Seoul: the river, the arterials, the towers and the large blocks are all
+ * above the line, and what goes is the low-rise infill that at this distance is
+ * a texture rather than a building.
+ *
+ * It is a **per-tile** budget on purpose: a tile's contribution must not depend
+ * on which neighbours are loaded, or buildings would pop in and out as the
+ * camera pans, and the renderer could not reuse a tile's meshes.
+ */
+export const OVERVIEW_BUILDINGS_PER_TILE = 200;
+
 export interface TileWorldDeps {
   /** Replaced in tests. */
   pmtiles?: PMTilesFactory;
@@ -228,6 +252,7 @@ export class TileWorld implements TileWorldHandle {
       frame: this.frame,
       attribution: this.streamer.attribution(),
       name: this.archive.metadata.name ?? 'Tiles',
+      ...(this.streamer.isOverview ? { buildingsPerTile: OVERVIEW_BUILDINGS_PER_TILE } : {}),
       ...(start ? { start } : {}),
     });
   }

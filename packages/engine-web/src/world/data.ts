@@ -116,6 +116,7 @@ export function loadWorldData(world: WorldData): WorldModel {
     graph,
     buildings,
     water: world.water.map((p) => normalizeRing(p)).filter((p) => p.length >= 3),
+    buildingFills: null,
     waterRims: null,
     waterRibbons: [],
     banks: [],

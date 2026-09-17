@@ -58,6 +58,37 @@ export interface AssembleOptions {
   name: string;
   /** Where `world.start` should sit (the world point the camera opens on). */
   start?: { x: number; z: number };
+  /**
+   * Most buildings to keep **per tile**; the rest are dropped, largest first by
+   * {@link overviewScore}. `undefined` (the default) keeps every building.
+   *
+   * See {@link OVERVIEW_BUILDINGS_PER_TILE} for why the overview level needs
+   * one, and why the budget is per tile rather than for the world: a tile's
+   * content must not depend on which of its neighbours happen to be loaded, or
+   * buildings would appear and disappear as the camera pans.
+   */
+  buildingsPerTile?: number;
+}
+
+/**
+ * How much of an overview picture one building is: the ground it covers, plus
+ * the wall it shows, in world units.
+ *
+ * `√area` is the building's typical width, so `height · √area` is a proxy for
+ * its frontal area — without it a 40-storey tower on a small lot would rank
+ * below a supermarket, which is the wrong way round for the tilted overview
+ * camera the zoom-out view uses. The factor of two is what it takes for the
+ * towers along Teheran-ro to survive a budget that drops the low-rise blocks
+ * between them.
+ */
+export function overviewScore(ring: readonly Vec2[], height: number): number {
+  let a2 = 0;
+  for (let i = 0, n = ring.length; i < n; i++) {
+    const p = ring[i]!, q = ring[(i + 1) % n]!;
+    a2 += p[0] * q[1] - q[0] * p[1];
+  }
+  const area = Math.abs(a2) / 2;
+  return area + 2 * height * Math.sqrt(area);
 }
 
 /**
@@ -125,8 +156,11 @@ function waterRimsFor(ring: readonly Vec2[], local: readonly Vec2[], extent: num
 /** Converts every loaded tile into one world model anchored at `frame`'s anchor. */
 export function assembleTileWorld(tiles: readonly LoadedTile[], opts: AssembleOptions): WorldModel {
   const { frame } = opts;
+  const budget = opts.buildingsPerTile ?? Infinity;
   const roads: GraphRoad[] = [];
   const footprints: BuildingFootprint[] = [];
+  /** What the per-tile budget dropped: drawn as one merged block, not modelled. */
+  const buildingFills: { ring: Vec2[]; h: number }[] = [];
   /** Metres-per-world-unit at each building's own tile, to scale its height. */
   const heightMeters: number[] = [];
   const buildingUnitMeters: number[] = [];
@@ -175,7 +209,35 @@ export function assembleTileWorld(tiles: readonly LoadedTile[], opts: AssembleOp
       if (r.bridge) g.bridge = true;
       roads.push(g);
     }
-    for (const f of t.layers.buildings ?? []) {
+    const tileBuildings = t.layers.buildings ?? [];
+    // Over budget, the tile keeps only the buildings that carry the picture.
+    // The ranking runs on the tile's own list, so which buildings a tile
+    // contributes never depends on its neighbours — a tile that streams back in
+    // brings exactly what it brought last time, which is also what lets the
+    // building renderer reuse its meshes (`BuildingRenderer.build`).
+    // Ranked in **tile-local units**, where the footprint already is; the height
+    // is brought into the same units by the tile's own placement scale, so the
+    // two terms of the score are comparable.
+    const keep = budget < tileBuildings.length
+      ? new Set(
+        tileBuildings
+          .map((f, i) => ({ i, s: overviewScore(f.footprint as unknown as Vec2[], (f.heightDm / 10) / unitMetersHere / place.scale) }))
+          .sort((p, q) => q.s - p.s || (tileBuildings[p.i]!.id < tileBuildings[q.i]!.id ? -1 : 1))
+          .slice(0, budget)
+          .map((e) => e.i),
+      )
+      : null;
+    for (let i = 0; i < tileBuildings.length; i++) {
+      const f = tileBuildings[i]!;
+      if (keep && !keep.has(i)) {
+        // Dropped from the modelled set, but not from the picture: the merged
+        // block is what keeps a city looking built (`WorldModel.buildingFills`).
+        // Normalised like every other ring the renderers extrude, so the walls
+        // wind the right way round.
+        const ring = normalizeRing(f.footprint.map(toWorld));
+        if (ring.length >= 3) buildingFills.push({ ring, h: (f.heightDm / 10) / unitMetersHere });
+        continue;
+      }
       footprints.push({ id: f.id, footprint: f.footprint.map(toWorld), height: 0, ...(f.levels !== undefined ? { levels: f.levels } : {}), ...(f.kind !== undefined ? { kind: f.kind } : {}), ...(f.name !== undefined ? { name: f.name } : {}) });
       heightMeters.push(f.heightDm / 10);
       buildingUnitMeters.push(unitMetersHere);
@@ -252,6 +314,7 @@ export function assembleTileWorld(tiles: readonly LoadedTile[], opts: AssembleOp
     bounds: { minX, minZ, maxX, maxZ },
     graph: buildGraph(roads),
     buildings,
+    buildingFills: buildingFills.length ? buildingFills : null,
     water,
     waterRims,
     waterRibbons: [],

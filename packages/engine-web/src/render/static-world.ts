@@ -23,21 +23,35 @@ import {
   type Material,
 } from 'three';
 import type { RoadClass, Vec2 } from '@maprama/protocol';
-import { mixHex, mulberry32, scaleHex } from '../util/math.js';
+import { cssHexToNumber, mixHex, mulberry32, scaleHex } from '../util/math.js';
 import { ROAD_W } from '../world/graph.js';
 import { bbox, pointInPolygon, signedArea } from '../world/polygon.js';
 import { ACCENT } from '../theme/materials.js';
-import { discsGeo, polyGeo, quadsGeo, ribbonGeo, type Disc, type Quad } from './geometry.js';
+import { discsGeo, mergeFlat, polyGeo, quadsGeo, ribbonGeo, type Disc, type Quad } from './geometry.js';
+import { prismGeometry } from './footprint.js';
 import { addPart, CAR_COLORS, clearGroup, noRaycast, sharedGeometries, tree, type RenderContext } from './parts.js';
 
 const ROAD_Y: Record<RoadClass, number> = { alley: 0.07, local: 0.075, arterial: 0.08 };
 const MARK_Y = 0.09;
+/**
+ * Shortest an overview block is drawn, in world units (~8 m, one low storey).
+ * A tile can carry a height of zero where OSM had none, and a zero-height prism
+ * is a cap coplanar with the pad under it — z-fighting, not a building.
+ */
+const BUILDING_FILL_MIN_H = 1;
 
 export class StaticWorldRenderer {
   /** Ground, water, roads, markings, bridges, trees. */
   readonly group = new Group();
   /** Small street clutter (lamps, parked cars, benches, bus stops) hidden when zoomed far out. */
   readonly clutter = new Group();
+  /**
+   * The overview's merged building blocks (`WorldModel.buildingFills`), or
+   * `null` when the world has none. Exposed so the engine can squash and hide
+   * them with the modelled buildings: they are buildings, and a view that
+   * flattens one and not the other would be two maps at once.
+   */
+  blocks: Mesh | null = null;
 
   constructor() {
     this.group.name = 'static';
@@ -50,6 +64,7 @@ export class StaticWorldRenderer {
     clearGroup(this.clutter);
     clearGroup(this.group);
     this.group.add(this.clutter);
+    this.blocks = null;
   }
 
   build(ctx: RenderContext): void {
@@ -108,6 +123,37 @@ export class StaticWorldRenderer {
         placed++;
       }
     }
+    // ---- merged building blocks (the overview's un-modelled mass) ----
+    //
+    // Everything the overview's per-tile budget dropped, extruded to its real
+    // height and merged into **one mesh**: one draw call in the colour pass and
+    // one in the shadow pass, for what the 2.5D renderer would have drawn as
+    // thousands of groups. No facade, no roof furniture, no parapet, no outline
+    // and no contact decal — at 7 km none of that is a pixel; what does the work
+    // is the silhouette and the shadow, and those are here.
+    //
+    // A flat fill was tried first and is not enough: a cap at ground level is
+    // unlit mass in a lit scene, and at the overview's haze it washes out to a
+    // mottle on the paving (measured: the block colour landed 10 of 255 from the
+    // pad, and the screenshots showed exactly that).
+    if (W.buildingFills?.length) {
+      // Built from y = 0 and lifted by the mesh's own position, so that
+      // `blocks.scale.y` squashes them about their base — which is how the
+      // zoom-out behaviour and the 2D view move the modelled buildings.
+      const geos = W.buildingFills.map((f) => prismGeometry(f.ring, 0, Math.max(f.h * P.heightScale, BUILDING_FILL_MIN_H)));
+      // The theme's own building colour, toned towards the paving: one merged
+      // mesh can carry only one colour, and the palette's first entry alone
+      // (white, in every preset) reads brighter than the modelled buildings it
+      // stands between, which are shaded by their facades.
+      const block = new Mesh(mergeFlat(geos), mats.make(mixHex(cssHexToNumber(P.palette[0]!), padCol, 0.3), { roughness: 0.85 }));
+      block.position.y = W.buildingBaseY;
+      block.castShadow = true;
+      block.receiveShadow = true;
+      block.raycast = noRaycast;
+      this.group.add(block);
+      this.blocks = block;
+    }
+
     if (W.plaza && !W.gridBlocks) {
       flat(discsGeo([[W.plaza.x, W.plaza.z, W.plaza.radius]], 0.06, 40), mats.make(T.textured ? 0xcfc6b8 : T.plaza, { roughness: 0.9 }));
     }
