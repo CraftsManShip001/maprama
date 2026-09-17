@@ -19,6 +19,7 @@ import { readFile, mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { surveyPbfNodes } from '@maprama/osm';
 import { buildArchive, clearWork, DEFAULT_BUFFER, DEFAULT_EXTENT, DEFAULT_PROFILES } from './build.js';
+import { DEFAULT_PAD_DEG } from './chunks.js';
 import { isSyntheticEdge } from './geometry.js';
 import { tileGroundMeters, tileOf, tileUnitMeters } from './mercator.js';
 import { OsmPbfSource } from './osm-source.js';
@@ -38,7 +39,7 @@ const USAGE = `maprama-tiles <command> [options]
 
   build   --pbf <file> --work <dir> --out <file.pmtiles>
           [--name <s>] [--bounds w,s,e,n] [--chunk-zoom 10] [--node-budget 6000000]
-          [--max-chunks 64] [--extent 8192] [--buffer 256] [--zooms 13,15]
+          [--max-chunks 64] [--extent 8192] [--buffer 256] [--zooms 13,15] [--pad 0.01]
           [--kr-buildings <geojson>] [--kr-fill] [--fresh]
           Builds the archive, resuming from --work unless --fresh.
 
@@ -176,6 +177,7 @@ async function cmdBuild(args: Args, log: (m: string) => void): Promise<void> {
     chunkZoom,
     extent: num(args, 'extent', DEFAULT_EXTENT),
     buffer: num(args, 'buffer', DEFAULT_BUFFER),
+    padDeg: num(args, 'pad', DEFAULT_PAD_DEG),
     nodeBudget: num(args, 'node-budget', 6_000_000),
     maxChunksPerBatch: num(args, 'max-chunks', 64),
     log,
@@ -218,36 +220,46 @@ async function cmdVerify(args: Args, log: (m: string) => void): Promise<void> {
     log('WARNING: header + root + metadata exceed 16 KiB — a cold start will need extra requests');
   }
 
-  // Sample tiles across the whole id range and decode every one of them.
+  // Sample tiles by sweeping the archive's own bounds rather than by walking a
+  // tile range: most of a national grid is empty, so a range walk finds nothing.
   let checked = 0;
   let failed = 0;
+  let misses = 0;
   const layerTotals: Record<string, number> = {};
+  const steps = 60;
   for (const z of [header.minZoom, header.maxZoom]) {
-    const n = 2 ** z;
-    for (let i = 0; i < 4000 && checked < 64; i++) {
-      const x = Math.floor(((header.minLon + 180) / 360) * n) + (i % 97);
-      const s = Math.sin((header.maxLat * Math.PI) / 180);
-      const y = Math.floor((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n) + Math.floor(i / 97) + (i % 53);
-      if (x >= n || y >= n) continue;
-      let tile;
-      try {
-        tile = await readTile(archive, z, x, y);
-      } catch (e) {
-        failed++;
-        log(`  ${z}/${x}/${y}: DECODE FAILED ${(e as Error).message}`);
-        continue;
-      }
-      if (!tile) continue;
-      checked++;
-      for (const name of LAYER_NAMES) layerTotals[name] = (layerTotals[name] ?? 0) + tile.layers[name].length;
-      if (tile.extent !== DEFAULT_EXTENT && tile.extent <= 0) failed++;
-      if (tile.attribution.length === 0) {
-        failed++;
-        log(`  ${z}/${x}/${y}: no attribution indices`);
+    const seen = new Set<string>();
+    for (let i = 0; i < steps && checked < 128; i++) {
+      for (let j = 0; j < steps && checked < 128; j++) {
+        const lng = header.minLon + ((header.maxLon - header.minLon) * (i + 0.5)) / steps;
+        const lat = header.minLat + ((header.maxLat - header.minLat) * (j + 0.5)) / steps;
+        const { x, y } = tileOf(lng, lat, z);
+        const key = `${z}/${x}/${y}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let tile;
+        try {
+          tile = await readTile(archive, z, x, y);
+        } catch (e) {
+          failed++;
+          log(`  ${key}: DECODE FAILED ${(e as Error).message}`);
+          continue;
+        }
+        if (!tile) {
+          misses++;
+          continue;
+        }
+        checked++;
+        for (const name of LAYER_NAMES) layerTotals[name] = (layerTotals[name] ?? 0) + tile.layers[name].length;
+        if (tile.extent !== DEFAULT_EXTENT && tile.extent <= 0) failed++;
+        if (tile.attribution.length === 0) {
+          failed++;
+          log(`  ${key}: no attribution indices`);
+        }
       }
     }
   }
-  log(`tiles     decoded ${checked} sampled tiles, ${failed} problems`);
+  log(`tiles     decoded ${checked} sampled tiles (${misses} probes hit no stored tile), ${failed} problems`);
   log(`          features ${JSON.stringify(layerTotals)}`);
   if (failed > 0) process.exitCode = 1;
 }
