@@ -446,8 +446,14 @@ void MapSession::init(const Value& msg) {
     adapter_->fetchText(token, url);
   } else if (kind == "procedural") {
     loadProceduralWorld(source, msg);
+  } else if (kind == "tiles") {
+    // The payload format is understood (maprama/TileFormat.hpp decodes MTIL v1 and is covered by
+    // cpp/tests/tile_tests.cpp), but nothing streams or draws tiles on the native engine yet: say so
+    // instead of pretending to load a world. engine-web implements `kind: "tiles"`.
+    emitError(error_codes::kUnsupported,
+              "world source kind \"tiles\" is not supported by the native engine yet (use engine=\"web\")", true);
   } else {
-    // Unreachable: decodeCommand only accepts data / url / procedural.
+    // Unreachable: decodeCommand only accepts data / url / procedural / tiles.
     emitError(error_codes::kUnsupported, "world source kind " + json::quote(kind) + " is not supported", true);
   }
 }

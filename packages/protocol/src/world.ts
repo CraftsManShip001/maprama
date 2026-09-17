@@ -173,6 +173,33 @@ export const PROCEDURAL_LAYOUTS = ['grid', 'town'] as const;
 /** Procedural demo layout name. */
 export type ProceduralLayout = (typeof PROCEDURAL_LAYOUTS)[number];
 
+/**
+ * A streamed tile world: one PMTiles archive the engine reads pieces of with
+ * HTTP range requests, instead of one document it loads whole.
+ *
+ * The format is `design/tile-format.md` (MTIL v1); `@maprama/protocol`'s
+ * {@link decodeTile} is the reader. A tile world can be the size of a country,
+ * so the engine keeps a *render anchor* and re-bases world coordinates around
+ * it as the camera travels — see the engine guide for what that changes about
+ * world-unit coordinates in the public API.
+ */
+export interface TileWorldSource {
+  kind: 'tiles';
+  /** URL of the PMTiles archive. The server must answer HTTP range requests. */
+  url: string;
+  /**
+   * Where the map opens. Unlike `kind: 'data'` / `kind: 'url'`, the data does
+   * not carry an origin or a plaza, so the host has to say where to start.
+   */
+  center: LngLat;
+  /** Forces the detail zoom level. Defaults to the archive's `maxZoom`. */
+  detailZoom?: number;
+  /** Forces the overview zoom level. Defaults to the archive's `minZoom`. */
+  overviewZoom?: number;
+  /** Upper bound on tiles kept in memory at once. The engine picks a default. */
+  tileBudget?: number;
+}
+
 /** Where an engine gets its world from. */
 export type WorldSource =
   /** Inline world data. */
@@ -180,9 +207,19 @@ export type WorldSource =
   /** URL of a `WorldData` JSON document the engine fetches. */
   | { kind: 'url'; url: string }
   /** A generated demo layout, deterministic for a given seed. */
-  | { kind: 'procedural'; layout: ProceduralLayout; seed?: number };
+  | { kind: 'procedural'; layout: ProceduralLayout; seed?: number }
+  /** A streamed PMTiles archive of MTIL tiles. */
+  | TileWorldSource;
 
 const vec2: Check = tuple(number, number);
+
+/** A slippy-map zoom level: an integer in `[0, 24]`. */
+const zoomLevel: Check = (v, p) =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 24 ? null : `${p}: expected an integer zoom level in [0, 24]`;
+
+/** A positive integer count (tile budget). */
+const positiveInteger: Check = (v, p) =>
+  Number.isSafeInteger(v) && (v as number) > 0 ? null : `${p}: expected a positive integer`;
 
 /** @internal */
 export const checkWorldData: Check = object(
@@ -224,6 +261,10 @@ export const checkWorldSource: Check = discriminated('kind', {
   data: object({ world: checkWorldData }),
   url: object({ url: nonEmptyString }),
   procedural: object({ layout: oneOf(PROCEDURAL_LAYOUTS) }, { seed: integer }),
+  tiles: object(
+    { url: nonEmptyString, center: checkLngLat },
+    { detailZoom: zoomLevel, overviewZoom: zoomLevel, tileBudget: positiveInteger },
+  ),
 });
 
 /**

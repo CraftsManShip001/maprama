@@ -43,11 +43,41 @@ export type {
   Road,
   RoadClass,
   Station,
+  TileWorldSource,
   Vec2,
   WorldBounds,
   WorldData,
   WorldSource,
 } from './world.js';
+
+export {
+  MTIL_BUFFER,
+  MTIL_EXTENT,
+  MTIL_FORMAT,
+  MTIL_LAYERS,
+  MTIL_LAYER_NAMES,
+  MTIL_LAYER_OWNERSHIP,
+  MTIL_MAGIC,
+  MTIL_VERSION,
+  TileDecodeError,
+  decodeTile,
+  resolveTileAttribution,
+  validateTileArchiveMetadata,
+} from './tile.js';
+export type {
+  MtilLayerName,
+  MtilTile,
+  TileArchiveMetadata,
+  TileBuilding,
+  TileDistrict,
+  TileLayers,
+  TilePark,
+  TilePoi,
+  TileRoad,
+  TileStation,
+  TileVec2,
+  TileWater,
+} from './tile.js';
 
 export {
   BASE_THEME_DEFAULTS,

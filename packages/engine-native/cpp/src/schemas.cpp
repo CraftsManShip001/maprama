@@ -1,5 +1,6 @@
 #include "schemas.hpp"
 
+#include <cmath>
 #include <cstddef>
 
 namespace maprama::schemas {
@@ -47,6 +48,20 @@ struct Schemas {
 
     // world.ts
     const Check vec2 = tuple({number, number});
+    // `zoomLevel` / `positiveInteger` of world.ts (message text included).
+    const Check zoomLevel = [](const Value* v, const std::string& p) -> Error {
+      return (v != nullptr && v->isNumber() && std::isfinite(v->asNumber()) &&
+              v->asNumber() == std::floor(v->asNumber()) && v->asNumber() >= 0 && v->asNumber() <= 24)
+                 ? Error()
+                 : Error(p + ": expected an integer zoom level in [0, 24]");
+    };
+    const Check positiveInteger = [](const Value* v, const std::string& p) -> Error {
+      return (v != nullptr && v->isNumber() && std::isfinite(v->asNumber()) &&
+              v->asNumber() == std::floor(v->asNumber()) && std::fabs(v->asNumber()) <= kMaxSafeInteger &&
+              v->asNumber() > 0)
+                 ? Error()
+                 : Error(p + ": expected a positive integer");
+    };
     worldData = object(
         {
             {"version", literal(1)},
@@ -77,6 +92,11 @@ struct Schemas {
                     {"data", object({{"world", worldData}})},
                     {"url", object({{"url", nonEmptyString}})},
                     {"procedural", object({{"layout", oneOfEnum<ProceduralLayout>()}}, {{"seed", integer}})},
+                    // A streamed PMTiles archive (design/tile-format.md). Decoded and validated here
+                    // so the message contract stays identical to @maprama/protocol; the native engine
+                    // does not render tile worlds yet and answers `unsupported` (DESIGN.md §7).
+                    {"tiles", object({{"url", nonEmptyString}, {"center", lngLat}},
+                                     {{"detailZoom", zoomLevel}, {"overviewZoom", zoomLevel}, {"tileBudget", positiveInteger}})},
                 });
 
     // theme.ts
