@@ -70,6 +70,20 @@ OpenStreetMap
   tools/osm/samples/seongsu.world.json is a derived database of OpenStreetMap
   data and is licensed under ODbL 1.0, not Apache-2.0.
 
+토지이음 (도시계획)시설정보 — 국토교통부
+  The optional `kr-parks` tile source (tools/tiles, `maprama-tiles build
+  --kr-parks`) builds the parks layer from 토지이음 (도시계획)시설정보 layer
+  UQ153, published by 국토교통부 (https://www.eum.go.kr/) under
+  공공누리 제1유형 (출처표시) — free use including commercial use and
+  modification, on condition that the source is stated.
+  Archives built with that option carry the attribution line
+  "공원: 토지이음 (도시계획)시설정보 — 국토교통부 (공공누리 제1유형)" in their
+  metadata, and every tile that received a polygon from it stores that line's
+  index. The default build does not use this source.
+  tools/tiles/test/fixtures/kr-parks/ holds six records (34 KB) cut unmodified
+  out of the 2026-08 Seoul issue of that dataset, as a test fixture. It is
+   토지이음 data under 공공누리 제1유형, not Apache-2.0.
+
 Additional data sources (for example Korean public building data) will be
 listed here with their licenses and attribution requirements as they are added.
 

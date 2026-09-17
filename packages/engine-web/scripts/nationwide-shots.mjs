@@ -4,6 +4,12 @@
  *
  *   MAPRAMA_ARCHIVE=/path/south-korea.pmtiles node scripts/nationwide-shots.mjs
  *   ... --only scenes          (scenes | fly | rebuild | overview | idle | memory)
+ *   MAPRAMA_SCENES=/path/scenes.json  replaces the built-in scene list, so the
+ *   same harness can shoot an A/B pair of archives at places the built-in list
+ *   does not visit (a source swap on one layer, say). The file is an array of
+ *   `{ name, label, lng, lat, hash, expect }`, the shape of SCENES below.
+ *   MAPRAMA_SHOTS=/path/dir  writes the PNGs somewhere other than
+ *   .screenshots-nationwide, so an A/B pair does not overwrite itself.
  *
  * Unlike `tile-shots.mjs`, which drives a synthetic fixture with a made-up
  * Seoul block and a straight synthetic river, this one serves the archive the
@@ -26,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = join(root, '.screenshots-nationwide');
+const outDir = process.env.MAPRAMA_SHOTS || join(root, '.screenshots-nationwide');
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const ARCHIVE = process.env.MAPRAMA_ARCHIVE;
 const argv = process.argv.slice(2);
@@ -256,7 +262,9 @@ const check = (ok, what) => {
 const BASE = `panel=0&layout=tiles&preset=urban&tod=day&ui=1&labels=holo&zo=keepGameView&tiles=${encodeURIComponent(ARCHIVE_URL)}`;
 
 /** Real places. `expect` is what the scene has to show for the chain to be working. */
-const SCENES = [
+const SCENES = process.env.MAPRAMA_SCENES
+  ? JSON.parse(readFileSync(process.env.MAPRAMA_SCENES, 'utf8'))
+  : [
   { name: 'kr-01-gangnam', label: '서울 강남역', lng: 127.0276, lat: 37.4979, hash: 'dist=70&pitch=45&bearing=20', expect: 'buildings' },
   { name: 'kr-02-seongsu', label: '서울 성수동', lng: 127.0557, lat: 37.5447, hash: 'dist=70&pitch=45&bearing=0', expect: 'buildings' },
   { name: 'kr-03-busan-seomyeon', label: '부산 서면', lng: 129.0596, lat: 35.1577, hash: 'dist=70&pitch=45&bearing=0', expect: 'buildings' },
@@ -276,7 +284,7 @@ const SCENES = [
   { name: 'kr-10-overview-seoul', label: '서울 오버뷰 (z13, maxDist 8000)', lng: 127.0276, lat: 37.4979, hash: 'preset=realistic&maxDist=8000&dist=900&pitch=40&bearing=0', expect: 'overview' },
   { name: 'kr-11-overview-default-cap', label: '오버뷰 시도, 기본 상한 그대로', lng: 127.0276, lat: 37.4979, hash: 'preset=realistic&dist=900&pitch=40&bearing=0', expect: 'capped' },
   { name: 'kr-12-gangnam-night', label: '강남 야경', lng: 127.0276, lat: 37.4979, hash: 'tod=night&dist=60&pitch=50&bearing=28', expect: 'buildings' },
-];
+    ];
 
 const sceneInfo = `(() => {
   const s = window.__engine.scene, w = s.world(), t = s.tileWorld();

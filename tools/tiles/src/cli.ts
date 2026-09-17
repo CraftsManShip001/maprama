@@ -22,6 +22,16 @@ import { buildArchive, clearWork, DEFAULT_BUFFER, DEFAULT_EXTENT, DEFAULT_PROFIL
 import { DEFAULT_PAD_DEG } from './chunks.js';
 import { isSyntheticEdge } from './geometry.js';
 import { tileGroundMeters, tileOf, tileUnitMeters } from './mercator.js';
+import {
+  DEFAULT_KR_PARK_GROUPS,
+  DEFAULT_KR_PARK_MIN_AREA_M2,
+  KR_PARKS_ATTRIBUTION,
+  KR_PARK_GROUPS,
+  KrParksSource,
+  convertKrParks,
+  encodeKrParksFile,
+  type KrParkGroup,
+} from './kr-parks.js';
 import { OsmPbfSource } from './osm-source.js';
 import { openArchive, readTile } from './reader.js';
 import { DEFAULT_LAYER_ROUTING } from './sources.js';
@@ -40,8 +50,16 @@ const USAGE = `maprama-tiles <command> [options]
   build   --pbf <file> --work <dir> --out <file.pmtiles>
           [--name <s>] [--bounds w,s,e,n] [--chunk-zoom 10] [--node-budget 6000000]
           [--max-chunks 64] [--extent 8192] [--buffer 256] [--zooms 13,15] [--pad 0.01]
-          [--kr-buildings <geojson>] [--kr-fill] [--fresh]
+          [--kr-buildings <geojson>] [--kr-fill] [--kr-parks <file.json>] [--fresh]
           Builds the archive, resuming from --work unless --fresh.
+          --kr-parks routes the parks layer to the Korean national city-planning
+          dataset instead of OSM. Without it the routing is all-OSM as before.
+
+  kr-parks --src <dir> --out <file.json>
+          [--groups park,amusement] [--min-area 200] [--no-rescue]
+          One-off conversion of the unpacked 토지이음 (도시계획)시설정보 UQ153
+          shapefiles (EPSG:5174, CP949) into the file --kr-parks reads.
+          Groups: plaza(UQT1) park(UQT2) green(UQT3) amusement(UQT4) openspace(UQT5).
 
   verify  <archive.pmtiles>
           Reads the archive back with the official pmtiles package: header,
@@ -158,6 +176,12 @@ async function cmdBuild(args: Args, log: (m: string) => void): Promise<void> {
     ...(args['kr-fill'] ? { krFillMissing: true } : {}),
   });
 
+  // The one place a layer changes hands. Everything downstream — tiler, encoder,
+  // archive writer, attribution table — reads the routing and needs no edit.
+  const krParksPath = str(args, 'kr-parks');
+  const sources = krParksPath ? [source, new KrParksSource({ file: krParksPath, log })] : [source];
+  const routing = krParksPath ? { ...DEFAULT_LAYER_ROUTING, parks: 'kr-parks' } : DEFAULT_LAYER_ROUTING;
+
   let peakRss = 0;
   const sampler = setInterval(() => {
     const rss = process.memoryUsage.rss();
@@ -170,8 +194,8 @@ async function cmdBuild(args: Args, log: (m: string) => void): Promise<void> {
     out,
     name: str(args, 'name') ?? 'South Korea',
     bounds: str(args, 'bounds') ? parseBounds(str(args, 'bounds')!) : SOUTH_KOREA,
-    sources: [source],
-    routing: DEFAULT_LAYER_ROUTING,
+    sources,
+    routing,
     survey,
     profiles,
     chunkZoom,
@@ -200,6 +224,38 @@ async function cmdBuild(args: Args, log: (m: string) => void): Promise<void> {
   log(`  attribution  ${JSON.stringify(report.attribution)}`);
   log(`  elapsed      ${(report.seconds / 60).toFixed(1)} min`);
   log(`  peak rss     ${mb(peakRss)} MiB`);
+}
+
+async function cmdKrParks(args: Args, log: (m: string) => void): Promise<void> {
+  const src = required(args, 'src');
+  const out = required(args, 'out');
+  const groupNames = (str(args, 'groups') ?? DEFAULT_KR_PARK_GROUPS.join(',')).split(',').map((s) => s.trim());
+  for (const g of groupNames) {
+    if (!(g in KR_PARK_GROUPS)) {
+      throw new Error(`--groups: unknown group "${g}" (known: ${Object.keys(KR_PARK_GROUPS).join(', ')})`);
+    }
+  }
+  const groups = groupNames as KrParkGroup[];
+  const minAreaM2 = num(args, 'min-area', DEFAULT_KR_PARK_MIN_AREA_M2);
+  const { parks, stats } = await convertKrParks({
+    dir: src,
+    groups,
+    minAreaM2,
+    rescueByName: !args['no-rescue'],
+    log: (m) => {
+      if (args['verbose']) log(m);
+    },
+  });
+  await writeFile(out, JSON.stringify(encodeKrParksFile(parks, stats, groups, minAreaM2)));
+  const bytes = (await stat(out)).size;
+  log(`kr-parks   ${out}  (${(bytes / 2 ** 20).toFixed(1)} MiB)`);
+  log(`  groups     ${groups.join(',')}  min-area ${minAreaM2} m²`);
+  log(`  read       ${stats.files} shapefiles, ${stats.records.toLocaleString()} records`);
+  log(`  selected   ${stats.matched.toLocaleString()} by code + ${stats.rescued.toLocaleString()} rescued by name`);
+  log(`  rings      ${stats.rings.toLocaleString()} outer (${stats.droppedHoles.toLocaleString()} holes dropped)`);
+  log(`  dropped    ${stats.droppedSmall.toLocaleString()} under ${minAreaM2} m², ${stats.droppedDuplicate.toLocaleString()} duplicates`);
+  log(`  kept       ${stats.kept.toLocaleString()} polygons, ${stats.areaKm2.toFixed(1)} km²`);
+  log(`  attribution ${JSON.stringify(KR_PARKS_ATTRIBUTION)}`);
 }
 
 async function cmdVerify(args: Args, log: (m: string) => void): Promise<void> {
@@ -384,6 +440,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
         break;
       case 'build':
         await cmdBuild(args, log);
+        break;
+      case 'kr-parks':
+        await cmdKrParks(args, log);
         break;
       case 'verify':
         await cmdVerify(args, log);

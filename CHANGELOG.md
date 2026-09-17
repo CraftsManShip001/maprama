@@ -254,6 +254,27 @@ First public release of `@maprama/protocol`, `@maprama/engine-web`,
   South Korea file — and the library entry point `extractFromPbf(file, bboxes)`
   serves any number of areas from a single scan (five areas in 46 s rather than
   five times 24 s).
+- **Korean national parks as an optional tile source.** `maprama-tiles kr-parks`
+  converts 토지이음 (도시계획)시설정보 layer `UQ153` (국토교통부, 공공누리 제1유형)
+  from its per-province EPSG:5174 / CP949 shapefiles, and
+  `maprama-tiles build --kr-parks <file>` routes the `parks` layer to it. This is
+  the first time the per-layer source routing in `tools/tiles/src/sources.ts` has
+  actually been used to swap a layer, and it needed no change to the tiler, the
+  encoder, the archive writer or the driver — only a new `TileSource` and one
+  entry in the routing. Without the flag the build is all-OSM exactly as before,
+  so the dataset is not a build requirement.
+
+  Measured at z15 over a Seoul box, the parks layer goes from 61.3 km² to
+  146.2 km², because 도시자연공원 (남산, 관악산, 북한산) is a designation OSM
+  largely does not carry; the cost is names, which in this dataset are usually
+  the facility type (`근린공원`) rather than the park's name. 녹지 and 공공공지 are
+  available (`--groups`) but off by default: they are roadside planting strips,
+  not places. See `design/korea-data-sources.md`.
+
+  The conversion needs no GDAL and no new dependency — `tools/tiles/src/kr-proj.ts`
+  does the Korean 1985 → WGS 84 shift in ~60 lines, pinned against PROJ's own
+  numbers to under a millimetre, and `src/shapefile.ts` reads the polygons and
+  the CP949 `.dbf`.
 - Release tooling: package metadata, per-package READMEs, `LICENSE` / `NOTICE`
   in every tarball, GitHub Actions CI, `CONTRIBUTING.md` and `SECURITY.md`.
 

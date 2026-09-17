@@ -49,6 +49,23 @@ export {
 export type { GeoBounds, LngLat, TileXYZ } from './mercator.js';
 export { FLAG_CLIPPED, MAGIC, MTIL_VERSION, decodeTile, encodeTile } from './mtil.js';
 export type { DecodedTile, EncodeTileOptions } from './mtil.js';
+export {
+  DEFAULT_KR_PARK_GROUPS,
+  DEFAULT_KR_PARK_MIN_AREA_M2,
+  KR_PARKS_ATTRIBUTION,
+  KR_PARK_GROUPS,
+  KrParksSource,
+  convertKrParks,
+  encodeKrParksFile,
+} from './kr-parks.js';
+export type {
+  ConvertKrParksOptions,
+  KrParkGroup,
+  KrParksFile,
+  KrParksSourceOptions,
+  KrParksStats,
+} from './kr-parks.js';
+export { epsg5174ToWgs84 } from './kr-proj.js';
 export { OsmPbfSource, worldToGeo } from './osm-source.js';
 export type { OsmPbfSourceOptions } from './osm-source.js';
 export {
@@ -63,6 +80,8 @@ export {
 } from './pmtiles.js';
 export type { ArchiveStats, Directories, Entry, FinishOptions } from './pmtiles.js';
 export { FileSource, openArchive, readTile } from './reader.js';
+export { readDbf, readPolygonShapefile, signedArea } from './shapefile.js';
+export type { DbfField, ShapeRecord } from './shapefile.js';
 export {
   DEFAULT_LAYER_ROUTING,
   activeSources,
