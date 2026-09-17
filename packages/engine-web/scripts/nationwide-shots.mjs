@@ -3,7 +3,7 @@
  * End-to-end harness for a **real, nationwide** archive.
  *
  *   MAPRAMA_ARCHIVE=/path/south-korea.pmtiles node scripts/nationwide-shots.mjs
- *   ... --only scenes          (scenes | fly | idle | memory)
+ *   ... --only scenes          (scenes | fly | rebuild | overview | idle | memory)
  *
  * Unlike `tile-shots.mjs`, which drives a synthetic fixture with a made-up
  * Seoul block and a straight synthetic river, this one serves the archive the
@@ -19,6 +19,7 @@
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import zlib from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -193,6 +194,57 @@ async function shot(name) {
   return { file, data };
 }
 
+/**
+ * Decodes a PNG (the only ones here are Chrome's own screenshots: 8-bit
+ * truecolour, possibly with alpha) to raw RGB. Small enough to keep the harness
+ * dependency-free, which is the point.
+ */
+function pngPixels(buf) {
+  let i = 8, idat = [], w = 0, h = 0, ct = 0;
+  while (i < buf.length) {
+    const len = buf.readUInt32BE(i), type = buf.toString('ascii', i + 4, i + 8);
+    if (type === 'IHDR') { w = buf.readUInt32BE(i + 8); h = buf.readUInt32BE(i + 12); ct = buf[i + 17]; }
+    if (type === 'IDAT') idat.push(buf.subarray(i + 8, i + 8 + len));
+    i += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const bpp = ct === 6 ? 4 : 3, stride = w * bpp;
+  const out = Buffer.alloc(w * h * bpp);
+  let prev = Buffer.alloc(stride), pos = 0;
+  for (let y = 0; y < h; y++) {
+    const f = raw[pos++];
+    const line = Buffer.from(raw.subarray(pos, pos + stride));
+    pos += stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? line[x - bpp] : 0, b = prev[x], c = x >= bpp ? prev[x - bpp] : 0;
+      if (f === 1) line[x] = (line[x] + a) & 255;
+      else if (f === 2) line[x] = (line[x] + b) & 255;
+      else if (f === 3) line[x] = (line[x] + ((a + b) >> 1)) & 255;
+      else if (f === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        line[x] = (line[x] + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c)) & 255;
+      }
+    }
+    line.copy(out, y * stride);
+    prev = line;
+  }
+  return { w, h, bpp, px: out };
+}
+
+/** Worst per-channel difference between two screenshots, and how many pixels differ at all. */
+function pngMaxDiff(a, b) {
+  const A = pngPixels(a), B = pngPixels(b);
+  if (A.w !== B.w || A.h !== B.h) return { max: 255, differing: A.w * A.h, pixels: A.w * A.h };
+  let max = 0, differing = 0;
+  for (let i = 0; i < A.w * A.h; i++) {
+    let d = 0;
+    for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(A.px[i * A.bpp + k] - B.px[i * B.bpp + k]));
+    if (d > 0) differing++;
+    if (d > max) max = d;
+  }
+  return { max, differing, pixels: A.w * A.h };
+}
+
 const failures = [];
 const check = (ok, what) => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${what}`);
@@ -337,6 +389,53 @@ if (want('fly')) {
   console.log(`       ${pan.n} frames over a ${pan.buildings}-building world — p50 ${pan.p50.toFixed(1)} ms, p90 ${pan.p90.toFixed(1)} ms, p99 ${pan.p99.toFixed(1)} ms, max ${pan.max.toFixed(1)} ms`);
   console.log(`       ${pan.spikes} frames took more than 3x the median (world re-assembly as tiles arrive and drop)`);
   console.log('       (headless software GL — relative, not a device number)');
+}
+
+/* ------------------------------ incremental == rebuilt from nothing */
+
+if (want('rebuild')) {
+  console.log('\nthe incremental world against a full rebuild of the same tiles');
+  // Labels off: the holo anchors pulse, so two frames taken seconds apart differ
+  // in the *overlay* whatever the world does, and the claim under test is about
+  // the world. (With them on the difference is 1,219 pixels of 296,400, every
+  // one of them on a pulsing ring.)
+  await load(`${BASE.replace('preset=urban', 'preset=realistic').replace('labels=holo', 'labels=off')}&lng=127.0276&lat=37.4979&dist=70&pitch=45&bearing=0`);
+  // Pan far enough to cross tile boundaries several times: what is on screen is
+  // then a world that grew and shrank incrementally, not one that was built.
+  const panned = await evaluate(`(async () => {
+    const s = window.__engine.scene;
+    const hold = s.addActiveSource('rebuild-measure');
+    for (let i = 0; i < 90; i++) { s.camera.panBy(1.6, 0); await new Promise((r) => requestAnimationFrame(() => r())); }
+    let q = 0;
+    await new Promise((r) => { const off = s.onFrame(() => { q = s.activeSources().filter((t) => t !== 'rebuild-measure').length ? 0 : q + 1; if (q > 4) { off(); r(); } }); });
+    hold();
+    return { buildings: s.world().buildings.length, tiles: s.tileWorld().stats().loaded };
+  })()`);
+  const before = await shot('rebuild-01-incremental');
+  // `setTheme` with the theme already in force is the full-rebuild path: a new
+  // material generation, and every renderer built again from the same world and
+  // the same loaded tiles. Nothing else in the scene changes, so the two frames
+  // are the same picture drawn twice — once incrementally, once from nothing.
+  await evaluate(`(async () => {
+    const e = window.__engine, s = e.scene;
+    const hold = s.addActiveSource('rebuild-measure');
+    await e.dispatch({ type: 'setTheme', theme: { base: 'realistic', timeOfDay: 'day', zoomOut: 'keepGameView' } });
+    await new Promise((r) => { let i = 0; const off = s.onFrame(() => { if (++i >= 3) { off(); r(); } }); });
+    hold();
+  })()`);
+  const after = await shot('rebuild-02-full');
+  const d = pngMaxDiff(Buffer.from(before.data, 'base64'), Buffer.from(after.data, 'base64'));
+  console.log(`       ${panned.buildings} buildings over ${panned.tiles} tiles after 90 panning frames`);
+  console.log(`       worst channel difference between the two frames: ${d.max} of 255 (${d.differing} of ${d.pixels} pixels differ at all)`);
+  // Not "byte for byte": the full rebuild redraws the shadow map on its own
+  // world-space texel grid, which lands a handful of pixels differently along
+  // silhouette edges — the same artefact `tile-shots.mjs` measures across a
+  // re-base (~30 of 255 with the shadow pass on). What the check is for is a
+  // *changed picture*: a building that was not rebuilt when it should have
+  // been, or one left behind, moves thousands of pixels, not twenty.
+  check(d.differing <= 200 && d.max <= 40,
+    `  the incremental world draws the same picture as a full rebuild (${d.differing} of ${d.pixels} pixels differ, worst ${d.max} of 255)`);
+  check(consoleErrors.length === 0, `  no console errors${consoleErrors.length ? ` — ${consoleErrors[0]}` : ''}`);
 }
 
 /* ------------------------------------------------------------ overview */
